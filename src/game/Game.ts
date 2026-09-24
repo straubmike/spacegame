@@ -815,7 +815,8 @@ export class Game {
     }
   }
 
-  /** Drop an active contract; dumps any mission-tagged freight. */
+  /** Drop an active contract; dumps any mission-tagged freight.
+   * Offer stays in acceptedMissionIds so it does not reappear on that station's board. */
   private cancelBoardMission(missionId: string): void {
     const idx = this.activeMissions.findIndex((m) => m.id === missionId);
     if (idx < 0) return;
@@ -828,7 +829,7 @@ export class Game {
     }
 
     this.activeMissions.splice(idx, 1);
-    this.acceptedMissionIds.delete(missionId);
+    // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
     this.messages.push(
       `Missions: Cancelled "${mission.title}".`,
       "station",
