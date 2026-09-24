@@ -142,14 +142,19 @@ export class Game {
     const key = this.pirateKey();
     if (this.local.pirate && !this.clearedPirateViews.has(key)) {
       const feePaid = this.paidPirateViews.has(key);
-      this.pirates.push(
-        new Pirate(
-          this.local.pirate.x,
-          this.local.pirate.y,
-          this.local.pirate.heading,
-          feePaid,
-        ),
-      );
+      const encounter = this.local.pirate;
+      for (const ship of encounter.ships) {
+        this.pirates.push(
+          new Pirate(
+            ship.x,
+            ship.y,
+            ship.heading,
+            ship.tier,
+            feePaid,
+            encounter.fee,
+          ),
+        );
+      }
     }
   }
 
@@ -269,15 +274,27 @@ export class Game {
   }
 
   /**
-   * Pirate left the sector — destroyed (kill) or warped away (escape).
-   * Only kills credit the redemption counter; both clear the spawn slot.
+   * One or more pirates left this frame. Credits kills separately;
+   * clears the encounter slot when no ships remain.
    */
-  private onPirateRemoved(killed: boolean): void {
+  private onPirateRemoved(killed: boolean, remainingAlive: number): void {
+    if (remainingAlive > 0) {
+      if (killed) {
+        this.messages.push(
+          `Pirate destroyed. ${remainingAlive} hostile${remainingAlive === 1 ? "" : "s"} left in this sector.`,
+        );
+      } else {
+        this.messages.push(
+          `Pirate escaped. ${remainingAlive} hostile${remainingAlive === 1 ? "" : "s"} left in this sector.`,
+        );
+      }
+      return;
+    }
+
     const key = this.pirateKey();
     if (this.clearedPirateViews.has(key)) return;
     this.clearedPirateViews.add(key);
     this.paidPirateViews.delete(key);
-    if (killed) this.pendingPirateKills += 1;
 
     const quest = this.pirateQuests.get(this.local.poiId);
     if (quest && quest.targets.includes(key)) {
@@ -286,16 +303,16 @@ export class Game {
       if (left === 0) {
         this.messages.push(
           killed
-            ? "Pirate destroyed. System clearance complete — return to the contracting station."
-            : "Pirate escaped the sector. System clearance complete — return to the contracting station.",
+            ? "Pirate pack cleared. System clearance complete — return to the contracting station."
+            : "Last pirate fled. System clearance complete — return to the contracting station.",
         );
       } else if (killed) {
         this.messages.push(
-          `Pirate destroyed. ${left} remaining for system clearance.`,
+          `Encounter cleared. ${left} pirate sector${left === 1 ? "" : "s"} remaining for system clearance.`,
         );
       } else {
         this.messages.push(
-          `Pirate escaped. ${left} remaining for system clearance.`,
+          `Encounter emptied. ${left} pirate sector${left === 1 ? "" : "s"} remaining for system clearance.`,
         );
       }
     } else if (killed) {
@@ -500,7 +517,7 @@ export class Game {
 
     for (const pirate of this.pirates) {
       if (!pirate.acceptingPayment) continue;
-      const hitR = COMBAT.pirateRadius + DOCK.clickPad;
+      const hitR = pirate.radius + DOCK.clickPad;
       const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
       if (dist <= hitR) {
         this.pirateMenu.show(
@@ -546,19 +563,23 @@ export class Game {
       return;
     }
 
-    if (!this.ship.spendCredits(ECONOMY.pirateFee)) {
+    const fee = pirate.fee;
+    if (!this.ship.spendCredits(fee)) {
       this.messages.push(
-        `Pirate: Not enough credits. Need ${ECONOMY.pirateFee} cr.`,
+        `Pirate: Not enough credits. Need ${fee} cr.`,
         "pirate",
       );
       return;
     }
 
-    pirate.acceptPayment();
+    // Paying one hailer buys passage from the whole pack.
+    for (const p of this.pirates) {
+      if (p.alive) p.acceptPayment();
+    }
     this.paidPirateViews.add(this.pirateKey());
     this.pirateMenu.hide();
     this.messages.push(
-      `Pirate: Tribute received (${ECONOMY.pirateFee} cr). Safe passage granted.`,
+      `Pirate: Tribute received (${fee} cr). Safe passage granted.`,
       "pirate",
     );
   }
@@ -779,6 +800,7 @@ export class Game {
     }
 
     const pirateShots: Projectile[] = [];
+    let demandAnnounced = false;
     for (const pirate of this.pirates) {
       const demanded = pirate.update(
         dt,
@@ -786,15 +808,34 @@ export class Game {
         this.ship.y,
         pirateShots,
       );
-      if (demanded) {
+      if (demanded && !demandAnnounced) {
+        demandAnnounced = true;
+        // One hailer speaks for the pack; others skip their own demand.
+        for (const mate of this.pirates) {
+          if (mate !== pirate && mate.alive && !mate.feePaid) {
+            mate.feeDemanded = true;
+          }
+        }
+        const fee = pirate.fee;
+        const pack =
+          this.pirates.filter((p) => p.alive).length > 1
+            ? "pack demands"
+            : "demands";
         this.messages.push(
-          `Pirate: Pay ${ECONOMY.pirateFee} credits for safe passage — you have one minute.`,
+          `Pirate: ${pack} ${fee} credits for safe passage — you have one minute.`,
           "pirate",
         );
       }
     }
     if (pirateShots.length > 0) {
       this.projectiles.push(...pirateShots);
+    }
+
+    // Wing reaction: attacking one unpaid pirate pulls the rest into the fight.
+    if (this.pirates.some((p) => p.alive && p.mode === "aggro" && !p.feePaid)) {
+      for (const p of this.pirates) {
+        if (p.alive && !p.feePaid && p.mode !== "retreat") p.goAggro();
+      }
     }
 
     const viewW = window.innerWidth;
@@ -813,7 +854,7 @@ export class Game {
         if (this.ship.alive) {
           const dist = Math.hypot(p.x - this.ship.x, p.y - this.ship.y);
           if (dist <= COMBAT.playerHitRadius + COMBAT.projectileRadius) {
-            this.ship.takeDamage(COMBAT.projectileDamage);
+            this.ship.takeDamage(p.damage);
             this.projectiles.splice(i, 1);
           }
         }
@@ -824,8 +865,8 @@ export class Game {
       for (const pirate of this.pirates) {
         if (!pirate.alive) continue;
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
-        if (dist <= COMBAT.pirateRadius + COMBAT.projectileRadius) {
-          pirate.takeDamage(COMBAT.projectileDamage);
+        if (dist <= pirate.radius + COMBAT.projectileRadius) {
+          pirate.takeDamage(p.damage);
           hit = true;
           break;
         }
@@ -833,11 +874,19 @@ export class Game {
       if (hit) this.projectiles.splice(i, 1);
     }
 
-    for (const pirate of this.pirates) {
-      if (!pirate.alive) {
-        // Escape (warp) clears the slot but does not pay redemption.
-        this.onPirateRemoved(pirate.health <= 0);
+    const dying = this.pirates.filter((p) => !p.alive);
+    if (dying.length > 0) {
+      const survivors = this.pirates.filter((p) => p.alive).length;
+      let anyKill = false;
+      for (const pirate of dying) {
+        const killed = pirate.health <= 0;
+        if (killed) {
+          this.pendingPirateKills += 1;
+          anyKill = true;
+        }
       }
+      // One summary for the batch; clear the encounter only when empty.
+      this.onPirateRemoved(anyKill, survivors);
     }
     this.pirates = this.pirates.filter((p) => p.alive);
   }

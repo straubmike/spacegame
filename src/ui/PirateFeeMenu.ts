@@ -1,4 +1,4 @@
-import { ECONOMY } from "../game/config";
+import { ECONOMY, PIRATE_TIERS } from "../game/config";
 import { FONT, drawButton, drawPanel, hit, type Rect } from "./menu";
 import type { Pirate } from "../entities/Pirate";
 
@@ -22,7 +22,7 @@ export class PirateFeeMenu {
   ): void {
     this.open = true;
     this.pirate = pirate;
-    const w = 160;
+    const w = 168;
     const h = 88;
     let x = cursorX + 8;
     let y = cursorY + 8;
@@ -46,20 +46,22 @@ export class PirateFeeMenu {
     credits: number,
   ): void {
     if (!this.open || !this.pirate) return;
+    const fee = this.pirate.fee || ECONOMY.pirateFee;
+    const label = PIRATE_TIERS[this.pirate.tier].label;
     drawPanel(ctx, this.panel);
     ctx.font = FONT;
     ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
     ctx.textBaseline = "top";
-    ctx.fillText("Pirate", this.panel.x + 12, this.panel.y + 10);
+    ctx.fillText(label, this.panel.x + 12, this.panel.y + 10);
     ctx.fillStyle = "rgba(180, 150, 140, 0.9)";
     ctx.fillText(
-      `Fee: ${ECONOMY.pirateFee} cr`,
+      `Fee: ${fee} cr`,
       this.panel.x + 12,
       this.panel.y + 28,
     );
 
-    const canPay = credits >= ECONOMY.pirateFee;
-    drawButton(ctx, this.payBtn, `Pay ${ECONOMY.pirateFee} cr`, {
+    const canPay = credits >= fee;
+    drawButton(ctx, this.payBtn, `Pay ${fee} cr`, {
       primary: true,
       enabled: canPay,
       hover: canPay && hit(this.payBtn, pointerX, pointerY),

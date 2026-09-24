@@ -1,4 +1,4 @@
-import { BODY_COLORS, COMBAT, LOCAL, SHIP, STARS } from "../game/config";
+import { BODY_COLORS, COMBAT, LOCAL, PIRATE_TIERS, SHIP, STARS } from "../game/config";
 import { STAR_COLORS } from "../galaxy/generateLocal";
 import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
@@ -79,7 +79,7 @@ export class Renderer {
       if (!pirate.alive) continue;
       const p = args.camera.worldToScreen(pirate.x, pirate.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
-        this.drawPirate(p.x, p.y, pirate.heading, pirate.health);
+        this.drawPirate(p.x, p.y, pirate);
       } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen) {
         this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
       }
@@ -220,30 +220,61 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawPirate(x: number, y: number, heading: number, health: number): void {
-    const size = COMBAT.pirateSize;
+  private drawPirate(x: number, y: number, pirate: Pirate): void {
+    const stats = PIRATE_TIERS[pirate.tier];
+    const size = stats.size;
     const ctx = this.ctx;
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(heading);
+    ctx.rotate(pirate.heading);
 
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.7, size * 0.65);
-    ctx.lineTo(-size * 0.35, 0);
-    ctx.lineTo(-size * 0.7, -size * 0.65);
+    switch (pirate.tier) {
+      case "scout":
+        // Slim dart
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.85, size * 0.45);
+        ctx.lineTo(-size * 0.45, 0);
+        ctx.lineTo(-size * 0.85, -size * 0.45);
+        break;
+      case "gunship":
+        // Broad wedge with stub wings
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.55, size * 0.85);
+        ctx.lineTo(-size * 0.25, size * 0.35);
+        ctx.lineTo(-size * 0.7, 0);
+        ctx.lineTo(-size * 0.25, -size * 0.35);
+        ctx.lineTo(-size * 0.55, -size * 0.85);
+        break;
+      case "corsair":
+        // Angular cutter
+        ctx.moveTo(size * 1.05, 0);
+        ctx.lineTo(-size * 0.35, size * 0.7);
+        ctx.lineTo(-size * 0.85, size * 0.25);
+        ctx.lineTo(-size * 0.5, 0);
+        ctx.lineTo(-size * 0.85, -size * 0.25);
+        ctx.lineTo(-size * 0.35, -size * 0.7);
+        break;
+      default:
+        // Raider — classic chevron
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.7, size * 0.65);
+        ctx.lineTo(-size * 0.35, 0);
+        ctx.lineTo(-size * 0.7, -size * 0.65);
+        break;
+    }
     ctx.closePath();
-    ctx.fillStyle = "#c45a4a";
+    ctx.fillStyle = stats.color;
     ctx.fill();
-    ctx.strokeStyle = "#8a3028";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = stats.stroke;
+    ctx.lineWidth = pirate.tier === "gunship" ? 2 : 1.5;
     ctx.stroke();
 
     ctx.restore();
 
-    const barW = 22;
-    const ratio = health / COMBAT.maxHealth;
+    const barW = Math.max(18, size + 8);
+    const ratio = pirate.health / pirate.maxHealth;
     ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(x - barW / 2, y - size - 10, barW, 3);
     ctx.fillStyle = "#e07060";

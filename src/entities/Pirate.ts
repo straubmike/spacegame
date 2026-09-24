@@ -1,4 +1,9 @@
-import { COMBAT, SHIP } from "../game/config";
+import {
+  COMBAT,
+  PIRATE_TIERS,
+  SHIP,
+  type PirateTierId,
+} from "../game/config";
 import { spawnProjectile, type Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "comms" | "aggro" | "retreat";
@@ -6,9 +11,10 @@ export type PirateMode = "idle" | "comms" | "aggro" | "retreat";
 /**
  * Hostile ship: demands a fee (comms) before attacking.
  * Paid pirates stay peaceful unless attacked.
+ * Hull tier drives HP, speed, fire rate, and shot damage.
  */
 export class Pirate {
-  health: number = COMBAT.maxHealth;
+  health: number;
   vx = 0;
   vy = 0;
   mode: PirateMode = "idle";
@@ -23,12 +29,22 @@ export class Pirate {
   /** Seconds remaining while waiting for payment. */
   commsTimer = 0;
 
+  readonly tier: PirateTierId;
+  /** Group tribute for this encounter (shared by wingmates). */
+  readonly fee: number;
+
   constructor(
     public x: number,
     public y: number,
     public heading: number,
+    tier: PirateTierId = "raider",
     feePaid = false,
+    fee = 10,
   ) {
+    this.tier = tier;
+    this.fee = fee;
+    const stats = PIRATE_TIERS[tier];
+    this.health = stats.maxHealth;
     this.feePaid = feePaid;
     if (feePaid) this.feeDemanded = true;
   }
@@ -39,6 +55,18 @@ export class Pirate {
 
   get acceptingPayment(): boolean {
     return this.alive && this.mode === "comms" && !this.feePaid;
+  }
+
+  get maxHealth(): number {
+    return PIRATE_TIERS[this.tier].maxHealth;
+  }
+
+  get size(): number {
+    return PIRATE_TIERS[this.tier].size;
+  }
+
+  get radius(): number {
+    return PIRATE_TIERS[this.tier].radius;
   }
 
   takeDamage(amount: number): void {
@@ -63,6 +91,13 @@ export class Pirate {
     this.mode = "idle";
   }
 
+  /** Force aggro (e.g. wingmate was attacked). */
+  goAggro(): void {
+    if (!this.alive || this.mode === "retreat") return;
+    this.mode = "aggro";
+    this.commsTimer = 0;
+  }
+
   /**
    * Update AI + movement. Returns true the frame a fee demand begins.
    */
@@ -74,6 +109,7 @@ export class Pirate {
   ): boolean {
     if (!this.alive) return false;
 
+    const stats = PIRATE_TIERS[this.tier];
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
 
     const dx = playerX - this.x;
@@ -147,9 +183,16 @@ export class Pirate {
       dist <= COMBAT.pirateThreatRange
     ) {
       outShots.push(
-        spawnProjectile(this.x, this.y, this.heading, COMBAT.pirateSize, true),
+        spawnProjectile(
+          this.x,
+          this.y,
+          this.heading,
+          stats.size,
+          true,
+          stats.damage,
+        ),
       );
-      this.fireCooldown = COMBAT.pirateFireCooldown;
+      this.fireCooldown = COMBAT.pirateFireCooldown * stats.fireCooldownMul;
     }
 
     return justDemanded;
@@ -157,14 +200,15 @@ export class Pirate {
 
   private turnToward(desired: number, dt: number): void {
     let delta = shortestAngle(this.heading, desired);
-    const maxStep = COMBAT.pirateTurnRate * dt;
+    const maxStep =
+      COMBAT.pirateTurnRate * PIRATE_TIERS[this.tier].turnRateMul * dt;
     if (delta > maxStep) delta = maxStep;
     if (delta < -maxStep) delta = -maxStep;
     this.heading += delta;
   }
 
   private thrust(dt: number): void {
-    const accel = SHIP.thrustAccel * COMBAT.pirateSpeedFactor;
+    const accel = SHIP.thrustAccel * PIRATE_TIERS[this.tier].speedFactor;
     this.vx += Math.cos(this.heading) * accel * dt;
     this.vy += Math.sin(this.heading) * accel * dt;
     this.clampSpeed();
@@ -177,7 +221,7 @@ export class Pirate {
   }
 
   private clampSpeed(): void {
-    const max = SHIP.maxSpeed * COMBAT.pirateSpeedFactor;
+    const max = SHIP.maxSpeed * PIRATE_TIERS[this.tier].speedFactor;
     const speed = Math.hypot(this.vx, this.vy);
     if (speed > max) {
       const s = max / speed;
