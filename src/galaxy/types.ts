@@ -65,12 +65,38 @@ export interface Landmark {
   radius: number;
 }
 
-/** Static pirate placement regenerated with the local view. */
-export interface PirateSpawn {
+/** Hull tier for a seeded pirate ship. */
+export type PirateTier = "scout" | "raider" | "gunship" | "corsair";
+
+/** Encounter shape chosen by heat / wealth (Must-have 4). */
+export type EncounterTemplate =
+  | "scout"
+  | "patrol"
+  | "wing"
+  | "ambush"
+  | "heat";
+
+/** One ship inside a seeded pirate encounter. */
+export interface PirateShipSpawn {
   x: number;
   y: number;
   heading: number;
+  tier: PirateTier;
 }
+
+/**
+ * Seeded pirate encounter for a local view.
+ * Multi-ship packs share one view key for clearance / fee payment.
+ */
+export interface PirateEncounter {
+  template: EncounterTemplate;
+  ships: PirateShipSpawn[];
+  /** Group tribute for safe passage (credits). */
+  fee: number;
+}
+
+/** @deprecated Prefer PirateEncounter — kept as alias for older call sites. */
+export type PirateSpawn = PirateEncounter;
 
 export interface LocalView {
   poiId: number;
@@ -84,6 +110,6 @@ export interface LocalView {
   focus: Landmark;
   companions: Landmark[];
   systemBodies: SystemBodyRef[] | null;
-  /** Seeded pirate placement for this local view (null = none) */
-  pirate: PirateSpawn | null;
+  /** Seeded pirate encounter for this local view (null = none) */
+  pirate: PirateEncounter | null;
 }

@@ -164,17 +164,22 @@ export const COMBAT = {
   projectileDamage: 1,
   /** seconds between player shots */
   fireCooldown: 0.35,
-  /** pirate fires at 30% of the player's rate */
+  /** pirate fires at 30% of the player's rate (raider baseline) */
   pirateFireCooldown: 0.35 / 0.3,
   projectileSpeed: 520,
   projectileRadius: 2.5,
   playerHitRadius: 12,
+  /** Fallback hit/draw sizes when a tier is unavailable. */
   pirateRadius: 14,
   pirateSize: 13,
+  /**
+   * Legacy flat spawn chance — encounter generation prefers ENCOUNTERS.heatBands.
+   * Kept as a mid-band reference (~0.25).
+   */
   pirateSpawnChance: 0.25,
   pirateSpawnMin: 220,
   pirateSpawnMax: 380,
-  /** fraction of player max speed / thrust */
+  /** fraction of player max speed / thrust (raider baseline) */
   pirateSpeedFactor: 0.8,
   pirateTurnRate: (200 * Math.PI) / 180,
   /** enter combat when player is this close */
@@ -193,8 +198,114 @@ export const COMBAT = {
   pirateCommsTimeout: 60,
 } as const;
 
+/**
+ * Pirate hull tiers — distinct silhouettes / loadouts for Must-have 4.
+ * Stats are relative to the player's starter combat feel.
+ */
+export const PIRATE_TIERS = {
+  scout: {
+    label: "Scout",
+    maxHealth: 6,
+    size: 10,
+    radius: 11,
+    speedFactor: 1.05,
+    /** Multiplier on COMBAT.pirateFireCooldown (higher = slower). */
+    fireCooldownMul: 1.25,
+    damage: 1,
+    turnRateMul: 1.15,
+    color: "#d07060",
+    stroke: "#9a3830",
+  },
+  raider: {
+    label: "Raider",
+    maxHealth: 10,
+    size: 13,
+    radius: 14,
+    speedFactor: 0.8,
+    fireCooldownMul: 1,
+    damage: 1,
+    turnRateMul: 1,
+    color: "#c45a4a",
+    stroke: "#8a3028",
+  },
+  gunship: {
+    label: "Gunship",
+    maxHealth: 16,
+    size: 17,
+    radius: 18,
+    speedFactor: 0.62,
+    fireCooldownMul: 1.15,
+    damage: 2,
+    turnRateMul: 0.75,
+    color: "#a84840",
+    stroke: "#6a2018",
+  },
+  corsair: {
+    label: "Corsair",
+    maxHealth: 14,
+    size: 15,
+    radius: 16,
+    speedFactor: 0.92,
+    fireCooldownMul: 0.72,
+    damage: 2,
+    turnRateMul: 1.05,
+    color: "#b05070",
+    stroke: "#701838",
+  },
+} as const;
+
+export type PirateTierId = keyof typeof PIRATE_TIERS;
+
+/**
+ * Encounter templates + heat bands.
+ * Chart distance from the start POI drives early-readable vs late-hard fights.
+ */
+export const ENCOUNTERS = {
+  /** Chart-distance bands from GALAXY.startPoiId (chart units). */
+  heatBands: [
+    { maxDist: 42, spawnChance: 0.16, id: "near" as const },
+    { maxDist: 95, spawnChance: 0.27, id: "mid" as const },
+    { maxDist: Number.POSITIVE_INFINITY, spawnChance: 0.4, id: "far" as const },
+  ],
+  /**
+   * Relative template weights per heat band.
+   * Near space prefers lone scouts / single patrols; far space leans wing / ambush / heat.
+   */
+  templateWeights: {
+    scout: { near: 55, mid: 18, far: 4 },
+    patrol: { near: 35, mid: 34, far: 14 },
+    wing: { near: 8, mid: 28, far: 28 },
+    ambush: { near: 2, mid: 15, far: 26 },
+    heat: { near: 0, mid: 5, far: 28 },
+  },
+  /** Extra weight added to wing/ambush/heat when the system is "wealthy". */
+  wealthyBoost: {
+    wing: 6,
+    ambush: 4,
+    heat: 14,
+  },
+  /** Station count at or above this counts as wealthy-system heat. */
+  wealthyStationThreshold: 3,
+  /** Group tribute by template (credits). */
+  feeByTemplate: {
+    scout: 8,
+    patrol: 10,
+    wing: 18,
+    ambush: 16,
+    heat: 28,
+  },
+  /** Ambush packs spawn closer than open patrols. */
+  ambushSpawnMin: 140,
+  ambushSpawnMax: 240,
+  /** Formation offset radius for multi-ship packs (world units). */
+  formationRadius: 48,
+} as const;
+
+export type EncounterTemplateId = keyof typeof ENCOUNTERS.templateWeights;
+
 export const ECONOMY = {
   startingCredits: 100,
+  /** Default / patrol tribute — encounter fee overrides when present. */
   pirateFee: 10,
   repairCostPerHp: 1,
   /** Credits paid per eliminated pirate when docking at any station. */

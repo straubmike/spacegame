@@ -8,6 +8,8 @@ export class Projectile {
     public vy: number,
     /** true = pirate shot (hurts player) */
     public readonly hostile: boolean = false,
+    /** Hit damage — defaults to COMBAT.projectileDamage. */
+    public readonly damage: number = COMBAT.projectileDamage,
   ) {}
 
   update(dt: number): void {
@@ -35,6 +37,7 @@ export function spawnProjectile(
   heading: number,
   muzzle: number,
   hostile = false,
+  damage: number = COMBAT.projectileDamage,
 ): Projectile {
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
@@ -44,5 +47,6 @@ export function spawnProjectile(
     cos * COMBAT.projectileSpeed,
     sin * COMBAT.projectileSpeed,
     hostile,
+    damage,
   );
 }
