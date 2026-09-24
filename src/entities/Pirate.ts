@@ -91,7 +91,28 @@ export class Pirate {
     this.mode = "idle";
   }
 
-  /** Force aggro (e.g. wingmate was attacked). */
+  /**
+   * Join the shared pack fee-event (comms window).
+   * Wingmates must share this state so they do not free-fire during dialogue.
+   */
+  beginFeeEvent(timer: number = COMBAT.pirateCommsTimeout): void {
+    if (!this.alive || this.feePaid) return;
+    if (this.mode === "retreat" || this.mode === "aggro") return;
+    this.feeDemanded = true;
+    this.mode = "comms";
+    this.commsTimer = timer;
+  }
+
+  /** Keep this ship on the shared fee-event timer while the pack is hailing. */
+  syncFeeEvent(timer: number): void {
+    if (!this.alive || this.feePaid) return;
+    if (this.mode === "retreat" || this.mode === "aggro") return;
+    this.feeDemanded = true;
+    this.mode = "comms";
+    this.commsTimer = timer;
+  }
+
+  /** Force aggro (e.g. wingmate was attacked / fee event timed out). */
   goAggro(): void {
     if (!this.alive || this.mode === "retreat") return;
     this.mode = "aggro";

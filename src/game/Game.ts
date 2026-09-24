@@ -196,6 +196,43 @@ export class Game {
     return this.pirates.some((p) => p.alive && p.mode === "aggro");
   }
 
+  /**
+   * Open the shared fee-event on every unpaid ship in the local pack.
+   * Keeps wingmates peaceful until pay / leave / sneak / timeout.
+   */
+  private beginPackFeeEvent(timer: number): void {
+    for (const p of this.pirates) {
+      if (p.alive && !p.feePaid) p.beginFeeEvent(timer);
+    }
+  }
+
+  /**
+   * Keep pack fee-event + combat state aligned:
+   * - While any unpaid ship is in comms and none are fighting, all share that window.
+   * - Once any unpaid ship goes aggro (timeout, sneak attack), the whole pack fights.
+   */
+  private syncPackFeeAndCombat(): void {
+    const unpaid = this.pirates.filter((p) => p.alive && !p.feePaid);
+    if (unpaid.length === 0) return;
+
+    const fighting = unpaid.filter((p) => p.mode === "aggro");
+    if (fighting.length > 0) {
+      for (const p of unpaid) {
+        if (p.mode !== "retreat") p.goAggro();
+      }
+      return;
+    }
+
+    const hailing = unpaid.filter((p) => p.mode === "comms");
+    if (hailing.length === 0) return;
+
+    const timer = Math.max(...hailing.map((p) => p.commsTimer));
+    for (const p of unpaid) {
+      if (p.mode === "retreat") continue;
+      p.syncFeeEvent(timer);
+    }
+  }
+
   private stations(): Landmark[] {
     const list: Landmark[] = [];
     if (this.local.focus.kind === "station") list.push(this.local.focus);
@@ -810,12 +847,8 @@ export class Game {
       );
       if (demanded && !demandAnnounced) {
         demandAnnounced = true;
-        // One hailer speaks for the pack; others skip their own demand.
-        for (const mate of this.pirates) {
-          if (mate !== pirate && mate.alive && !mate.feePaid) {
-            mate.feeDemanded = true;
-          }
-        }
+        // Whole pack shares one fee-event — no wingmate free-fires during dialogue.
+        this.beginPackFeeEvent(pirate.commsTimer);
         const fee = pirate.fee;
         const pack =
           this.pirates.filter((p) => p.alive).length > 1
@@ -827,15 +860,9 @@ export class Game {
         );
       }
     }
+    this.syncPackFeeAndCombat();
     if (pirateShots.length > 0) {
       this.projectiles.push(...pirateShots);
-    }
-
-    // Wing reaction: attacking one unpaid pirate pulls the rest into the fight.
-    if (this.pirates.some((p) => p.alive && p.mode === "aggro" && !p.feePaid)) {
-      for (const p of this.pirates) {
-        if (p.alive && !p.feePaid && p.mode !== "retreat") p.goAggro();
-      }
     }
 
     const viewW = window.innerWidth;
