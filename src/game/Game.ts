@@ -11,9 +11,13 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { swapCost, type EquipModule } from "../ship/equipment";
-import { stationBayStock } from "../ship/stationStock";
+import {
+  stationBayStock,
+  stationBayWealth,
+  type StationStockContext,
+} from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
-import type { Landmark, LocalView } from "../galaxy/types";
+import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
@@ -878,11 +882,33 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
+    const context = this.stationStockContext();
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
-    this.shipMenu.openBay(stationBayStock(key));
+    this.shipMenu.openBay(
+      stationBayStock(key, context),
+      stationBayWealth(key, context),
+    );
     this.shipMenuOpen = true;
+  }
+
+  /** POI / host flavor used to gate bay module tiers. */
+  private stationStockContext(): StationStockContext {
+    let hostKind: HostKind = "rocky";
+    if (this.local.bodyId !== null && this.local.systemBodies) {
+      const body = this.local.systemBodies.find(
+        (b) => b.id === this.local.bodyId,
+      );
+      if (body) hostKind = body.kind;
+    } else if (this.local.focus.kind !== "station" && this.local.focus.kind !== "debris") {
+      hostKind = this.local.focus.kind;
+    }
+    return {
+      poiType: this.local.poiType,
+      hostKind,
+      starClass: this.local.starClass,
+    };
   }
 
   private openMarket(station: Landmark): void {
