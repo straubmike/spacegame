@@ -212,7 +212,12 @@ export class Renderer {
         hasScoop: args.ship.loadout.scoopRange > 0,
       });
       args.messages.draw(ctx, w, h);
-      args.stationMenu.draw(ctx, args.pointerX, args.pointerY);
+      args.stationMenu.draw(
+        ctx,
+        args.pointerX,
+        args.pointerY,
+        args.ship.credits,
+      );
       args.pirateMenu.draw(
         ctx,
         args.pointerX,

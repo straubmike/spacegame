@@ -1174,6 +1174,7 @@ export class Game {
     if (this.stationMenu.open) {
       if (this.stationMenu.station) {
         this.stationMenu.dockEnabled = this.canDockAt(this.stationMenu.station);
+        this.refreshStationSettleOffer(this.stationMenu.station);
       }
       this.updateStationMenu();
     } else if (this.pirateMenu.open) {
@@ -1270,6 +1271,7 @@ export class Game {
           viewH,
         );
         this.stationMenu.dockEnabled = this.canDockAt(station);
+        this.refreshStationSettleOffer(station);
         return;
       }
     }
@@ -1312,38 +1314,72 @@ export class Game {
       this.patrolMenu.hide();
       return;
     }
-    const key = patrol.stationKey;
+    this.settleStandingFine(patrol.stationKey, stationName, "patrol");
+    this.patrolMenu.hide();
+  }
+
+  /**
+   * Station-hail Violation settle — same credits / applyPatrolFine path as patrol click.
+   * Offered even when a host patrol is present (dual path; patrol not required).
+   * No cargo required for stolen-haul / standing fine. After pay → Unfriendly + clearance if safe.
+   */
+  private payStationHailFine(station: Landmark): void {
+    const key = this.currentStationKey(station);
+    if (!key) return;
+    const ok = this.settleStandingFine(key, station.name, "station");
+    if (!ok) return;
+    this.stationMenu.setSettleFine(0);
+    // Standing is now Unfriendly — grant clearance so Dock works without re-hail.
+    if (!this.pirateAggroActive() && this.reputation.allowsDock(key)) {
+      this.dockClearance.add(station.id);
+      this.stationMenu.dockEnabled = true;
+    }
+  }
+
+  /**
+   * Shared standing fine: credits + applyPatrolFine → Unfriendly / Neutral.
+   * Works with or without a live patrol (station hail fallback).
+   * @returns true when the fine was paid and standing changed.
+   */
+  private settleStandingFine(
+    key: string,
+    stationName: string,
+    via: "patrol" | "station",
+  ): boolean {
+    const speaker = via === "patrol" ? `${stationName} patrol` : stationName;
     const band = standingBand(this.reputation.stationStanding(key));
     if (band === "hostile") {
-      this.patrolMenu.hide();
       this.messages.push(
-        `${stationName} patrol: Your record is Hostile — no fine will clear it.`,
+        `${speaker}: Your record is Hostile — no fine will clear it.`,
         "station",
       );
-      return;
+      return false;
     }
     if (!this.reputation.hasOutstandingFine(key)) {
-      this.patrolMenu.hide();
+      this.messages.push(`${speaker}: No outstanding fines.`, "station");
+      return false;
+    }
+    // Station hail settle is Violation-only; Unfriendly stays optional via patrol.
+    if (via === "station" && band !== "violation") {
       this.messages.push(
-        `${stationName} patrol: No outstanding fines.`,
+        `${speaker}: No Violation on record — hail for clearance.`,
         "station",
       );
-      return;
+      return false;
     }
     const fine = this.reputation.patrolFineCredits(key);
     if (!this.ship.spendCredits(fine)) {
       this.messages.push(
-        `${stationName} patrol: Need ${fine} cr to settle the fine.`,
+        `${speaker}: Need ${fine} cr to settle the fine.`,
         "station",
       );
-      return;
+      return false;
     }
     const before = this.reputation.stationStanding(key);
     const next = this.reputation.applyPatrolFine(key, stationName);
-    this.patrolMenu.hide();
     if (next === null) {
       this.ship.addCredits(fine);
-      return;
+      return false;
     }
     // Clear warning timers on host patrols after a successful Violation pay.
     this.clearPatrolWarnings(key);
@@ -1352,10 +1388,27 @@ export class Game {
         ? "Standing restored to Unfriendly (docking allowed)."
         : "Standing restored to Neutral.";
     this.messages.push(
-      `${stationName} patrol: Fine paid (−${fine} cr). ${outcome}`,
+      `${speaker}: Fine paid (−${fine} cr). ${outcome}`,
       "station",
     );
     this.pushRepChange(stationName, next, next - before);
+    return true;
+  }
+
+  /** Show Settle on the station popup while Violation (dual path with patrol click). */
+  private refreshStationSettleOffer(station: Landmark): void {
+    const key = this.currentStationKey(station);
+    if (!key) {
+      this.stationMenu.setSettleFine(0);
+      return;
+    }
+    const band = standingBand(this.reputation.stationStanding(key));
+    // Always offer settle while Violation — even if a host patrol exists.
+    if (band === "violation") {
+      this.stationMenu.setSettleFine(this.reputation.patrolFineCredits(key));
+    } else {
+      this.stationMenu.setSettleFine(0);
+    }
   }
 
   private clearPatrolWarnings(stationKey: string): void {
@@ -1400,6 +1453,11 @@ export class Game {
 
     if (action === "hail") {
       this.hailStation(station);
+      return;
+    }
+
+    if (action === "settle") {
+      this.payStationHailFine(station);
       return;
     }
 
@@ -1448,16 +1506,25 @@ export class Game {
       const band = key
         ? standingBand(this.reputation.stationStanding(key))
         : "hostile";
-      const reason =
-        band === "violation"
-          ? "You are not exempt from outstanding violations — docking denied. Hail a patrol to settle the fine."
-          : "Your record is Hostile — docking permanently denied.";
-      this.messages.push(`${station.name}: ${reason}`, "station");
+      if (band === "violation" && key) {
+        this.stationMenu.setSettleFine(this.reputation.patrolFineCredits(key));
+        this.messages.push(
+          `${station.name}: Outstanding violations — docking denied. Settle the fine here, or click a patrol — same outcome either way.`,
+          "station",
+        );
+      } else {
+        this.stationMenu.setSettleFine(0);
+        this.messages.push(
+          `${station.name}: Your record is Hostile — docking permanently denied.`,
+          "station",
+        );
+      }
       return;
     }
 
     this.dockClearance.add(station.id);
     this.stationMenu.dockEnabled = true;
+    this.stationMenu.setSettleFine(0);
     this.messages.push(
       `${station.name}: Clearance granted. You are cleared to dock.`,
       "station",
@@ -1490,7 +1557,7 @@ export class Game {
         : "hostile";
       const reason =
         band === "violation"
-          ? "outstanding violations — hail a patrol to settle."
+          ? "outstanding violations — settle the fine from the station menu (or a patrol)."
           : "Hostile standing — approach denied.";
       this.messages.push(
         `${station.name}: Approach rejected — ${reason}`,

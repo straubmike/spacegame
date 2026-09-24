@@ -202,8 +202,9 @@ export class ReputationTracker {
   }
 
   /**
-   * Apply patrol fine payoff.
+   * Apply standing fine payoff (patrol click or station-hail Settle).
    * Violation → Unfriendly floor; Unfriendly → Neutral 0. Hostile: no-op.
+   * Credits-only — no cargo required (stolen-haul / empty-hold path).
    */
   applyPatrolFine(stationKey: string, label?: string): number | null {
     const band = standingBand(this.stationStanding(stationKey));
