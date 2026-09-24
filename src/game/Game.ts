@@ -19,7 +19,9 @@ import {
 } from "../ship/stationStock";
 import {
   commodityById,
+  createBlackMarket,
   createStationMarket,
+  stationOffersBlackMarket,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -118,6 +120,10 @@ export class Game {
   private readonly hangarMenu = new HangarMenu();
   /** Active market for the current dock session (mutated by trades). */
   private dockMarket: StationMarket | null = null;
+  /** Illegal-goods book when this station offers Black Market. */
+  private dockBlackMarket: StationMarket | null = null;
+  /** Which exchange the market menu is showing. */
+  private marketMenuKind: "legal" | "black" = "legal";
   /** Offers posted at the current dock (seeded per station). */
   private dockMissionOffers: MissionOffer[] = [];
   /** Local views where the pirate fee has already been paid. */
@@ -284,6 +290,8 @@ export class Game {
     this.marketMenu.hide();
     this.marketMenuOpen = false;
     this.dockMarket = null;
+    this.dockBlackMarket = null;
+    this.marketMenuKind = "legal";
     this.missionBoard.hide();
     this.missionBoardOpen = false;
     this.dockMissionOffers = [];
@@ -1034,12 +1042,16 @@ export class Game {
   }
 
   private showDockedUi(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
       this.missionBoardHint(),
       this.dockStandingLine(station),
+      stationOffersBlackMarket(key, this.local.poiId),
     );
   }
 
@@ -1585,6 +1597,9 @@ export class Game {
       `visit:${this.local.poiId}:${station.id}`;
     this.lastDockedStation = { key, name: station.name };
     this.dockMarket = createStationMarket(key, this.marketContext());
+    this.dockBlackMarket = stationOffersBlackMarket(key, this.local.poiId)
+      ? createBlackMarket(key, this.marketContext())
+      : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
@@ -1639,6 +1654,10 @@ export class Game {
       this.openMarket(station);
       return;
     }
+    if (action === "blackMarket") {
+      this.openBlackMarket(station);
+      return;
+    }
     if (action === "missions") {
       this.openMissionBoard(station);
       return;
@@ -1659,6 +1678,8 @@ export class Game {
     this.hangarMenu.hide();
     this.hangarMenuOpen = false;
     this.dockMarket = null;
+    this.dockBlackMarket = null;
+    this.marketMenuKind = "legal";
     this.dockMissionOffers = [];
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
@@ -2153,13 +2174,38 @@ export class Game {
     this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
-    this.marketMenu.show(station.name, this.dockMarket);
+    this.marketMenuKind = "legal";
+    this.marketMenu.show(station.name, this.dockMarket, "Market");
+    this.marketMenuOpen = true;
+  }
+
+  private openBlackMarket(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
+    if (!stationOffersBlackMarket(key, this.local.poiId)) {
+      this.messages.push("No black market contact at this dock.", "station");
+      return;
+    }
+    if (!this.dockBlackMarket) {
+      this.dockBlackMarket = createBlackMarket(key, this.marketContext());
+    }
+    this.dockedMenu.hide();
+    this.shipMenuOpen = false;
+    this.shipMenu.openView();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
+    this.marketMenuKind = "black";
+    this.marketMenu.show(station.name, this.dockBlackMarket, "Black Market");
     this.marketMenuOpen = true;
   }
 
   private closeMarketMenu(): void {
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.marketMenuKind = "legal";
     if (this.dock.kind === "docked") {
       this.showDockedUi(this.dock.station);
     }
@@ -2179,22 +2225,25 @@ export class Game {
     }
     if (!result || typeof result !== "object") return;
 
-    const listing = this.dockMarket?.listing(result.commodityId);
+    const book =
+      this.marketMenuKind === "black" ? this.dockBlackMarket : this.dockMarket;
+    const label = this.marketMenuKind === "black" ? "Black Market" : "Market";
+    const listing = book?.listing(result.commodityId);
     if (!listing) return;
 
     if (result.action === "buy") {
       if (listing.playerBuyPrice === null) return;
       const cost = listing.playerBuyPrice * result.cu;
       if (result.cu > listing.stock) {
-        this.messages.push("Market: Not enough stock.", "station");
+        this.messages.push(`${label}: Not enough stock.`, "station");
         return;
       }
       if (!this.ship.cargo.canStow(result.cu)) {
-        this.messages.push("Market: Not enough cargo space.", "station");
+        this.messages.push(`${label}: Not enough cargo space.`, "station");
         return;
       }
       if (!this.ship.spendCredits(cost)) {
-        this.messages.push("Market: Insufficient credits.", "station");
+        this.messages.push(`${label}: Insufficient credits.`, "station");
         return;
       }
       if (
@@ -2205,12 +2254,12 @@ export class Game {
         })
       ) {
         this.ship.addCredits(cost);
-        this.messages.push("Market: Cargo stow failed.", "station");
+        this.messages.push(`${label}: Cargo stow failed.`, "station");
         return;
       }
       listing.stock -= result.cu;
       this.messages.push(
-        `Market: Bought ${result.cu} CU ${listing.name} (−${cost} cr).`,
+        `${label}: Bought ${result.cu} CU ${listing.name} (−${cost} cr).`,
         "station",
       );
       return;
@@ -2219,7 +2268,7 @@ export class Game {
     if (result.action === "sell") {
       if (listing.playerSellPrice === null) return;
       if (result.cu > listing.demand) {
-        this.messages.push("Market: Demand filled.", "station");
+        this.messages.push(`${label}: Demand filled.`, "station");
         return;
       }
       // Fence stolen lots first, then ordinary hold of the same commodity.
@@ -2229,14 +2278,14 @@ export class Game {
       if (left > 0) left -= this.ship.cargo.remove(listing.commodityId, left);
       const removed = result.cu - left;
       if (removed <= 0) {
-        this.messages.push("Market: You are not carrying that.", "station");
+        this.messages.push(`${label}: You are not carrying that.`, "station");
         return;
       }
       const payout = listing.playerSellPrice * removed;
       this.ship.addCredits(payout);
       listing.demand -= removed;
       this.messages.push(
-        `Market: Sold ${removed} CU ${listing.name} (+${payout} cr).`,
+        `${label}: Sold ${removed} CU ${listing.name} (+${payout} cr).`,
         "station",
       );
     }

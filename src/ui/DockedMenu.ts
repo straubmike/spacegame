@@ -6,6 +6,7 @@ export type DockedMenuAction =
   | "bay"
   | "hangar"
   | "market"
+  | "blackMarket"
   | "missions"
   | "launch"
   | null;
@@ -22,11 +23,14 @@ export class DockedMenu {
   private bayBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private hangarBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private marketBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private blackMarketBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private missionsBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private missionBoardHint = "";
   /** e.g. "Rep Friendly (+24)" — empty when unknown. */
   private standingLine = "";
+  /** When false, Black Market button is omitted (Must-have 9 / 10). */
+  private showBlackMarket = false;
 
   show(
     stationName: string,
@@ -34,14 +38,16 @@ export class DockedMenu {
     viewH: number,
     missionBoardHint = "",
     standingLine = "",
+    showBlackMarket = false,
   ): void {
     this.open = true;
     this.stationName = stationName;
     this.missionBoardHint = missionBoardHint;
     this.standingLine = standingLine;
+    this.showBlackMarket = showBlackMarket;
 
     const w = 280;
-    const rows = 6; // repair, bay, hangar, market, missions, launch
+    const rows = 6 + (showBlackMarket ? 1 : 0); // repair…launch (+ BM)
     const headerExtra = standingLine ? 16 : 0;
     const h = 56 + headerExtra + rows * 38 + 16;
     this.panel = {
@@ -64,6 +70,13 @@ export class DockedMenu {
     this.marketBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
     y += 38;
 
+    if (showBlackMarket) {
+      this.blackMarketBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
+      y += 38;
+    } else {
+      this.blackMarketBtn = { x: 0, y: 0, w: 0, h: 0 };
+    }
+
     this.missionsBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
     y += 38;
 
@@ -84,6 +97,7 @@ export class DockedMenu {
       viewH,
       missionBoardHint,
       standingLine,
+      this.showBlackMarket,
     );
   }
 
@@ -133,6 +147,12 @@ export class DockedMenu {
       hover: hit(this.marketBtn, pointerX, pointerY),
     });
 
+    if (this.showBlackMarket) {
+      drawButton(ctx, this.blackMarketBtn, "Black Market", {
+        hover: hit(this.blackMarketBtn, pointerX, pointerY),
+      });
+    }
+
     const missionsLabel = this.missionBoardHint
       ? `Missions (${this.missionBoardHint})`
       : "Missions";
@@ -152,6 +172,9 @@ export class DockedMenu {
     if (hit(this.bayBtn, px, py)) return "bay";
     if (hit(this.hangarBtn, px, py)) return "hangar";
     if (hit(this.marketBtn, px, py)) return "market";
+    if (this.showBlackMarket && hit(this.blackMarketBtn, px, py)) {
+      return "blackMarket";
+    }
     if (hit(this.missionsBtn, px, py)) return "missions";
     if (hit(this.launchBtn, px, py)) return "launch";
     return null;

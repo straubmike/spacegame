@@ -17,6 +17,7 @@ const COMMODITY_IDS = [
   "machinery",
   "luxuries",
   "narcotics",
+  "illicit_stimulants",
   "alloys",
   "fuel_cells",
 ] as const;
@@ -45,6 +46,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     alloys: -0.35,
     fuel_cells: -0.4,
     narcotics: -0.15,
+    illicit_stimulants: -0.1,
   },
   rocky: {
     minerals: 0.8,
@@ -67,6 +69,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
   gasGiant: {
     fuel_cells: 0.8,
     narcotics: 0.35,
+    illicit_stimulants: 0.3,
     food: -0.5,
     textiles: -0.3,
     machinery: -0.45,
@@ -95,6 +98,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     textiles: -0.25,
     luxuries: -0.4,
     narcotics: -0.2,
+    illicit_stimulants: -0.15,
   },
 };
 
@@ -102,6 +106,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
 const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
   derelict: {
     narcotics: 0.7,
+    illicit_stimulants: 0.55,
     luxuries: 0.35,
     machinery: 0.2,
     food: -0.55,
@@ -122,6 +127,7 @@ const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
   nebula: {
     luxuries: 0.55,
     narcotics: 0.45,
+    illicit_stimulants: 0.4,
     food: -0.4,
     machinery: -0.3,
   },
@@ -133,6 +139,7 @@ const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
   },
   blackHole: {
     narcotics: 0.4,
+    illicit_stimulants: 0.35,
     luxuries: 0.3,
     food: -0.5,
     fuel_cells: -0.55,

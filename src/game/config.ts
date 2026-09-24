@@ -344,6 +344,27 @@ export const MARKET = {
 } as const;
 
 /**
+ * Black market (Must-have 9) — illegal cargo only; stripped from main Market.
+ * Risk pairs with Must-have 11 patrol scan (fee above these rates).
+ */
+export const BLACK_MARKET = {
+  /**
+   * Seeded chance a station offers Black Market (until Must-have 10 menu rolls).
+   * Starter-system stations always offer it so illegal cargo is testable early.
+   */
+  spawnChance: 0.55,
+  /** Mid-price markup vs commodity base (player pays more / risks more). */
+  pricePremium: 0.55,
+  /** Wider buy/sell spread than legal markets. */
+  spreadFraction: 0.18,
+  noiseAmplitude: 0.07,
+  baseStock: 14,
+  baseDemand: 16,
+  stockBiasScale: 18,
+  demandBiasScale: 20,
+} as const;
+
+/**
  * Station mission board (non-combat) — cargo transit + exploration scans.
  * Passenger fares need Passenger Berth equipped (Must-have 5–6).
  */
