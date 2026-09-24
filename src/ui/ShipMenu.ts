@@ -4,11 +4,17 @@ import {
   rateOfFire,
   slotKindLabel,
   swapCost,
+  tierLabel,
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
 import type { ShipLoadout } from "../ship/Loadout";
-import { stockForSlot } from "../ship/stationStock";
+import type { CargoHold } from "../ship/CargoHold";
+import {
+  stockForSlot,
+  wealthLabel,
+  type StationWealth,
+} from "../ship/stationStock";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type ShipMenuMode = "view" | "bay";
@@ -16,6 +22,7 @@ export type ShipMenuMode = "view" | "bay";
 export type ShipMenuClickResult =
   | "close"
   | { action: "install"; module: EquipModule }
+  | { action: "eject"; commodityId: string }
   | null;
 
 interface StatRow {
@@ -28,8 +35,7 @@ interface StatRow {
 
 /**
  * Ship loadout inspector (keyboard) and station Bay (docked refit).
- * View mode is read-only. Bay mode swaps modules against station stock —
- * no spare-parts inventory; the old module is traded in.
+ * View mode shows loadout + cargo hold with eject. Bay mode swaps modules.
  */
 export class ShipMenu {
   mode: ShipMenuMode = "view";
@@ -37,22 +43,27 @@ export class ShipMenu {
   selectedOfferIndex = 0;
   /** Modules this station sells (bay mode only). */
   stock: EquipModule[] = [];
+  /** Bay wealth label (bay mode only). */
+  wealth: StationWealth | null = null;
 
   private slotRects: Rect[] = [];
   private offerRects: Rect[] = [];
   private installBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private closeBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private offers: EquipModule[] = [];
+  private cargoEjectBtns: { rect: Rect; commodityId: string }[] = [];
 
   openView(): void {
     this.mode = "view";
     this.stock = [];
+    this.wealth = null;
     this.selectedOfferIndex = 0;
   }
 
-  openBay(stock: EquipModule[]): void {
+  openBay(stock: EquipModule[], wealth: StationWealth | null = null): void {
     this.mode = "bay";
     this.stock = stock;
+    this.wealth = wealth;
     this.selectedOfferIndex = 0;
   }
 
@@ -64,12 +75,15 @@ export class ShipMenu {
     height: number,
     pointerX: number,
     pointerY: number,
+    hullName = "Ship",
+    cargo: CargoHold | null = null,
   ): void {
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, width, height);
 
-    const panelW = this.mode === "bay" ? Math.min(920, width - 40) : 520;
-    const panelH = Math.min(this.mode === "bay" ? 560 : 440, height - 40);
+    const panelW =
+      this.mode === "bay" ? Math.min(920, width - 40) : Math.min(580, width - 40);
+    const panelH = Math.min(this.mode === "bay" ? 560 : 520, height - 40);
     const panel: Rect = {
       x: Math.floor((width - panelW) / 2),
       y: Math.floor((height - panelH) / 2),
@@ -81,16 +95,17 @@ export class ShipMenu {
     ctx.font = FONT_TITLE;
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
-    ctx.fillText(this.mode === "bay" ? "Bay" : "Ship", panel.x + 20, panel.y + 18);
+    ctx.fillText(this.mode === "bay" ? "Bay" : hullName, panel.x + 20, panel.y + 18);
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(150, 175, 210, 0.75)";
-    const subtitle = this.mode === "bay" ? "Refit" : "Loadout";
-    ctx.fillText(subtitle, panel.x + panel.w - (this.mode === "bay" ? 60 : 88), panel.y + 22);
+    const subtitle = this.mode === "bay" ? `${hullName} · Refit` : "Loadout";
+    ctx.fillText(subtitle, panel.x + panel.w - (this.mode === "bay" ? 140 : 88), panel.y + 22);
 
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";
-      ctx.fillText(`CR ${credits}`, panel.x + 20, panel.y + 40);
+      const wealthBit = this.wealth ? ` · ${wealthLabel(this.wealth)}` : "";
+      ctx.fillText(`CR ${credits}${wealthBit}`, panel.x + 20, panel.y + 40);
     }
 
     const listX = panel.x + 16;
@@ -98,6 +113,7 @@ export class ShipMenu {
     const listW = 160;
     const rowH = 44;
     const footerY = panel.y + panel.h - 50;
+    this.cargoEjectBtns = [];
 
     this.slotRects = [];
     loadout.slots.forEach((slot, i) => {
@@ -191,17 +207,31 @@ export class ShipMenu {
         pointerY,
       );
     } else {
+      const detailX = listX + listW + 14;
+      const detailW = panel.w - listW - 48;
+      const cargoBlockH = 150;
+      const detailH = Math.max(120, footerY - listY - cargoBlockH - 12);
       this.drawCompareColumn(
         ctx,
-        listX + listW + 14,
+        detailX,
         listY,
-        panel.w - listW - 48,
-        footerY - listY - 8,
+        detailW,
+        detailH,
         slotKindLabel(slot.kind),
         slot.equipped,
         null,
         loadout,
         false,
+      );
+      this.drawCargoHold(
+        ctx,
+        detailX,
+        footerY - cargoBlockH,
+        detailW,
+        cargoBlockH - 8,
+        cargo,
+        pointerX,
+        pointerY,
       );
     }
 
@@ -214,6 +244,71 @@ export class ShipMenu {
     drawButton(ctx, this.closeBtn, "Close", {
       hover: hit(this.closeBtn, pointerX, pointerY),
     });
+  }
+
+  private drawCargoHold(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    cargo: CargoHold | null,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    ctx.font = FONT_TITLE;
+    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+    ctx.textBaseline = "top";
+    const used = cargo?.usedCu ?? 0;
+    const cap = cargo?.capacityCu ?? 0;
+    ctx.fillText(
+      cap > 0 ? `Cargo  ${used}/${cap} CU` : "Cargo",
+      x,
+      y,
+    );
+
+    ctx.font = FONT;
+    if (!cargo || cap <= 0) {
+      ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
+      ctx.fillText("No hold fitted — equip a rack or scoop.", x, y + 28);
+      return;
+    }
+
+    const lots = cargo.list();
+    if (lots.length === 0) {
+      ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
+      ctx.fillText("Hold empty.", x, y + 28);
+      return;
+    }
+
+    const rowH = 30;
+    let ry = y + 28;
+    const bottom = y + h;
+    for (const lot of lots) {
+      if (ry + rowH > bottom) break;
+      ctx.fillStyle = "rgba(30, 40, 55, 0.55)";
+      ctx.fillRect(x, ry, w, rowH - 4);
+      ctx.strokeStyle = "rgba(90, 115, 145, 0.35)";
+      ctx.strokeRect(x, ry, w, rowH - 4);
+
+      ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+      ctx.textBaseline = "middle";
+      const label =
+        lot.name.length > 18 ? `${lot.name.slice(0, 17)}…` : lot.name;
+      ctx.fillText(`${label}  ·  ${lot.cu} CU`, x + 10, ry + (rowH - 4) / 2);
+
+      const btn: Rect = {
+        x: x + w - 78,
+        y: ry + 2,
+        w: 70,
+        h: rowH - 8,
+      };
+      this.cargoEjectBtns.push({ rect: btn, commodityId: lot.id });
+      drawButton(ctx, btn, "Eject", {
+        hover: hit(btn, pointerX, pointerY),
+      });
+      ry += rowH;
+    }
   }
 
   private drawCompareColumn(
@@ -251,7 +346,7 @@ export class ShipMenu {
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(200, 220, 245, 0.95)";
-    ctx.fillText(mod.name, x, y + 28);
+    ctx.fillText(`${mod.name}  (${tierLabel(mod.tier)})`, x, y + 28);
 
     ctx.fillStyle = "rgba(140, 160, 190, 0.85)";
     const blurbLines = wrapText(mod.blurb, Math.max(18, Math.floor(w / 7)));
@@ -294,6 +389,10 @@ export class ShipMenu {
       }
       by += 18;
     }
+
+    by += 6;
+    ctx.fillStyle = "rgba(160, 180, 210, 0.8)";
+    ctx.fillText(`List  ${mod.price} cr`, x, by);
   }
 
   private drawStockList(
@@ -343,9 +442,11 @@ export class ShipMenu {
       ctx.font = FONT;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
       ctx.textBaseline = "middle";
-      const name =
-        offer.name.length > 16 ? `${offer.name.slice(0, 15)}…` : offer.name;
-      ctx.fillText(installed ? `${name} ✓` : name, row.x + 8, row.y + row.h / 2);
+      const mark = tierLabel(offer.tier);
+      const base =
+        offer.name.length > 12 ? `${offer.name.slice(0, 11)}…` : offer.name;
+      const name = installed ? `${base} ✓` : `${base} ${mark}`;
+      ctx.fillText(name, row.x + 8, row.y + row.h / 2);
       oy += rowH;
     });
 
@@ -396,6 +497,14 @@ export class ShipMenu {
         this.selectedIndex = i;
         this.selectedOfferIndex = 0;
         return null;
+      }
+    }
+
+    if (this.mode === "view") {
+      for (const btn of this.cargoEjectBtns) {
+        if (hit(btn.rect, px, py)) {
+          return { action: "eject", commodityId: btn.commodityId };
+        }
       }
     }
 

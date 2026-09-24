@@ -2,6 +2,12 @@ import { SHIP, COMBAT, DOCK, ECONOMY } from "../game/config";
 import type { InputState } from "../input/Keyboard";
 import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
+import { Fleet, type OwnedShipSnapshot } from "../ship/Fleet";
+import {
+  STARTER_HULL_ID,
+  hullById,
+  type HullDef,
+} from "../ship/hulls";
 
 export class Ship {
   x = 0;
@@ -16,15 +22,22 @@ export class Ship {
   /** Seconds since last hull or shield damage. */
   private timeSinceDamage = Number.POSITIVE_INFINITY;
   credits: number = ECONOMY.startingCredits;
-  readonly loadout = new ShipLoadout();
-  readonly cargo = new CargoHold();
+  loadout = new ShipLoadout();
+  cargo = new CargoHold();
+  /** Session fleet — owned hulls; this Ship is the active flight body. */
+  readonly fleet = new Fleet();
+  hullId: string = STARTER_HULL_ID;
 
   prevX = 0;
   prevY = 0;
   prevHeading = this.heading;
 
   constructor() {
-    this.syncDerivedStats({ refillShield: true });
+    this.applyOwnedShip(this.fleet.active, { refillShield: true, fullHealth: true });
+  }
+
+  get hull(): HullDef {
+    return hullById(this.hullId) ?? hullById(STARTER_HULL_ID)!;
   }
 
   get speed(): number {
@@ -36,11 +49,14 @@ export class Ship {
   }
 
   get maxHull(): number {
-    return COMBAT.maxHealth + this.loadout.totalHullBonus;
+    const bonus = this.loadout
+      .utilities()
+      .reduce((sum, u) => sum + u.hullBonus, 0);
+    return this.hull.baseHull + bonus;
   }
 
   get maxShield(): number {
-    return this.loadout.primaryShieldUtility?.shieldMax ?? 0;
+    return this.loadout.utilities().reduce((sum, u) => sum + u.shieldMax, 0);
   }
 
   get missingHealth(): number {
@@ -48,19 +64,91 @@ export class Ship {
   }
 
   get passengerCapacity(): number {
-    return this.loadout.totalPassengerCapacity;
+    return this.loadout
+      .utilities()
+      .reduce((sum, u) => sum + u.passengerCapacity, 0);
+  }
+
+  /** Drive jump range plus hull explorer bonus. */
+  jumpRange(): number {
+    return this.loadout.jumpRange() + this.hull.jumpRangeBonus;
   }
 
   /**
-   * Recompute hull/shield/cargo caps from fitted utilities.
-   * Call after any utility equip change.
+   * Write current flight state into the fleet's active snapshot
+   * (call before buying/swapping).
+   */
+  stashActiveToFleet(): void {
+    const snap = this.fleet.active;
+    snap.hullId = this.hullId;
+    snap.loadout = this.loadout;
+    snap.cargo = this.cargo;
+    snap.health = this.health;
+    snap.shield = this.shield;
+  }
+
+  /**
+   * Make an owned instance the flight ship. Stashes the current active first.
+   */
+  boardOwned(instanceId: string): boolean {
+    if (instanceId === this.fleet.activeInstanceId) return true;
+    const next = this.fleet.get(instanceId);
+    if (!next) return false;
+    this.stashActiveToFleet();
+    this.fleet.setActive(instanceId);
+    this.applyOwnedShip(next, { refillShield: false, fullHealth: false });
+    return true;
+  }
+
+  /**
+   * Purchase hull (if affordable and not already owned) and optionally board it.
+   */
+  buyHull(hull: HullDef, boardAfter = true): "ok" | "owned" | "credits" | "unknown" {
+    if (hull.price <= 0) return "unknown";
+    if (this.fleet.ownsHullType(hull.id)) return "owned";
+    if (this.credits < hull.price) return "credits";
+    this.stashActiveToFleet();
+    const bought = this.fleet.buy(hull);
+    if (!bought) return "owned";
+    this.credits -= hull.price;
+    if (boardAfter) {
+      this.fleet.setActive(bought.instanceId);
+      this.applyOwnedShip(bought, { refillShield: true, fullHealth: true });
+    }
+    return "ok";
+  }
+
+  private applyOwnedShip(
+    snap: OwnedShipSnapshot,
+    opts: { refillShield: boolean; fullHealth: boolean },
+  ): void {
+    this.hullId = snap.hullId;
+    this.loadout = snap.loadout;
+    this.cargo = snap.cargo;
+    this.syncDerivedStats({
+      refillShield: opts.refillShield,
+      previousMaxHull: opts.fullHealth ? 0 : undefined,
+    });
+    if (opts.fullHealth) {
+      this.health = this.maxHull;
+    } else {
+      this.health = Math.min(snap.health, this.maxHull);
+      if (!opts.refillShield) {
+        this.shield = Math.min(snap.shield, this.maxShield);
+      }
+    }
+  }
+
+  /**
+   * Recompute hull/shield/cargo caps from hull + utility slots.
+   * Call after any utility equip change or hull swap.
    * Hull max gains raise current HP by the same amount (no free full heal).
    */
   syncDerivedStats(
     opts: { refillShield?: boolean; previousMaxHull?: number } = {},
   ): void {
     const prevMaxHull = opts.previousMaxHull ?? this.maxHull;
-    const nextMaxHull = COMBAT.maxHealth + this.loadout.totalHullBonus;
+    const nextMaxHull = this.maxHull;
     const hullGain = Math.max(0, nextMaxHull - prevMaxHull);
 
     if (hullGain > 0) {
@@ -68,15 +156,18 @@ export class Ship {
     }
     this.health = Math.min(this.health, nextMaxHull);
 
-    this.cargo.setCapacity(this.loadout.totalCargoCapacity);
+    const utilCargo = this.loadout
+      .utilities()
+      .reduce((sum, u) => sum + u.cargoCapacity, 0);
+    this.cargo.setCapacity(this.hull.baseCargo + utilCargo);
 
-    const shieldUtil = this.loadout.primaryShieldUtility;
-    if (!shieldUtil || shieldUtil.shieldMax <= 0) {
+    const shieldMax = this.maxShield;
+    if (shieldMax <= 0) {
       this.shield = 0;
     } else if (opts.refillShield) {
-      this.shield = shieldUtil.shieldMax;
+      this.shield = shieldMax;
     } else {
-      this.shield = Math.min(this.shield, shieldUtil.shieldMax);
+      this.shield = Math.min(this.shield, shieldMax);
     }
   }
 
@@ -145,14 +236,20 @@ export class Ship {
    */
   tickDefense(dt: number): void {
     this.timeSinceDamage += dt;
-    const util = this.loadout.primaryShieldUtility;
-    if (!util || util.shieldMax <= 0) return;
-    if (this.shield >= util.shieldMax) return;
-    if (this.timeSinceDamage < util.shieldRegenDelay) return;
-    this.shield = Math.min(
-      util.shieldMax,
-      this.shield + util.shieldRegenRate * dt,
+    const utils = this.loadout.utilities();
+    const shieldMax = this.maxShield;
+    if (shieldMax <= 0) return;
+    if (this.shield >= shieldMax) return;
+    const delay = Math.min(
+      ...utils.filter((u) => u.shieldMax > 0).map((u) => u.shieldRegenDelay),
+      Number.POSITIVE_INFINITY,
     );
+    const rate = utils
+      .filter((u) => u.shieldMax > 0)
+      .reduce((sum, u) => sum + u.shieldRegenRate, 0);
+    if (!Number.isFinite(delay) || rate <= 0) return;
+    if (this.timeSinceDamage < delay) return;
+    this.shield = Math.min(shieldMax, this.shield + rate * dt);
   }
 
   update(dt: number, input: InputState): void {

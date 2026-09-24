@@ -1,12 +1,27 @@
+import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 import { POI_CHART_COLORS, STAR_COLORS } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef } from "../galaxy/types";
-import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type GalaxyClickResult = "jump" | "close" | null;
 
+/** Hints for out-of-range selection and quest markers. */
+export interface ChartPoiHints {
+  /** Selectable even outside jump range (quest targets + visited/scanned). */
+  selectableOutOfRange: ReadonlySet<number>;
+  /** Active quest destinations — always visually marked. */
+  questPoiIds: ReadonlySet<number>;
+}
+
+const EMPTY_HINTS: ChartPoiHints = {
+  selectableOutOfRange: new Set(),
+  questPoiIds: new Set(),
+};
+
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
+ * Quest / visited / scanned POIs stay selectable with full footer info
+ * even when outside jump range (Jump stays disabled until in range).
  */
 export class GalaxyChart {
   selectedId: number | null = null;
@@ -24,6 +39,7 @@ export class GalaxyChart {
     pointerX: number,
     pointerY: number,
     jumpRange: number,
+    hints: ChartPoiHints = EMPTY_HINTS,
   ): void {
     const margin = Math.max(40, Math.min(width, height) * 0.06);
     const panel: Rect = {
@@ -79,11 +95,28 @@ export class GalaxyChart {
       }
       const inRange =
         poi.id === currentId || galaxy.distance(current, poi) <= jumpRange;
+      const known = hints.selectableOutOfRange.has(poi.id);
+      const isQuest = hints.questPoiIds.has(poi.id);
       const selected = poi.id === this.selectedId;
       const hovered = poi.id === hoverId;
-      const color = inRange ? poiFill(poi) : "rgba(90, 100, 120, 0.45)";
-      const scale = selected || hovered || poi.id === currentId ? 1.4 : 1;
+      const color = inRange
+        ? poiFill(poi)
+        : known || isQuest
+          ? fadedPoiFill(poi)
+          : "rgba(90, 100, 120, 0.45)";
+      const scale =
+        selected || hovered || poi.id === currentId || isQuest ? 1.4 : 1;
       this.drawMarker(ctx, poi, p.x, p.y, color, scale);
+
+      if (isQuest && poi.id !== currentId) {
+        ctx.strokeStyle = "rgba(255, 190, 90, 0.95)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       if (poi.id === currentId || selected) {
         ctx.strokeStyle =
@@ -109,9 +142,17 @@ export class GalaxyChart {
       const sel = galaxy.get(this.selectedId);
       const dist = galaxy.distance(current, sel);
       canJump = this.selectedId !== currentId && dist <= jumpRange;
+      const questTag = hints.questPoiIds.has(this.selectedId) ? "  ·  quest" : "";
+      const knownTag =
+        !canJump &&
+        this.selectedId !== currentId &&
+        hints.selectableOutOfRange.has(this.selectedId) &&
+        !hints.questPoiIds.has(this.selectedId)
+          ? "  ·  known"
+          : "";
       status = canJump
-        ? `${sel.name}  ·  ${dist.toFixed(1)} ly`
-        : `${sel.name}  ·  out of range`;
+        ? `${sel.name}  ·  ${dist.toFixed(1)} ly${questTag}`
+        : `${sel.name}  ·  ${dist.toFixed(1)} ly  ·  out of range${questTag}${knownTag}`;
     }
     ctx.fillText(status, panel.x + 24, footerY + footerH / 2);
 
@@ -147,6 +188,7 @@ export class GalaxyChart {
     px: number,
     py: number,
     jumpRange: number,
+    hints: ChartPoiHints = EMPTY_HINTS,
   ): GalaxyClickResult {
     if (hit(this.closeBtn, px, py)) return "close";
 
@@ -174,7 +216,12 @@ export class GalaxyChart {
     }
     const current = galaxy.get(currentId);
     const target = galaxy.get(id);
-    if (galaxy.distance(current, target) <= jumpRange) {
+    const inRange = galaxy.distance(current, target) <= jumpRange;
+    const selectable =
+      inRange ||
+      hints.selectableOutOfRange.has(id) ||
+      hints.questPoiIds.has(id);
+    if (selectable) {
       this.selectedId = id;
     }
     return null;
@@ -304,4 +351,14 @@ function poiFill(poi: PoiRef): string {
     return STAR_COLORS[poi.starClass];
   }
   return POI_CHART_COLORS[poi.type];
+}
+
+/** Dimmed but readable fill for known / quest POIs outside jump range. */
+function fadedPoiFill(poi: PoiRef): string {
+  const base = poiFill(poi);
+  // Soften via overlay — keep hue recognizable for quest identification.
+  if (base.startsWith("#") && (base.length === 7 || base.length === 4)) {
+    return base.length === 7 ? `${base}cc` : base;
+  }
+  return "rgba(160, 175, 200, 0.75)";
 }

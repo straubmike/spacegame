@@ -113,7 +113,7 @@ export const SYSTEM = {
    */
   habitableCapable: ["F", "G", "K"] as const,
   /** Chance a mid-system slot becomes an asteroid belt instead of rocky */
-  asteroidBeltChance: 0.42,
+  asteroidBeltChance: 0.28,
   starStationChance: 0.4,
   /** Stations only on solid worlds / gas giants — not belts */
   planetStationChance: 0.35,
@@ -204,8 +204,34 @@ export const ECONOMY = {
 } as const;
 
 /**
+ * Station mission board (non-combat) — cargo transit + exploration scans.
+ * Passenger fares need Passenger Berth equipped (Must-have 5–6).
+ */
+export const QUEST = {
+  /** Max concurrent accepted board missions. */
+  maxActive: 2,
+  cargoCuMin: 2,
+  cargoCuMax: 5,
+  cargoBaseReward: 25,
+  cargoPerCu: 8,
+  cargoPerDistance: 1.2,
+  /** How far (in jump-range multiples) cargo destinations may sit. */
+  cargoMaxJumpRanges: 2.2,
+  exploreBaseReward: 45,
+  explorePerDistance: 1.6,
+  exploreMaxJumpRanges: 2.5,
+  /**
+   * Passenger fare design hooks (unused until berths equip):
+   * payouts should beat cargo of similar distance; require passengerCapacity.
+   */
+  passengerBaseReward: 70,
+  passengerPerBerth: 20,
+  passengerPerDistance: 2.4,
+} as const;
+
+/**
  * Asteroid-belt prospecting (Must-have 6).
- * Requires Ore Scanner + Cargo Scoop equipped; yields are optional spice.
+ * Requires Ore Scanner + Cargo Scoop (or Prospecting Rig) equipped.
  */
 export const SCOOP = {
   /** Hold F while in range of a scanned rock to collect. */
