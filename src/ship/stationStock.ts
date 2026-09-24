@@ -62,7 +62,10 @@ export function stationBayStock(
   pickInto(stock, drives, drivePicks, rng);
   pickInto(stock, utilities, utilPicks, rng);
 
-  // Guarantee at least one mid module at hubs so progression is visible early.
+  // Prefer at least one module at the station's max tier so shelves read progressive.
+  ensureTopTierPresence(stock, maxTier, rng);
+
+  // Hubs always show mid-or-better so early dock progression is visible.
   if (wealth === "hub" && !stock.some((m) => m.tier >= 2)) {
     const midPool = CATALOG.filter((m) => m.tier === 2);
     if (midPool.length > 0) {
@@ -174,4 +177,20 @@ function pickInto(
       dest.push(cloneModule(pick));
     }
   }
+}
+
+/** If shelves lack anything at `maxTier`, force one in from the catalog. */
+function ensureTopTierPresence(
+  stock: EquipModule[],
+  maxTier: ModuleTier,
+  rng: () => number,
+): void {
+  if (maxTier <= 1) return;
+  if (stock.some((m) => m.tier === maxTier)) return;
+  const pool = CATALOG.filter(
+    (m) => m.tier === maxTier && !stock.some((s) => s.id === m.id),
+  );
+  if (pool.length === 0) return;
+  const pick = pool[Math.floor(rng() * pool.length) % pool.length]!;
+  stock.push(cloneModule(pick));
 }
