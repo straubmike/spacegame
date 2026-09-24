@@ -149,7 +149,7 @@ export class DockedMenu {
     }
     if (this.quest.canOffer) {
       return {
-        label: `Accept: clear pirates (+${ECONOMY.pirateQuestReward} cr)`,
+        label: `Accept: clear encounters (+${ECONOMY.pirateQuestReward} cr)`,
         enabled: true,
       };
     }
@@ -159,7 +159,7 @@ export class DockedMenu {
         label:
           n <= 0
             ? "Quest: return with proof"
-            : `Quest: ${n} pirate${n === 1 ? "" : "s"} left`,
+            : `Quest: ${n} encounter${n === 1 ? "" : "s"} left`,
         enabled: false,
       };
     }

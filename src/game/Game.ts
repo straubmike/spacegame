@@ -42,11 +42,27 @@ type DockState =
   | { kind: "approaching"; station: Landmark }
   | { kind: "docked"; station: Landmark };
 
-/** Active system clearance contract. */
+/** Active system clearance contract (targets = encounter slots, not hulls). */
 interface PirateQuest {
   poiId: number;
   stationKey: string;
   targets: string[];
+}
+
+/**
+ * One fee / combat event for the entire local pirate group.
+ * Ships never open their own hail — the pack is the unit.
+ */
+type PackPhase = "idle" | "comms" | "paid" | "hostile";
+
+interface PackEncounter {
+  phase: PackPhase;
+  fee: number;
+  /** Seconds left on the shared fee window. */
+  timer: number;
+  /** True after the pack has hailed once (re-approach → fight). */
+  demanded: boolean;
+  shipCount: number;
 }
 
 export class Game {
@@ -83,6 +99,8 @@ export class Game {
   private readonly dockClearance = new Set<number>();
   private local: LocalView;
   private pirates: Pirate[] = [];
+  /** Shared fee/combat event for the current local pirate group (null = none). */
+  private pack: PackEncounter | null = null;
   private projectiles: Projectile[] = [];
   private fireCooldown = 0;
   private dock: DockState = { kind: "free" };
@@ -137,6 +155,7 @@ export class Game {
     this.projectiles = [];
     this.fireCooldown = 0;
     this.pirates = [];
+    this.pack = null;
     this.clearDockClearance();
     this.clearDockState();
     const key = this.pirateKey();
@@ -145,15 +164,18 @@ export class Game {
       const encounter = this.local.pirate;
       for (const ship of encounter.ships) {
         this.pirates.push(
-          new Pirate(
-            ship.x,
-            ship.y,
-            ship.heading,
-            ship.tier,
-            feePaid,
-            encounter.fee,
-          ),
+          new Pirate(ship.x, ship.y, ship.heading, ship.tier, encounter.fee),
         );
+      }
+      this.pack = {
+        phase: feePaid ? "paid" : "idle",
+        fee: encounter.fee,
+        timer: 0,
+        demanded: feePaid,
+        shipCount: encounter.ships.length,
+      };
+      if (feePaid) {
+        for (const p of this.pirates) p.setPeaceful();
       }
     }
   }
@@ -163,8 +185,8 @@ export class Game {
   }
 
   private rememberPaidPirates(): void {
-    for (const pirate of this.pirates) {
-      if (pirate.feePaid) this.paidPirateViews.add(this.pirateKey());
+    if (this.pack?.phase === "paid") {
+      this.paidPirateViews.add(this.pirateKey());
     }
   }
 
@@ -193,44 +215,122 @@ export class Game {
   }
 
   private pirateAggroActive(): boolean {
-    return this.pirates.some((p) => p.alive && p.mode === "aggro");
+    return this.pack?.phase === "hostile";
+  }
+
+  private packThreatInRange(): boolean {
+    return this.pirates.some((p) => {
+      if (!p.alive) return false;
+      return (
+        Math.hypot(this.ship.x - p.x, this.ship.y - p.y) <=
+        COMBAT.pirateThreatRange
+      );
+    });
+  }
+
+  private packAcceptingPayment(): boolean {
+    return this.pack?.phase === "comms";
   }
 
   /**
-   * Open the shared fee-event on every unpaid ship in the local pack.
-   * Keeps wingmates peaceful until pay / leave / sneak / timeout.
+   * Drive the single shared fee/combat event for the local pirate group.
+   * Returns true the frame the pack first opens its hail.
    */
-  private beginPackFeeEvent(timer: number): void {
+  private updatePackEncounter(dt: number): boolean {
+    const pack = this.pack;
+    if (!pack || this.pirates.every((p) => !p.alive)) return false;
+
+    let justDemanded = false;
+    const inRange = this.packThreatInRange();
+
+    if (pack.phase === "paid") {
+      for (const p of this.pirates) {
+        if (p.alive) p.setPeaceful();
+      }
+      return false;
+    }
+
+    if (pack.phase === "hostile") {
+      for (const p of this.pirates) {
+        if (p.alive) p.goAggro();
+      }
+      return false;
+    }
+
+    if (pack.phase === "idle") {
+      if (inRange) {
+        if (!pack.demanded) {
+          pack.phase = "comms";
+          pack.timer = COMBAT.pirateCommsTimeout;
+          pack.demanded = true;
+          justDemanded = true;
+        } else {
+          pack.phase = "hostile";
+          for (const p of this.pirates) {
+            if (p.alive) p.goAggro();
+          }
+          return false;
+        }
+      }
+    }
+
+    if (pack.phase === "comms") {
+      pack.timer = Math.max(0, pack.timer - dt);
+      for (const p of this.pirates) {
+        if (p.alive) p.setPeaceful();
+      }
+      if (pack.timer <= 0) {
+        if (inRange) {
+          pack.phase = "hostile";
+          for (const p of this.pirates) {
+            if (p.alive) p.goAggro();
+          }
+        } else {
+          // Left during the window — next approach fights.
+          pack.phase = "idle";
+        }
+        this.pirateMenu.hide();
+      }
+    }
+
+    return justDemanded;
+  }
+
+  /** Sneak attack or timeout fight — whole pack goes hostile once. */
+  private makePackHostile(): void {
+    if (!this.pack || this.pack.phase === "paid") return;
+    this.pack.phase = "hostile";
+    this.pack.demanded = true;
+    this.pack.timer = 0;
+    this.pirateMenu.hide();
     for (const p of this.pirates) {
-      if (p.alive && !p.feePaid) p.beginFeeEvent(timer);
+      if (p.alive) p.goAggro();
     }
   }
 
-  /**
-   * Keep pack fee-event + combat state aligned:
-   * - While any unpaid ship is in comms and none are fighting, all share that window.
-   * - Once any unpaid ship goes aggro (timeout, sneak attack), the whole pack fights.
-   */
-  private syncPackFeeAndCombat(): void {
-    const unpaid = this.pirates.filter((p) => p.alive && !p.feePaid);
-    if (unpaid.length === 0) return;
-
-    const fighting = unpaid.filter((p) => p.mode === "aggro");
-    if (fighting.length > 0) {
-      for (const p of unpaid) {
-        if (p.mode !== "retreat") p.goAggro();
-      }
+  private payPackTribute(): void {
+    if (!this.pack || this.pack.phase !== "comms") return;
+    const fee = this.pack.fee;
+    if (!this.ship.spendCredits(fee)) {
+      this.messages.push(
+        `Pirate: Not enough credits. Need ${fee} cr.`,
+        "pirate",
+      );
       return;
     }
-
-    const hailing = unpaid.filter((p) => p.mode === "comms");
-    if (hailing.length === 0) return;
-
-    const timer = Math.max(...hailing.map((p) => p.commsTimer));
-    for (const p of unpaid) {
-      if (p.mode === "retreat") continue;
-      p.syncFeeEvent(timer);
+    this.pack.phase = "paid";
+    this.pack.timer = 0;
+    this.paidPirateViews.add(this.pirateKey());
+    for (const p of this.pirates) {
+      if (p.alive) p.setPeaceful();
     }
+    this.pirateMenu.hide();
+    this.messages.push(
+      this.pack.shipCount > 1
+        ? `Pirate pack: Tribute received (${fee} cr). Safe passage granted.`
+        : `Pirate: Tribute received (${fee} cr). Safe passage granted.`,
+      "pirate",
+    );
   }
 
   private stations(): Landmark[] {
@@ -340,16 +440,16 @@ export class Game {
       if (left === 0) {
         this.messages.push(
           killed
-            ? "Pirate pack cleared. System clearance complete — return to the contracting station."
-            : "Last pirate fled. System clearance complete — return to the contracting station.",
+            ? "Encounter cleared. System clearance complete — return to the contracting station."
+            : "Encounter emptied. System clearance complete — return to the contracting station.",
         );
       } else if (killed) {
         this.messages.push(
-          `Encounter cleared. ${left} pirate sector${left === 1 ? "" : "s"} remaining for system clearance.`,
+          `Encounter cleared. ${left} pirate encounter${left === 1 ? "" : "s"} remaining for system clearance.`,
         );
       } else {
         this.messages.push(
-          `Encounter emptied. ${left} pirate sector${left === 1 ? "" : "s"} remaining for system clearance.`,
+          `Encounter emptied. ${left} pirate encounter${left === 1 ? "" : "s"} remaining for system clearance.`,
         );
       }
     } else if (killed) {
@@ -380,7 +480,7 @@ export class Game {
       targets,
     });
     this.messages.push(
-      `${station.name}: Contract accepted — clear ${targets.length} pirate${targets.length === 1 ? "" : "s"} in this system (+${ECONOMY.pirateQuestReward} cr).`,
+      `${station.name}: Contract accepted — clear ${targets.length} pirate encounter${targets.length === 1 ? "" : "s"} in this system (+${ECONOMY.pirateQuestReward} cr).`,
       "station",
     );
     this.dockedMenu.refreshQuest(
@@ -529,8 +629,7 @@ export class Game {
 
     if (
       this.pirateMenu.open &&
-      this.pirateMenu.pirate &&
-      !this.pirateMenu.pirate.acceptingPayment
+      !this.packAcceptingPayment()
     ) {
       this.pirateMenu.hide();
     }
@@ -552,13 +651,16 @@ export class Game {
       viewH,
     );
 
+    if (!this.packAcceptingPayment()) return;
+
     for (const pirate of this.pirates) {
-      if (!pirate.acceptingPayment) continue;
+      if (!pirate.alive) continue;
       const hitR = pirate.radius + DOCK.clickPad;
       const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
       if (dist <= hitR) {
         this.pirateMenu.show(
-          pirate,
+          this.pack!.fee,
+          this.pack!.shipCount > 1,
           this.pointer.x,
           this.pointer.y,
           viewW,
@@ -593,32 +695,11 @@ export class Game {
       return;
     }
     if (action !== "pay") return;
-
-    const pirate = this.pirateMenu.pirate;
-    if (!pirate || !pirate.acceptingPayment) {
+    if (!this.packAcceptingPayment()) {
       this.pirateMenu.hide();
       return;
     }
-
-    const fee = pirate.fee;
-    if (!this.ship.spendCredits(fee)) {
-      this.messages.push(
-        `Pirate: Not enough credits. Need ${fee} cr.`,
-        "pirate",
-      );
-      return;
-    }
-
-    // Paying one hailer buys passage from the whole pack.
-    for (const p of this.pirates) {
-      if (p.alive) p.acceptPayment();
-    }
-    this.paidPirateViews.add(this.pirateKey());
-    this.pirateMenu.hide();
-    this.messages.push(
-      `Pirate: Tribute received (${fee} cr). Safe passage granted.`,
-      "pirate",
-    );
+    this.payPackTribute();
   }
 
   private updateStationMenu(): void {
@@ -837,30 +918,26 @@ export class Game {
     }
 
     const pirateShots: Projectile[] = [];
-    let demandAnnounced = false;
+    const justDemanded = this.updatePackEncounter(dt);
+    if (justDemanded && this.pack) {
+      const fee = this.pack.fee;
+      const label =
+        this.pack.shipCount > 1
+          ? `Pirate pack demands ${fee} credits for safe passage — you have one minute.`
+          : `Pirate: Pay ${fee} credits for safe passage — you have one minute.`;
+      this.messages.push(label, "pirate");
+    }
+
+    const hostile = this.pack?.phase === "hostile";
     for (const pirate of this.pirates) {
-      const demanded = pirate.update(
+      pirate.update(
         dt,
         this.ship.x,
         this.ship.y,
         pirateShots,
+        hostile === true,
       );
-      if (demanded && !demandAnnounced) {
-        demandAnnounced = true;
-        // Whole pack shares one fee-event — no wingmate free-fires during dialogue.
-        this.beginPackFeeEvent(pirate.commsTimer);
-        const fee = pirate.fee;
-        const pack =
-          this.pirates.filter((p) => p.alive).length > 1
-            ? "pack demands"
-            : "demands";
-        this.messages.push(
-          `Pirate: ${pack} ${fee} credits for safe passage — you have one minute.`,
-          "pirate",
-        );
-      }
     }
-    this.syncPackFeeAndCombat();
     if (pirateShots.length > 0) {
       this.projectiles.push(...pirateShots);
     }
@@ -894,6 +971,10 @@ export class Game {
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
         if (dist <= pirate.radius + COMBAT.projectileRadius) {
           pirate.takeDamage(p.damage);
+          // Sneak attack during fee window → one pack fight, not per-ship fees.
+          if (this.pack && this.pack.phase !== "paid") {
+            this.makePackHostile();
+          }
           hit = true;
           break;
         }
@@ -916,6 +997,10 @@ export class Game {
       this.onPirateRemoved(anyKill, survivors);
     }
     this.pirates = this.pirates.filter((p) => p.alive);
+    if (this.pirates.length === 0) {
+      this.pack = null;
+      this.pirateMenu.hide();
+    }
   }
 
   private updateGalaxyMenu(): void {
