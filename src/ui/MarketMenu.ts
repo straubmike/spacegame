@@ -162,8 +162,8 @@ export class MarketMenu {
     ctx.textBaseline = "top";
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.fillText(listing.name, panelX + 20, y + 8);
-    ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
-    ctx.fillText(`Hold ${held} CU`, panelX + 20, y + 26);
+    ctx.fillStyle = reasonColor(listing.priceReason);
+    ctx.fillText(`${listing.priceReason} · hold ${held}`, panelX + 20, y + 26);
 
     // Buy side (from station)
     const buyX = panelX + 200;
@@ -334,4 +334,19 @@ function maxSellCu(listing: MarketListing, cargo: CargoHold): number {
 
 function emptyRect(): Rect {
   return { x: 0, y: 0, w: 0, h: 0 };
+}
+
+function reasonColor(reason: MarketListing["priceReason"]): string {
+  switch (reason) {
+    case "local specialty":
+      return "rgba(120, 210, 160, 0.9)";
+    case "local surplus":
+    case "regional surplus":
+      return "rgba(140, 195, 170, 0.85)";
+    case "local shortage":
+    case "neighbor demand":
+      return "rgba(220, 170, 120, 0.9)";
+    default:
+      return "rgba(130, 145, 165, 0.75)";
+  }
 }

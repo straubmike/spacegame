@@ -13,6 +13,7 @@ import {
 import { swapCost, type EquipModule } from "../ship/equipment";
 import { stationBayStock } from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
+import type { MarketContext } from "../ship/economy";
 import type { Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
@@ -203,6 +204,14 @@ export class Game {
   private currentStationKey(station: Landmark): string | null {
     if (this.local.bodyId === null) return null;
     return stationKey(this.local.poiId, this.local.bodyId, station.id);
+  }
+
+  private marketContext(): MarketContext {
+    return {
+      galaxy: this.galaxy,
+      poiId: this.local.poiId,
+      bodyId: this.local.bodyId,
+    };
   }
 
   private questGiverForCurrentSystem(): SystemStationRef | null {
@@ -676,7 +685,7 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
-    this.dockMarket = createStationMarket(key);
+    this.dockMarket = createStationMarket(key, this.marketContext());
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
@@ -890,7 +899,7 @@ export class Game {
       const key =
         this.currentStationKey(station) ??
         `visit:${this.local.poiId}:${station.id}`;
-      this.dockMarket = createStationMarket(key);
+      this.dockMarket = createStationMarket(key, this.marketContext());
     }
     this.dockedMenu.hide();
     this.shipMenuOpen = false;

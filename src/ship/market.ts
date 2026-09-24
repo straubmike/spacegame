@@ -1,5 +1,11 @@
-import { GALAXY } from "../game/config";
+import { MARKET, GALAXY } from "../game/config";
 import { hash2, mulberry32 } from "../galaxy/rng";
+import {
+  effectiveCommodityBias,
+  priceReasonFor,
+  type MarketContext,
+  type PriceReason,
+} from "./economy";
 import { hashStationKey } from "./stationKey";
 
 /** Catalog of trade goods — volume is always 1 CU per unit quantity. */
@@ -41,6 +47,8 @@ export interface MarketListing {
   stock: number;
   /** CU the station will still purchase. */
   demand: number;
+  /** Light gloss for why this line prices the way it does. */
+  priceReason: PriceReason;
 }
 
 /** Mutable market state for the current dock visit. */
@@ -58,36 +66,107 @@ export class StationMarket {
 
 /**
  * Seeded buy/sell book for a station.
- * Prices vary around base; not every good is both bought and sold.
+ * Prices follow local POI flavor blended with neighbor supply/demand.
  */
-export function createStationMarket(stationKey: string): StationMarket {
+export function createStationMarket(
+  stationKey: string,
+  ctx?: MarketContext,
+): StationMarket {
   const rng = mulberry32(
     hash2(GALAXY.seed ^ 0xc2a700, hashStationKey(stationKey)),
   );
 
-  const listings: MarketListing[] = [];
-  for (const c of COMMODITIES) {
-    const present = rng() < 0.72;
-    if (!present) continue;
+  const biases = ctx
+    ? effectiveCommodityBias(ctx)
+    : {
+        local: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
+        neighbor: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
+        effective: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
+      };
 
-    const sells = rng() < 0.7;
-    const buys = rng() < 0.65;
+  const listings: MarketListing[] = [];
+
+  for (const c of COMMODITIES) {
+    const bias = biases.effective[c.id] ?? 0;
+    const local = biases.local[c.id] ?? 0;
+    const reason = priceReasonFor(c.id, biases.local, biases.neighbor);
+
+    // Strong signals are one-way so surplus docks dump and shortage docks buy —
+    // that is what makes a readable buy-here / sell-there route.
+    const surplus = bias >= MARKET.surplusThreshold;
+    const shortage = bias <= -MARKET.shortageThreshold;
+
+    let sells = false;
+    let buys = false;
+    if (surplus || local >= 0.2) {
+      sells = true;
+      buys = false;
+    } else if (shortage || local <= -0.2) {
+      buys = true;
+      sells = false;
+    } else {
+      sells = rng() < 0.55;
+      buys = rng() < 0.5;
+      if (!sells && !buys) {
+        if (rng() < 0.5) sells = true;
+        else buys = true;
+      }
+    }
+
     if (!sells && !buys) continue;
 
-    const skew = 0.75 + rng() * 0.55;
-    const mid = Math.max(1, Math.round(c.basePrice * skew));
-    const spread = Math.max(1, Math.round(mid * (0.12 + rng() * 0.18)));
+    const noise = 1 + (rng() * 2 - 1) * MARKET.noiseAmplitude;
+    const mid = Math.max(
+      1,
+      Math.round(c.basePrice * (1 - bias * MARKET.biasStrength) * noise),
+    );
 
-    const playerBuyPrice = sells ? mid + spread : null;
-    const playerSellPrice = buys ? Math.max(1, mid - spread) : null;
+    let playerBuyPrice: number | null = null;
+    let playerSellPrice: number | null = null;
+
+    if (sells && buys) {
+      let spreadFrac = MARKET.spreadFraction + MARKET.twoWaySpreadBump;
+      spreadFrac += Math.min(0.08, Math.abs(bias) * 0.06);
+      const spread = Math.max(1, Math.round(mid * spreadFrac));
+      playerBuyPrice = mid + spread;
+      playerSellPrice = Math.max(1, mid - spread);
+    } else if (sells) {
+      // Dump dock: player buys near the depressed mid (cheap stock).
+      playerBuyPrice = Math.max(1, mid);
+    } else {
+      // Import dock: station pays near the elevated mid.
+      playerSellPrice = Math.max(1, mid);
+    }
+
+    const stock = sells
+      ? Math.max(
+          6,
+          Math.round(
+            MARKET.baseStock +
+              Math.max(0, bias) * MARKET.stockBiasScale +
+              rng() * 12,
+          ),
+        )
+      : 0;
+    const demand = buys
+      ? Math.max(
+          6,
+          Math.round(
+            MARKET.baseDemand +
+              Math.max(0, -bias) * MARKET.demandBiasScale +
+              rng() * 12,
+          ),
+        )
+      : 0;
 
     listings.push({
       commodityId: c.id,
       name: c.name,
       playerBuyPrice,
       playerSellPrice,
-      stock: sells ? 8 + ((rng() * 40) | 0) : 0,
-      demand: buys ? 10 + ((rng() * 35) | 0) : 0,
+      stock,
+      demand,
+      priceReason: reason,
     });
   }
 
@@ -103,6 +182,7 @@ export function createStationMarket(stationKey: string): StationMarket {
         playerSellPrice: Math.max(1, mid - 3),
         stock: 20,
         demand: 20,
+        priceReason: "quiet market",
       });
       if (listings.length >= 3) break;
     }
