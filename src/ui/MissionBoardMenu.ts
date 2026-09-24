@@ -1,10 +1,12 @@
 import type { ActiveMission, MissionOffer } from "../ship/missions";
+import { missionStatusLine } from "../ship/missions";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type MissionBoardClickResult =
   | "close"
   | { action: "accept"; missionId: string }
   | { action: "claim"; missionId: string }
+  | { action: "cancel"; missionId: string }
   | null;
 
 interface OfferRow {
@@ -12,6 +14,7 @@ interface OfferRow {
   kind: "offer" | "active";
   acceptBtn: Rect;
   claimBtn: Rect;
+  cancelBtn: Rect;
 }
 
 /**
@@ -227,6 +230,7 @@ export class MissionBoardMenu {
       kind: "offer",
       acceptBtn,
       claimBtn: { x: 0, y: 0, w: 0, h: 0 },
+      cancelBtn: { x: 0, y: 0, w: 0, h: 0 },
     });
   }
 
@@ -247,17 +251,26 @@ export class MissionBoardMenu {
     ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
     ctx.fillText(mission.title, panelX + 24, y + 8);
     ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
-    ctx.fillText(this.activeStatusLine(mission), panelX + 24, y + 28);
+    ctx.fillText(missionStatusLine(mission), panelX + 24, y + 28);
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
     ctx.fillText(`+${mission.reward} cr`, panelX + 24, y + 48);
 
     const canClaim = mission.status === "readyToClaim";
+    const cancelBtn: Rect = {
+      x: panelX + panelW - 230,
+      y: y + 18,
+      w: 88,
+      h: 32,
+    };
     const claimBtn: Rect = {
       x: panelX + panelW - 130,
       y: y + 18,
       w: 96,
       h: 32,
     };
+    drawButton(ctx, cancelBtn, "Cancel", {
+      hover: hit(cancelBtn, pointerX, pointerY),
+    });
     drawButton(ctx, claimBtn, canClaim ? "Claim" : "Active", {
       enabled: canClaim,
       primary: canClaim,
@@ -268,26 +281,8 @@ export class MissionBoardMenu {
       kind: "active",
       acceptBtn: { x: 0, y: 0, w: 0, h: 0 },
       claimBtn,
+      cancelBtn,
     });
-  }
-
-  private activeStatusLine(mission: ActiveMission): string {
-    if (mission.kind === "cargo") {
-      return `Deliver to ${mission.destStationName ?? "destination"}`;
-    }
-    if (mission.kind === "clearance") {
-      if (mission.status === "readyToClaim") {
-        return `Clearance complete — claim at ${mission.originStationName}`;
-      }
-      const left = mission.pirateTargets?.length ?? 0;
-      return left <= 0
-        ? `Return to ${mission.originStationName} to claim`
-        : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
-    }
-    if (mission.scanned) {
-      return `Scan complete — return to ${mission.originStationName}`;
-    }
-    return `Travel to ${mission.targetPoiName ?? "target"} and scan`;
   }
 
   handleClick(px: number, py: number): MissionBoardClickResult {
@@ -296,6 +291,9 @@ export class MissionBoardMenu {
     for (const row of this.rows) {
       if (row.kind === "offer" && hit(row.acceptBtn, px, py)) {
         return { action: "accept", missionId: row.missionId };
+      }
+      if (row.kind === "active" && hit(row.cancelBtn, px, py)) {
+        return { action: "cancel", missionId: row.missionId };
       }
       if (row.kind === "active" && hit(row.claimBtn, px, py)) {
         return { action: "claim", missionId: row.missionId };

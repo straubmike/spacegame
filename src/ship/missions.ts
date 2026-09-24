@@ -73,6 +73,26 @@ export function isMissionCargoId(id: string): boolean {
   return id.startsWith("mission:");
 }
 
+/** Short status line for active contracts (board + ship L menu). */
+export function missionStatusLine(mission: ActiveMission): string {
+  if (mission.kind === "cargo") {
+    return `Deliver to ${mission.destStationName ?? "destination"}`;
+  }
+  if (mission.kind === "clearance") {
+    if (mission.status === "readyToClaim") {
+      return `Clearance complete — claim at ${mission.originStationName}`;
+    }
+    const left = mission.pirateTargets?.length ?? 0;
+    return left <= 0
+      ? `Return to ${mission.originStationName} to claim`
+      : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
+  }
+  if (mission.scanned) {
+    return `Scan complete — return to ${mission.originStationName}`;
+  }
+  return `Travel to ${mission.targetPoiName ?? "target"} and scan`;
+}
+
 /**
  * Chart POI ids that are active quest destinations (or return-to-claim origins).
  */

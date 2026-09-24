@@ -641,7 +641,32 @@ export class Game {
     }
     if (result.action === "claim") {
       this.claimBoardMission(result.missionId);
+      return;
     }
+    if (result.action === "cancel") {
+      this.cancelBoardMission(result.missionId);
+    }
+  }
+
+  /** Drop an active contract; dumps any mission-tagged freight. */
+  private cancelBoardMission(missionId: string): void {
+    const idx = this.activeMissions.findIndex((m) => m.id === missionId);
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
+
+    if (mission.kind === "cargo") {
+      const lotId = missionCargoId(mission.id);
+      const held = this.ship.cargo.amountOf(lotId);
+      if (held > 0) this.ship.cargo.remove(lotId, held);
+    }
+
+    this.activeMissions.splice(idx, 1);
+    this.acceptedMissionIds.delete(missionId);
+    this.messages.push(
+      `Missions: Cancelled "${mission.title}".`,
+      "station",
+    );
+    this.refreshMissionBoardUi();
   }
 
   private pirateAggroActive(): boolean {
@@ -1591,6 +1616,7 @@ export class Game {
       this.ship.loadout,
       this.pointer.x,
       this.pointer.y,
+      this.ship.cargo,
     );
     if (result === "close") {
       this.closeShipMenu();
@@ -1601,17 +1627,26 @@ export class Game {
       return;
     }
     if (result && typeof result === "object" && result.action === "eject") {
-      this.ejectCargo(result.commodityId);
+      this.ejectCargo(result.commodityId, result.cu);
+      return;
+    }
+    if (
+      result &&
+      typeof result === "object" &&
+      result.action === "cancelMission"
+    ) {
+      this.cancelBoardMission(result.missionId);
     }
   }
 
-  /** Dump an entire commodity lot from the L-menu cargo list. */
-  private ejectCargo(commodityId: string): void {
+  /** Dump CU from a cargo lot (L-menu eject with chosen amount). */
+  private ejectCargo(commodityId: string, cu: number): void {
+    if (cu <= 0) return;
     const held = this.ship.cargo.amountOf(commodityId);
     if (held <= 0) return;
     const lot = this.ship.cargo.list().find((l) => l.id === commodityId);
     const name = lot?.name ?? commodityId;
-    const removed = this.ship.cargo.remove(commodityId, held);
+    const removed = this.ship.cargo.remove(commodityId, Math.min(cu, held));
     if (removed <= 0) return;
     this.messages.push(`Cargo: Ejected ${removed} CU ${name}.`);
   }
@@ -1734,6 +1769,7 @@ export class Game {
       missionBoardOpen: this.missionBoardOpen,
       hangarMenuOpen: this.hangarMenuOpen,
       chartHints: this.chartHints(),
+      activeMissions: this.missionsForBoardUi(),
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,

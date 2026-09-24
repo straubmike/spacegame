@@ -11,6 +11,11 @@ import {
 import type { ShipLoadout } from "../ship/Loadout";
 import type { CargoHold } from "../ship/CargoHold";
 import {
+  isMissionCargoId,
+  missionStatusLine,
+  type ActiveMission,
+} from "../ship/missions";
+import {
   stockForSlot,
   wealthLabel,
   type StationWealth,
@@ -22,28 +27,35 @@ export type ShipMenuMode = "view" | "bay";
 export type ShipMenuClickResult =
   | "close"
   | { action: "install"; module: EquipModule }
-  | { action: "eject"; commodityId: string }
+  | { action: "eject"; commodityId: string; cu: number }
+  | { action: "cancelMission"; missionId: string }
   | null;
 
 interface StatRow {
   label: string;
-  /** Display value for this module. */
   text: string;
-  /** Comparable magnitude; null when delta is not meaningful. */
   value: number | null;
 }
 
+interface EjectDraft {
+  commodityId: string;
+  name: string;
+  max: number;
+  qty: number;
+  isMission: boolean;
+  /** pickQty = choose amount; confirmMission = are-you-sure for mission freight */
+  phase: "pickQty" | "confirmMission";
+}
+
 /**
- * Ship loadout inspector (keyboard) and station Bay (docked refit).
- * View mode shows loadout + cargo hold with eject. Bay mode swaps modules.
+ * Ship loadout inspector (L) and station Bay.
+ * View mode: loadout + active missions + cargo (partial eject / mission warn).
  */
 export class ShipMenu {
   mode: ShipMenuMode = "view";
   selectedIndex = 0;
   selectedOfferIndex = 0;
-  /** Modules this station sells (bay mode only). */
   stock: EquipModule[] = [];
-  /** Bay wealth label (bay mode only). */
   wealth: StationWealth | null = null;
 
   private slotRects: Rect[] = [];
@@ -52,12 +64,19 @@ export class ShipMenu {
   private closeBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private offers: EquipModule[] = [];
   private cargoEjectBtns: { rect: Rect; commodityId: string }[] = [];
+  private missionCancelBtns: { rect: Rect; missionId: string }[] = [];
+  private ejectDraft: EjectDraft | null = null;
+  private ejectMinusBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private ejectPlusBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private ejectConfirmBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private ejectCancelBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
   openView(): void {
     this.mode = "view";
     this.stock = [];
     this.wealth = null;
     this.selectedOfferIndex = 0;
+    this.ejectDraft = null;
   }
 
   openBay(stock: EquipModule[], wealth: StationWealth | null = null): void {
@@ -65,6 +84,7 @@ export class ShipMenu {
     this.stock = stock;
     this.wealth = wealth;
     this.selectedOfferIndex = 0;
+    this.ejectDraft = null;
   }
 
   draw(
@@ -77,13 +97,14 @@ export class ShipMenu {
     pointerY: number,
     hullName = "Ship",
     cargo: CargoHold | null = null,
+    missions: readonly ActiveMission[] = [],
   ): void {
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, width, height);
 
     const panelW =
-      this.mode === "bay" ? Math.min(920, width - 40) : Math.min(580, width - 40);
-    const panelH = Math.min(this.mode === "bay" ? 560 : 520, height - 40);
+      this.mode === "bay" ? Math.min(920, width - 40) : Math.min(640, width - 40);
+    const panelH = Math.min(this.mode === "bay" ? 560 : 600, height - 40);
     const panel: Rect = {
       x: Math.floor((width - panelW) / 2),
       y: Math.floor((height - panelH) / 2),
@@ -100,7 +121,11 @@ export class ShipMenu {
     ctx.font = FONT;
     ctx.fillStyle = "rgba(150, 175, 210, 0.75)";
     const subtitle = this.mode === "bay" ? `${hullName} · Refit` : "Loadout";
-    ctx.fillText(subtitle, panel.x + panel.w - (this.mode === "bay" ? 140 : 88), panel.y + 22);
+    ctx.fillText(
+      subtitle,
+      panel.x + panel.w - (this.mode === "bay" ? 140 : 88),
+      panel.y + 22,
+    );
 
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";
@@ -110,10 +135,15 @@ export class ShipMenu {
 
     const listX = panel.x + 16;
     const listY = panel.y + (this.mode === "bay" ? 64 : 56);
-    const listW = 160;
-    const rowH = 44;
+    const listW = 150;
+    const rowH = 40;
     const footerY = panel.y + panel.h - 50;
     this.cargoEjectBtns = [];
+    this.missionCancelBtns = [];
+    this.ejectMinusBtn = { x: 0, y: 0, w: 0, h: 0 };
+    this.ejectPlusBtn = { x: 0, y: 0, w: 0, h: 0 };
+    this.ejectConfirmBtn = { x: 0, y: 0, w: 0, h: 0 };
+    this.ejectCancelBtn = { x: 0, y: 0, w: 0, h: 0 };
 
     this.slotRects = [];
     loadout.slots.forEach((slot, i) => {
@@ -126,29 +156,23 @@ export class ShipMenu {
       this.slotRects.push(row);
       const selected = i === this.selectedIndex;
       const hovered = hit(row, pointerX, pointerY);
-
-      if (selected) {
-        ctx.fillStyle = "rgba(50, 110, 170, 0.45)";
-      } else if (hovered) {
-        ctx.fillStyle = "rgba(40, 55, 75, 0.55)";
-      } else {
-        ctx.fillStyle = "rgba(20, 28, 40, 0.55)";
-      }
+      if (selected) ctx.fillStyle = "rgba(50, 110, 170, 0.45)";
+      else if (hovered) ctx.fillStyle = "rgba(40, 55, 75, 0.55)";
+      else ctx.fillStyle = "rgba(20, 28, 40, 0.55)";
       ctx.fillRect(row.x, row.y, row.w, row.h);
       ctx.strokeStyle = selected
         ? "rgba(140, 200, 255, 0.65)"
         : "rgba(90, 115, 145, 0.35)";
       ctx.strokeRect(row.x, row.y, row.w, row.h);
-
       ctx.font = FONT;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
       ctx.textBaseline = "top";
-      ctx.fillText(slot.label, row.x + 10, row.y + 8);
+      ctx.fillText(slot.label, row.x + 10, row.y + 6);
       ctx.fillStyle = "rgba(150, 170, 200, 0.8)";
       ctx.fillText(
         slot.equipped ? slot.equipped.name : "Empty",
         row.x + 10,
-        row.y + 24,
+        row.y + 22,
       );
     });
 
@@ -163,75 +187,41 @@ export class ShipMenu {
         this.selectedOfferIndex = 0;
       }
       const offer = this.offers[this.selectedOfferIndex] ?? null;
-
       const compareX = listX + listW + 14;
       const stockListW = 168;
       const compareAreaW = panel.x + panel.w - 16 - stockListW - 12 - compareX;
       const colW = Math.floor((compareAreaW - 12) / 2);
       const offerColX = compareX + colW + 12;
       const stockListX = panel.x + panel.w - 16 - stockListW;
-
       this.drawCompareColumn(
-        ctx,
-        compareX,
-        listY,
-        colW,
-        footerY - listY - 8,
-        "Fitted",
-        slot.equipped,
-        offer,
-        loadout,
-        true,
+        ctx, compareX, listY, colW, footerY - listY - 8,
+        "Fitted", slot.equipped, offer, loadout, true,
       );
       this.drawCompareColumn(
-        ctx,
-        offerColX,
-        listY,
-        colW,
-        footerY - listY - 8,
-        "Selected stock",
-        offer,
-        null,
-        loadout,
-        false,
+        ctx, offerColX, listY, colW, footerY - listY - 8,
+        "Selected stock", offer, null, loadout, false,
       );
       this.drawStockList(
-        ctx,
-        stockListX,
-        listY,
-        stockListW,
-        footerY - listY - 64,
-        slot,
-        credits,
-        pointerX,
-        pointerY,
+        ctx, stockListX, listY, stockListW, footerY - listY - 64,
+        slot, credits, pointerX, pointerY,
       );
     } else {
       const detailX = listX + listW + 14;
       const detailW = panel.w - listW - 48;
-      const cargoBlockH = 150;
-      const detailH = Math.max(120, footerY - listY - cargoBlockH - 12);
+      const cargoH = 175;
+      const missionH = 130;
+      const detailH = Math.max(100, footerY - listY - cargoH - missionH - 16);
       this.drawCompareColumn(
-        ctx,
-        detailX,
-        listY,
-        detailW,
-        detailH,
-        slotKindLabel(slot.kind),
-        slot.equipped,
-        null,
-        loadout,
-        false,
+        ctx, detailX, listY, detailW, detailH,
+        slotKindLabel(slot.kind), slot.equipped, null, loadout, false,
+      );
+      this.drawMissions(
+        ctx, detailX, listY + detailH + 4, detailW, missionH - 4,
+        missions, pointerX, pointerY,
       );
       this.drawCargoHold(
-        ctx,
-        detailX,
-        footerY - cargoBlockH,
-        detailW,
-        cargoBlockH - 8,
-        cargo,
-        pointerX,
-        pointerY,
+        ctx, detailX, footerY - cargoH, detailW, cargoH - 8,
+        cargo, pointerX, pointerY,
       );
     }
 
@@ -244,6 +234,62 @@ export class ShipMenu {
     drawButton(ctx, this.closeBtn, "Close", {
       hover: hit(this.closeBtn, pointerX, pointerY),
     });
+  }
+
+  private drawMissions(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    missions: readonly ActiveMission[],
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    ctx.font = FONT_TITLE;
+    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+    ctx.textBaseline = "top";
+    ctx.fillText("Missions", x, y);
+
+    ctx.font = FONT;
+    if (missions.length === 0) {
+      ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
+      ctx.fillText("No active contracts.", x, y + 26);
+      return;
+    }
+
+    let ry = y + 26;
+    const bottom = y + h;
+    const rowH = 34;
+    for (const m of missions) {
+      if (ry + rowH > bottom) break;
+      ctx.fillStyle = "rgba(28, 36, 28, 0.55)";
+      ctx.fillRect(x, ry, w, rowH - 4);
+      ctx.strokeStyle = "rgba(90, 130, 100, 0.4)";
+      ctx.strokeRect(x, ry, w, rowH - 4);
+
+      ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+      ctx.textBaseline = "top";
+      const title = m.title.length > 28 ? `${m.title.slice(0, 27)}…` : m.title;
+      ctx.fillText(title, x + 8, ry + 4);
+      ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
+      const status = missionStatusLine(m);
+      const statusShort =
+        status.length > 36 ? `${status.slice(0, 35)}…` : status;
+      ctx.fillText(statusShort, x + 8, ry + 18);
+
+      const btn: Rect = {
+        x: x + w - 78,
+        y: ry + 3,
+        w: 70,
+        h: rowH - 10,
+      };
+      this.missionCancelBtns.push({ rect: btn, missionId: m.id });
+      drawButton(ctx, btn, "Cancel", {
+        hover: hit(btn, pointerX, pointerY),
+      });
+      ry += rowH;
+    }
   }
 
   private drawCargoHold(
@@ -261,16 +307,17 @@ export class ShipMenu {
     ctx.textBaseline = "top";
     const used = cargo?.usedCu ?? 0;
     const cap = cargo?.capacityCu ?? 0;
-    ctx.fillText(
-      cap > 0 ? `Cargo  ${used}/${cap} CU` : "Cargo",
-      x,
-      y,
-    );
+    ctx.fillText(cap > 0 ? `Cargo  ${used}/${cap} CU` : "Cargo", x, y);
 
     ctx.font = FONT;
     if (!cargo || cap <= 0) {
       ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
       ctx.fillText("No hold fitted — equip a rack or scoop.", x, y + 28);
+      return;
+    }
+
+    if (this.ejectDraft) {
+      this.drawEjectDraft(ctx, x, y + 26, w, h - 26, pointerX, pointerY);
       return;
     }
 
@@ -286,16 +333,26 @@ export class ShipMenu {
     const bottom = y + h;
     for (const lot of lots) {
       if (ry + rowH > bottom) break;
-      ctx.fillStyle = "rgba(30, 40, 55, 0.55)";
+      const mission = isMissionCargoId(lot.id);
+      ctx.fillStyle = mission
+        ? "rgba(55, 40, 28, 0.65)"
+        : "rgba(30, 40, 55, 0.55)";
       ctx.fillRect(x, ry, w, rowH - 4);
-      ctx.strokeStyle = "rgba(90, 115, 145, 0.35)";
+      ctx.strokeStyle = mission
+        ? "rgba(210, 150, 90, 0.55)"
+        : "rgba(90, 115, 145, 0.35)";
       ctx.strokeRect(x, ry, w, rowH - 4);
 
       ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
       ctx.textBaseline = "middle";
       const label =
-        lot.name.length > 18 ? `${lot.name.slice(0, 17)}…` : lot.name;
-      ctx.fillText(`${label}  ·  ${lot.cu} CU`, x + 10, ry + (rowH - 4) / 2);
+        lot.name.length > 16 ? `${lot.name.slice(0, 15)}…` : lot.name;
+      const flag = mission ? "  [MISSION]" : "";
+      ctx.fillText(
+        `${label}${flag}  ·  ${lot.cu} CU`,
+        x + 10,
+        ry + (rowH - 4) / 2,
+      );
 
       const btn: Rect = {
         x: x + w - 78,
@@ -311,6 +368,78 @@ export class ShipMenu {
     }
   }
 
+  private drawEjectDraft(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    _h: number,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const d = this.ejectDraft!;
+    ctx.fillStyle = "rgba(24, 32, 44, 0.9)";
+    ctx.fillRect(x, y, w, 120);
+    ctx.strokeStyle = "rgba(140, 175, 220, 0.45)";
+    ctx.strokeRect(x, y, w, 120);
+
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+
+    if (d.phase === "confirmMission") {
+      ctx.fillText("Are you sure you want to eject", x + 12, y + 12);
+      ctx.fillText("mission cargo?", x + 12, y + 30);
+      ctx.fillStyle = "rgba(210, 170, 120, 0.95)";
+      ctx.fillText(`${d.name}  ·  ${d.qty} CU`, x + 12, y + 52);
+
+      this.ejectConfirmBtn = { x: x + 12, y: y + 78, w: 100, h: 32 };
+      this.ejectCancelBtn = { x: x + 124, y: y + 78, w: 88, h: 32 };
+      drawButton(ctx, this.ejectConfirmBtn, "Confirm", {
+        primary: true,
+        hover: hit(this.ejectConfirmBtn, pointerX, pointerY),
+      });
+      drawButton(ctx, this.ejectCancelBtn, "Cancel", {
+        hover: hit(this.ejectCancelBtn, pointerX, pointerY),
+      });
+      return;
+    }
+
+    ctx.fillText(`Eject: ${d.name}`, x + 12, y + 12);
+    if (d.isMission) {
+      ctx.fillStyle = "rgba(210, 150, 90, 0.95)";
+      ctx.fillText("MISSION freight", x + 12, y + 30);
+    } else {
+      ctx.fillStyle = "rgba(150, 170, 200, 0.85)";
+      ctx.fillText(`Hold has ${d.max} CU`, x + 12, y + 30);
+    }
+
+    this.ejectMinusBtn = { x: x + 12, y: y + 52, w: 36, h: 32 };
+    this.ejectPlusBtn = { x: x + 120, y: y + 52, w: 36, h: 32 };
+    drawButton(ctx, this.ejectMinusBtn, "−", {
+      enabled: d.qty > 1,
+      hover: d.qty > 1 && hit(this.ejectMinusBtn, pointerX, pointerY),
+    });
+    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${d.qty}`, x + 84, y + 68);
+    ctx.textAlign = "left";
+    drawButton(ctx, this.ejectPlusBtn, "+", {
+      enabled: d.qty < d.max,
+      hover: d.qty < d.max && hit(this.ejectPlusBtn, pointerX, pointerY),
+    });
+
+    this.ejectConfirmBtn = { x: x + 12, y: y + 92, w: 110, h: 28 };
+    this.ejectCancelBtn = { x: x + 132, y: y + 92, w: 80, h: 28 };
+    drawButton(ctx, this.ejectConfirmBtn, `Eject ${d.qty}`, {
+      primary: true,
+      hover: hit(this.ejectConfirmBtn, pointerX, pointerY),
+    });
+    drawButton(ctx, this.ejectCancelBtn, "Back", {
+      hover: hit(this.ejectCancelBtn, pointerX, pointerY),
+    });
+  }
   private drawCompareColumn(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -489,7 +618,54 @@ export class ShipMenu {
     loadout: ShipLoadout,
     px: number,
     py: number,
+    cargo: CargoHold | null = null,
   ): ShipMenuClickResult {
+    if (this.ejectDraft) {
+      const d = this.ejectDraft;
+      if (d.phase === "confirmMission") {
+        if (hit(this.ejectConfirmBtn, px, py)) {
+          const out = {
+            action: "eject" as const,
+            commodityId: d.commodityId,
+            cu: d.qty,
+          };
+          this.ejectDraft = null;
+          return out;
+        }
+        if (hit(this.ejectCancelBtn, px, py)) {
+          d.phase = "pickQty";
+          return null;
+        }
+        return null;
+      }
+      if (hit(this.ejectMinusBtn, px, py) && d.qty > 1) {
+        d.qty -= 1;
+        return null;
+      }
+      if (hit(this.ejectPlusBtn, px, py) && d.qty < d.max) {
+        d.qty += 1;
+        return null;
+      }
+      if (hit(this.ejectConfirmBtn, px, py)) {
+        if (d.isMission) {
+          d.phase = "confirmMission";
+          return null;
+        }
+        const out = {
+          action: "eject" as const,
+          commodityId: d.commodityId,
+          cu: d.qty,
+        };
+        this.ejectDraft = null;
+        return out;
+      }
+      if (hit(this.ejectCancelBtn, px, py)) {
+        this.ejectDraft = null;
+        return null;
+      }
+      return null;
+    }
+
     if (hit(this.closeBtn, px, py)) return "close";
 
     for (let i = 0; i < this.slotRects.length; i += 1) {
@@ -501,9 +677,24 @@ export class ShipMenu {
     }
 
     if (this.mode === "view") {
+      for (const btn of this.missionCancelBtns) {
+        if (hit(btn.rect, px, py)) {
+          return { action: "cancelMission", missionId: btn.missionId };
+        }
+      }
       for (const btn of this.cargoEjectBtns) {
         if (hit(btn.rect, px, py)) {
-          return { action: "eject", commodityId: btn.commodityId };
+          const lot = cargo?.list().find((l) => l.id === btn.commodityId);
+          if (!lot || lot.cu <= 0) return null;
+          this.ejectDraft = {
+            commodityId: lot.id,
+            name: lot.name,
+            max: lot.cu,
+            qty: lot.cu,
+            isMission: isMissionCargoId(lot.id),
+            phase: "pickQty",
+          };
+          return null;
         }
       }
     }
@@ -515,7 +706,6 @@ export class ShipMenu {
           return null;
         }
       }
-
       if (hit(this.installBtn, px, py)) {
         const slot = loadout.slots[this.selectedIndex];
         const offer = this.offers[this.selectedOfferIndex];
@@ -528,6 +718,7 @@ export class ShipMenu {
     return null;
   }
 }
+
 
 function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
   if (mod.kind === "weapon") {

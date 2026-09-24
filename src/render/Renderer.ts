@@ -17,6 +17,7 @@ import type { ShipMenu } from "../ui/ShipMenu";
 import type { MarketMenu } from "../ui/MarketMenu";
 import type { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import type { HangarMenu } from "../ui/HangarMenu";
+import type { ActiveMission } from "../ship/missions";
 import type { Galaxy } from "../galaxy/Galaxy";
 
 export class Renderer {
@@ -54,6 +55,7 @@ export class Renderer {
     missionBoardOpen: boolean;
     hangarMenuOpen: boolean;
     chartHints: ChartPoiHints;
+    activeMissions: readonly ActiveMission[];
     panel: SystemPanel;
     galaxy: Galaxy;
     chart: GalaxyChart;
@@ -143,6 +145,7 @@ export class Renderer {
         args.pointerY,
         args.ship.hull.name,
         args.ship.cargo,
+        args.activeMissions,
       );
     } else if (args.marketMenuOpen) {
       args.marketMenu.draw(
