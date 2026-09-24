@@ -7,7 +7,7 @@ import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud } from "../ui/Hud";
-import type { GalaxyChart } from "../ui/GalaxyChart";
+import type { GalaxyChart, ChartPoiHints } from "../ui/GalaxyChart";
 import type { SystemPanel } from "../ui/SystemPanel";
 import type { MessageSidebar } from "../ui/MessageSidebar";
 import type { StationContextMenu } from "../ui/StationContextMenu";
@@ -15,6 +15,7 @@ import type { DockedMenu } from "../ui/DockedMenu";
 import type { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import type { ShipMenu } from "../ui/ShipMenu";
 import type { MarketMenu } from "../ui/MarketMenu";
+import type { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import type { Galaxy } from "../galaxy/Galaxy";
 
 export class Renderer {
@@ -49,11 +50,14 @@ export class Renderer {
     panelOpen: boolean;
     shipMenuOpen: boolean;
     marketMenuOpen: boolean;
+    missionBoardOpen: boolean;
+    chartHints: ChartPoiHints;
     panel: SystemPanel;
     galaxy: Galaxy;
     chart: GalaxyChart;
     shipMenu: ShipMenu;
     marketMenu: MarketMenu;
+    missionBoard: MissionBoardMenu;
     messages: MessageSidebar;
     stationMenu: StationContextMenu;
     dockedMenu: DockedMenu;
@@ -80,7 +84,7 @@ export class Renderer {
       const p = args.camera.worldToScreen(pirate.x, pirate.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPirate(p.x, p.y, pirate.heading, pirate.health);
-      } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen) {
+      } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen && !args.missionBoardOpen) {
         this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
       }
     }
@@ -104,6 +108,7 @@ export class Renderer {
         args.pointerX,
         args.pointerY,
         args.ship.loadout.jumpRange(),
+        args.chartHints,
       );
     } else if (args.panelOpen) {
       args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);
@@ -121,6 +126,15 @@ export class Renderer {
       args.marketMenu.draw(
         ctx,
         args.ship.cargo,
+        args.ship.credits,
+        w,
+        h,
+        args.pointerX,
+        args.pointerY,
+      );
+    } else if (args.missionBoardOpen) {
+      args.missionBoard.draw(
+        ctx,
         args.ship.credits,
         w,
         h,
