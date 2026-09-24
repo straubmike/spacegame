@@ -418,18 +418,31 @@ export const REPUTATION = {
 export const PATROL = {
   /** Chance a given station gets a patrol when entering its local view. */
   spawnChance: 0.62,
-  /** Orbit / loiter radius from the host station. */
-  loiterRadius: 55,
+  /** Half-size of the calm circuit rectangle around the host station. */
+  circuitRadius: 70,
   size: 12,
   radius: 13,
+  /** Extra click pad so fines are easy to open while idle/circuit. */
+  clickPad: 18,
   maxHealth: 12,
+  /** Hunt thrust vs player ship (only while chasing pirates). */
   speedFactor: 0.88,
+  /** Calm circuit cruise speed (world units / sec) — slow and readable. */
+  circuitSpeed: 55,
   fireCooldown: 0.55,
   damage: 1,
-  turnRateMul: 1.05,
+  turnRateMul: 0.85,
   color: "#6a9ec8",
   stroke: "#3a6a98",
   /** Engage pirates within this range of the patrol. */
   huntRange: 520,
   engageRange: 190,
+  /** Seconds sitting still (pirate-like idle) before starting a circuit. */
+  idleHoldMin: 4,
+  idleHoldMax: 9,
+  /** Seconds cruising the circuit before parking again. */
+  circuitHoldMin: 8,
+  circuitHoldMax: 14,
+  /** Arrive within this distance to advance to the next circuit corner. */
+  waypointArrive: 14,
 } as const;

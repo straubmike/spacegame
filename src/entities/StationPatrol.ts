@@ -2,9 +2,13 @@ import { COMBAT, PATROL, SHIP } from "../game/config";
 import { spawnProjectile, type Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
 
+type PatrolStance = "idle" | "circuit" | "hunt";
+
 /**
- * Station-affiliated patrol hull. Loiters near its host station and hunts
- * local pirates. Player fines are handled by Game via click (not combat).
+ * Station-affiliated patrol hull.
+ * Primary stance mirrors pirate idle (stable, clickable). Between hunts it
+ * occasionally cruises a calm rectangle around the host station — never spins
+ * chasing a moving orbit point. Player fines are handled by Game via click.
  */
 export class StationPatrol {
   health: number;
@@ -12,8 +16,13 @@ export class StationPatrol {
   vy = 0;
   heading: number;
   fireCooldown = 0;
-  /** Radians for idle orbit around the home station. */
-  private orbitAngle: number;
+
+  private stance: PatrolStance = "idle";
+  /** Countdown until switching idle ↔ circuit (when no pirates). */
+  private stanceTimer: number;
+  /** Index into the four circuit corners (N→E→S→W). */
+  private waypointIndex: number;
+  private readonly corners: { x: number; y: number }[];
 
   constructor(
     public x: number,
@@ -29,7 +38,17 @@ export class StationPatrol {
   ) {
     this.heading = heading;
     this.health = PATROL.maxHealth;
-    this.orbitAngle = Math.atan2(y - homeY, x - homeX);
+    const r = PATROL.circuitRadius;
+    // Rectangle circuit — lines, not a tight spin.
+    this.corners = [
+      { x: homeX, y: homeY - r },
+      { x: homeX + r, y: homeY },
+      { x: homeX, y: homeY + r },
+      { x: homeX - r, y: homeY },
+    ];
+    this.waypointIndex = nearestCornerIndex(x, y, this.corners);
+    // Stagger so not every patrol starts a circuit on the same frame.
+    this.stanceTimer = PATROL.idleHoldMin + Math.random() * (PATROL.idleHoldMax - PATROL.idleHoldMin);
   }
 
   get alive(): boolean {
@@ -53,7 +72,7 @@ export class StationPatrol {
   }
 
   /**
-   * Hunt nearest pirate or loiter at the host station.
+   * Hunt nearest pirate when in range; otherwise idle (stable) or calm circuit.
    * Shots are non-hostile (hurt pirates like player fire; never the player).
    */
   update(
@@ -66,10 +85,49 @@ export class StationPatrol {
 
     const target = this.nearestPirate(pirates);
     if (target) {
+      this.stance = "hunt";
       this.chaseAndFire(dt, target.x, target.y, outShots);
       return;
     }
-    this.loiter(dt);
+
+    // Leaving hunt: settle into idle so the ship is easy to click again.
+    if (this.stance === "hunt") {
+      this.enterIdle();
+    }
+
+    this.stanceTimer = Math.max(0, this.stanceTimer - dt);
+    if (this.stanceTimer <= 0) {
+      if (this.stance === "idle") {
+        this.enterCircuit();
+      } else {
+        this.enterIdle();
+      }
+    }
+
+    if (this.stance === "circuit") {
+      this.cruiseCircuit(dt);
+    } else {
+      // Pirate-like idle: kill velocity, hold heading — stable click target.
+      this.applyDrag(dt);
+      this.integrate(dt);
+    }
+  }
+
+  private enterIdle(): void {
+    this.stance = "idle";
+    this.stanceTimer =
+      PATROL.idleHoldMin +
+      Math.random() * (PATROL.idleHoldMax - PATROL.idleHoldMin);
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  private enterCircuit(): void {
+    this.stance = "circuit";
+    this.stanceTimer =
+      PATROL.circuitHoldMin +
+      Math.random() * (PATROL.circuitHoldMax - PATROL.circuitHoldMin);
+    this.waypointIndex = nearestCornerIndex(this.x, this.y, this.corners);
   }
 
   private nearestPirate(pirates: readonly Pirate[]): Pirate | null {
@@ -125,17 +183,33 @@ export class StationPatrol {
     }
   }
 
-  private loiter(dt: number): void {
-    this.orbitAngle += 0.35 * dt;
-    const destX = this.homeX + Math.cos(this.orbitAngle) * PATROL.loiterRadius;
-    const destY = this.homeY + Math.sin(this.orbitAngle) * PATROL.loiterRadius;
-    const dx = destX - this.x;
-    const dy = destY - this.y;
+  /**
+   * Slow straight-line legs between circuit corners (no orbit-chase spin).
+   */
+  private cruiseCircuit(dt: number): void {
+    const wp = this.corners[this.waypointIndex]!;
+    const dx = wp.x - this.x;
+    const dy = wp.y - this.y;
     const dist = Math.hypot(dx, dy);
-    if (dist > 8) {
-      this.turnToward(Math.atan2(dy, dx), dt);
-      this.thrust(dt * 0.7);
+
+    if (dist <= PATROL.waypointArrive) {
+      this.waypointIndex = (this.waypointIndex + 1) % this.corners.length;
+      this.applyDrag(dt);
+      this.integrate(dt);
+      return;
+    }
+
+    const desired = Math.atan2(dy, dx);
+    this.turnToward(desired, dt);
+
+    // Soft cruise: set velocity along heading at circuitSpeed (not full thrust).
+    const speed = PATROL.circuitSpeed;
+    const angleErr = Math.abs(shortestAngle(this.heading, desired));
+    if (angleErr < 0.45) {
+      this.vx = Math.cos(this.heading) * speed;
+      this.vy = Math.sin(this.heading) * speed;
     } else {
+      // Wait until roughly pointed at the next corner — prevents pirouettes.
       this.applyDrag(dt);
     }
     this.integrate(dt);
@@ -177,6 +251,24 @@ export class StationPatrol {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
   }
+}
+
+function nearestCornerIndex(
+  x: number,
+  y: number,
+  corners: readonly { x: number; y: number }[],
+): number {
+  let best = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < corners.length; i += 1) {
+    const c = corners[i]!;
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
 }
 
 function shortestAngle(from: number, to: number): number {

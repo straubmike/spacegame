@@ -231,7 +231,7 @@ export class Game {
       const angle =
         ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
         180;
-      const dist = PATROL.loiterRadius;
+      const dist = PATROL.circuitRadius;
       this.patrols.push(
         new StationPatrol(
           station.x + Math.cos(angle) * dist,
@@ -1216,7 +1216,7 @@ export class Game {
     for (const patrol of this.patrols) {
       if (!patrol.alive) continue;
       if (!this.reputation.hasOutstandingFine(patrol.stationKey)) continue;
-      const hitR = patrol.radius + DOCK.clickPad;
+      const hitR = patrol.radius + PATROL.clickPad;
       const dist = Math.hypot(world.x - patrol.x, world.y - patrol.y);
       if (dist <= hitR) {
         const fine = this.reputation.patrolFineCredits(patrol.stationKey);
