@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL } from "./config";
+import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, QUEST } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -11,10 +11,22 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { swapCost, type EquipModule } from "../ship/equipment";
-import { stationBayStock } from "../ship/stationStock";
+import {
+  stationBayStock,
+  stationBayWealth,
+  type StationStockContext,
+} from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
-import { hullById } from "../ship/hulls";
-import type { Landmark, LocalView } from "../galaxy/types";
+import {
+  generateStationMissions,
+  makeClearanceOffer,
+  missionCargoId,
+  questChartPoiIds,
+  stationRefFromLocal,
+  type ActiveMission,
+  type MissionOffer,
+} from "../ship/missions";
+import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
@@ -23,15 +35,17 @@ import { Projectile, spawnProjectile } from "../entities/Projectile";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
 import { Renderer } from "../render/Renderer";
-import { GalaxyChart } from "../ui/GalaxyChart";
+import { GalaxyChart, type ChartPoiHints } from "../ui/GalaxyChart";
 import { SystemPanel } from "../ui/SystemPanel";
 import { MessageSidebar } from "../ui/MessageSidebar";
 import { StationContextMenu } from "../ui/StationContextMenu";
-import { DockedMenu, type DockedQuestUi } from "../ui/DockedMenu";
+import { DockedMenu } from "../ui/DockedMenu";
 import { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
+import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
+import { hullById } from "../ship/hulls";
 
 type FadePhase = "idle" | "fadeOut" | "fadeIn";
 
@@ -43,13 +57,6 @@ type DockState =
   | { kind: "free" }
   | { kind: "approaching"; station: Landmark }
   | { kind: "docked"; station: Landmark };
-
-/** Active system clearance contract. */
-interface PirateQuest {
-  poiId: number;
-  stationKey: string;
-  targets: string[];
-}
 
 export class Game {
   private readonly keyboard: Keyboard;
@@ -68,19 +75,28 @@ export class Game {
   private readonly pirateMenu = new PirateFeeMenu();
   private readonly shipMenu = new ShipMenu();
   private readonly marketMenu = new MarketMenu();
+  private readonly missionBoard = new MissionBoardMenu();
   private readonly hangarMenu = new HangarMenu();
   /** Active market for the current dock session (mutated by trades). */
   private dockMarket: StationMarket | null = null;
+  /** Offers posted at the current dock (seeded per station). */
+  private dockMissionOffers: MissionOffer[] = [];
   /** Local views where the pirate fee has already been paid. */
   private readonly paidPirateViews = new Set<string>();
   /** Pirate slots permanently cleared (killed or driven off). */
   private readonly clearedPirateViews = new Set<string>();
   /** Eliminated pirates not yet cashed in at a station. */
   private pendingPirateKills = 0;
-  /** One active clearance quest per star system. */
-  private readonly pirateQuests = new Map<number, PirateQuest>();
-  /** Systems whose clearance quest has already been claimed. */
-  private readonly claimedPirateQuests = new Set<number>();
+  /** Accepted board missions (cargo / explore / clearance). */
+  private readonly activeMissions: ActiveMission[] = [];
+  /** Offer ids already taken this session (hide from boards). */
+  private readonly acceptedMissionIds = new Set<string>();
+  /** Systems whose clearance contract has already been claimed. */
+  private readonly claimedClearanceSystems = new Set<number>();
+  /** POIs the player has entered this session. */
+  private readonly visitedPoiIds = new Set<number>();
+  /** POIs scanned via exploration contracts. */
+  private readonly scannedPoiIds = new Set<number>();
 
   /** Stations that have granted docking clearance this local visit. */
   private readonly dockClearance = new Set<number>();
@@ -94,6 +110,7 @@ export class Game {
   private panelOpen = false;
   private shipMenuOpen = false;
   private marketMenuOpen = false;
+  private missionBoardOpen = false;
   private hangarMenuOpen = false;
   private fadePhase: FadePhase = "idle";
   private fadeTimer = 0;
@@ -115,6 +132,7 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
+    this.visitedPoiIds.add(GALAXY.startPoiId);
     this.enterLocal();
 
     this.loop = new Loop(
@@ -155,6 +173,7 @@ export class Game {
         ),
       );
     }
+    this.checkExploreScanProgress();
   }
 
   private pirateKey(poiId = this.local.poiId, bodyId = this.local.bodyId): string {
@@ -174,9 +193,12 @@ export class Game {
     this.pirateMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
+    this.dockMarket = null;
+    this.missionBoard.hide();
+    this.missionBoardOpen = false;
+    this.dockMissionOffers = [];
     this.hangarMenu.hide();
     this.hangarMenuOpen = false;
-    this.dockMarket = null;
   }
 
   /** Clear hail approvals when leaving / regenerating a local view. */
@@ -190,26 +212,103 @@ export class Game {
       this.panelOpen ||
       this.shipMenuOpen ||
       this.marketMenuOpen ||
+      this.missionBoardOpen ||
       this.hangarMenuOpen
     );
   }
 
-  private pirateAggroActive(): boolean {
-    return this.pirates.some((p) => p.alive && p.mode === "aggro");
+  private missionBoardHint(): string {
+    const claimable = this.activeMissions.filter(
+      (m) => m.status === "readyToClaim",
+    ).length;
+    if (claimable > 0) return `${claimable} ready`;
+    const n = this.activeMissions.length;
+    if (n > 0) return `${n} active`;
+    const open = this.visibleMissionOffers().length;
+    return open > 0 ? `${open} open` : "";
   }
 
-  private stations(): Landmark[] {
-    const list: Landmark[] = [];
-    if (this.local.focus.kind === "station") list.push(this.local.focus);
-    for (const c of this.local.companions) {
-      if (c.kind === "station") list.push(c);
+  private visibleMissionOffers(): MissionOffer[] {
+    return this.dockMissionOffers.filter(
+      (o) => !this.acceptedMissionIds.has(o.id),
+    );
+  }
+
+  private chartHints(): ChartPoiHints {
+    const questPoiIds = questChartPoiIds(this.activeMissions);
+    const selectableOutOfRange = new Set<number>([
+      ...this.visitedPoiIds,
+      ...this.scannedPoiIds,
+      ...questPoiIds,
+    ]);
+    return { selectableOutOfRange, questPoiIds };
+  }
+
+  private missionsForBoardUi(): ActiveMission[] {
+    const here =
+      this.dock.kind === "docked"
+        ? this.currentStationKey(this.dock.station)
+        : null;
+    return this.activeMissions.map((m) => {
+      if (m.kind === "explore") {
+        if (
+          m.scanned &&
+          here === m.originStationKey &&
+          m.status !== "readyToClaim"
+        ) {
+          return { ...m, status: "readyToClaim" as const };
+        }
+        return m;
+      }
+      if (m.kind === "clearance") {
+        const remaining = (m.pirateTargets ?? []).filter(
+          (k) => !this.clearedPirateViews.has(k),
+        );
+        const done = remaining.length === 0;
+        const atGiver = here === m.originStationKey;
+        return {
+          ...m,
+          pirateTargets: remaining,
+          status:
+            done && atGiver
+              ? ("readyToClaim" as const)
+              : ("inProgress" as const),
+        };
+      }
+      return m;
+    });
+  }
+
+  private buildDockMissionOffers(station: Landmark): MissionOffer[] {
+    const ref = stationRefFromLocal(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      station.id,
+      station.name,
+    );
+    const offers = ref ? generateStationMissions(this.galaxy, ref) : [];
+    if (!ref || this.local.poiType !== "starSystem") return offers;
+
+    const giver = this.questGiverForCurrentSystem();
+    if (
+      giver &&
+      giver.key === ref.key &&
+      !this.claimedClearanceSystems.has(this.local.poiId) &&
+      !this.acceptedMissionIds.has(`clearance:${this.local.poiId}`) &&
+      !this.activeMissions.some(
+        (m) => m.kind === "clearance" && m.originPoiId === this.local.poiId,
+      )
+    ) {
+      const targets = this.unclearedPirateKeys(this.local.poiId);
+      const clearance = makeClearanceOffer(
+        giver,
+        targets,
+        this.local.poiName,
+      );
+      if (clearance) offers.unshift(clearance);
     }
-    return list;
-  }
-
-  private currentStationKey(station: Landmark): string | null {
-    if (this.local.bodyId === null) return null;
-    return stationKey(this.local.poiId, this.local.bodyId, station.id);
+    return offers;
   }
 
   private questGiverForCurrentSystem(): SystemStationRef | null {
@@ -221,46 +320,6 @@ export class Game {
     return listSystemPirateKeys(this.galaxy, poiId).filter(
       (k) => !this.clearedPirateViews.has(k),
     );
-  }
-
-  private dockedQuestUi(station: Landmark): DockedQuestUi {
-    const empty: DockedQuestUi = {
-      canOffer: false,
-      inProgress: false,
-      canClaim: false,
-      remaining: 0,
-    };
-    if (this.local.poiType !== "starSystem") return empty;
-
-    const poiId = this.local.poiId;
-    const here = this.currentStationKey(station);
-    const giver = this.questGiverForCurrentSystem();
-    const quest = this.pirateQuests.get(poiId);
-    const claimed = this.claimedPirateQuests.has(poiId);
-    const remaining = this.unclearedPirateKeys(poiId).length;
-
-    if (quest) {
-      const atGiver = here !== null && here === quest.stationKey;
-      const done = quest.targets.every((k) => this.clearedPirateViews.has(k));
-      const canClaim = done && atGiver && !claimed;
-      return {
-        canOffer: false,
-        /** Keep a status row until claimed (incl. “return with proof”). */
-        inProgress: !canClaim,
-        canClaim,
-        remaining: quest.targets.filter((k) => !this.clearedPirateViews.has(k))
-          .length,
-      };
-    }
-
-    if (claimed || !giver || remaining === 0) return empty;
-    const atGiver = here !== null && here === giver.key;
-    return {
-      canOffer: atGiver,
-      inProgress: false,
-      canClaim: false,
-      remaining,
-    };
   }
 
   private redeemPendingKills(stationName: string): void {
@@ -286,10 +345,16 @@ export class Game {
     this.paidPirateViews.delete(key);
     if (killed) this.pendingPirateKills += 1;
 
-    const quest = this.pirateQuests.get(this.local.poiId);
-    if (quest && quest.targets.includes(key)) {
-      const left = quest.targets.filter((k) => !this.clearedPirateViews.has(k))
-        .length;
+    const clearance = this.activeMissions.find(
+      (m) =>
+        m.kind === "clearance" &&
+        m.originPoiId === this.local.poiId &&
+        (m.pirateTargets ?? []).includes(key),
+    );
+    if (clearance) {
+      const left = (clearance.pirateTargets ?? []).filter(
+        (k) => !this.clearedPirateViews.has(k),
+      ).length;
       if (left === 0) {
         this.messages.push(
           killed
@@ -314,56 +379,278 @@ export class Game {
     }
   }
 
-  private acceptPirateQuest(station: Landmark): void {
-    if (this.local.poiType !== "starSystem") return;
-    const poiId = this.local.poiId;
-    if (this.pirateQuests.has(poiId) || this.claimedPirateQuests.has(poiId)) {
+  /** On arriving in a local view — complete explore scans when at the target POI. */
+  private checkExploreScanProgress(): void {
+    this.visitedPoiIds.add(this.local.poiId);
+    for (const mission of this.activeMissions) {
+      if (mission.kind !== "explore" || mission.scanned) continue;
+      if (mission.targetPoiId !== this.local.poiId) continue;
+      mission.scanned = true;
+      this.scannedPoiIds.add(this.local.poiId);
+      this.messages.push(
+        `Scan complete: ${mission.targetPoiName}. Return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
+      );
+    }
+  }
+
+  private tryCompleteCargoDelivery(station: Landmark): void {
+    const here = this.currentStationKey(station);
+    if (!here) return;
+
+    const delivered: ActiveMission[] = [];
+    for (const mission of this.activeMissions) {
+      if (mission.kind !== "cargo") continue;
+      if (mission.destStationKey !== here) continue;
+      const lotId = missionCargoId(mission.id);
+      const need = mission.cu ?? 0;
+      if (this.ship.cargo.amountOf(lotId) < need) {
+        this.messages.push(
+          `${station.name}: Missing ${need} CU mission freight for "${mission.title}".`,
+          "station",
+        );
+        continue;
+      }
+      this.ship.cargo.remove(lotId, need);
+      this.ship.addCredits(mission.reward);
+      delivered.push(mission);
+      this.messages.push(
+        `${station.name}: Cargo delivered — ${mission.title} (+${mission.reward} cr).`,
+        "station",
+      );
+    }
+    for (const m of delivered) {
+      const i = this.activeMissions.indexOf(m);
+      if (i >= 0) this.activeMissions.splice(i, 1);
+    }
+  }
+
+  private syncExploreClaimableAtStation(station: Landmark): void {
+    const here = this.currentStationKey(station);
+    if (!here) return;
+    for (const mission of this.activeMissions) {
+      if (mission.kind === "explore") {
+        if (!mission.scanned) continue;
+        if (mission.originStationKey !== here) continue;
+        mission.status = "readyToClaim";
+        continue;
+      }
+      if (mission.kind === "clearance") {
+        const done = (mission.pirateTargets ?? []).every((k) =>
+          this.clearedPirateViews.has(k),
+        );
+        if (done && mission.originStationKey === here) {
+          mission.status = "readyToClaim";
+        }
+      }
+    }
+  }
+
+  private acceptBoardMission(missionId: string): void {
+    if (this.dock.kind !== "docked") return;
+    const offer = this.dockMissionOffers.find((o) => o.id === missionId);
+    if (!offer || this.acceptedMissionIds.has(missionId)) return;
+
+    if (offer.kind === "clearance") {
+      if (this.activeMissions.some((m) => m.kind === "clearance")) {
+        this.messages.push(
+          "Missions: Already running a pirate clearance contract.",
+          "station",
+        );
+        return;
+      }
+    } else if (this.activeMissions.length >= QUEST.maxActive) {
+      this.messages.push(
+        `Missions: Already holding ${QUEST.maxActive} contracts — complete one first.`,
+        "station",
+      );
       return;
     }
-    const giver = this.questGiverForCurrentSystem();
+
+    if (offer.kind === "cargo") {
+      const cu = offer.cu ?? 0;
+      const name = offer.commodityName ?? "Freight";
+      if (!this.ship.cargo.canStow(cu)) {
+        this.messages.push(
+          `Missions: Need ${cu} free CU (equip a cargo rack in the Bay).`,
+          "station",
+        );
+        return;
+      }
+      if (
+        !this.ship.cargo.stow({
+          id: missionCargoId(offer.id),
+          name: `Contract: ${name}`,
+          cu,
+        })
+      ) {
+        this.messages.push("Missions: Could not load freight.", "station");
+        return;
+      }
+    }
+
+    const active: ActiveMission = {
+      ...offer,
+      pirateTargets: offer.pirateTargets
+        ? [...offer.pirateTargets]
+        : undefined,
+      status: "inProgress",
+      scanned: false,
+    };
+    this.activeMissions.push(active);
+    this.acceptedMissionIds.add(offer.id);
+
+    let msg: string;
+    if (offer.kind === "cargo") {
+      msg = `Missions: Accepted — haul to ${offer.destStationName} (+${offer.reward} cr).`;
+    } else if (offer.kind === "clearance") {
+      const n = offer.pirateTargets?.length ?? 0;
+      msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
+    } else {
+      msg = `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
+    }
+    this.messages.push(msg, "station");
+    this.refreshMissionBoardUi();
+  }
+
+  private claimBoardMission(missionId: string): void {
+    if (this.dock.kind !== "docked") return;
+    const station = this.dock.station;
     const here = this.currentStationKey(station);
-    if (!giver || here !== giver.key) return;
+    const idx = this.activeMissions.findIndex((m) => m.id === missionId);
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
 
-    const targets = this.unclearedPirateKeys(poiId);
-    if (targets.length === 0) return;
+    if (mission.kind === "explore") {
+      if (!mission.scanned || here !== mission.originStationKey) {
+        this.messages.push(
+          `Missions: Finish the scan and return to ${mission.originStationName}.`,
+          "station",
+        );
+        return;
+      }
+      this.ship.addCredits(mission.reward);
+      this.activeMissions.splice(idx, 1);
+      this.messages.push(
+        `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
+        "station",
+      );
+      this.refreshMissionBoardUi();
+      return;
+    }
 
-    this.pirateQuests.set(poiId, {
-      poiId,
-      stationKey: giver.key,
-      targets,
-    });
+    if (mission.kind === "clearance") {
+      if (here !== mission.originStationKey) {
+        this.messages.push(
+          `Missions: Return to ${mission.originStationName} to claim clearance.`,
+          "station",
+        );
+        return;
+      }
+      const done = (mission.pirateTargets ?? []).every((k) =>
+        this.clearedPirateViews.has(k),
+      );
+      if (!done) {
+        this.messages.push(
+          "Missions: Pirates still remain in this system.",
+          "station",
+        );
+        return;
+      }
+      this.ship.addCredits(mission.reward);
+      this.activeMissions.splice(idx, 1);
+      this.claimedClearanceSystems.add(mission.originPoiId);
+      this.messages.push(
+        `${station.name}: System clearance confirmed (+${mission.reward} cr).`,
+        "station",
+      );
+      this.refreshMissionBoardUi();
+      return;
+    }
+
+    // Cargo pays on delivery; claim button is unused for cargo.
     this.messages.push(
-      `${station.name}: Contract accepted — clear ${targets.length} pirate${targets.length === 1 ? "" : "s"} in this system (+${ECONOMY.pirateQuestReward} cr).`,
+      "Missions: Deliver the freight at the destination station.",
       "station",
-    );
-    this.dockedMenu.refreshQuest(
-      this.dockedQuestUi(station),
-      window.innerWidth,
-      window.innerHeight,
     );
   }
 
-  private claimPirateQuest(station: Landmark): void {
-    if (this.local.poiType !== "starSystem") return;
-    const poiId = this.local.poiId;
-    const quest = this.pirateQuests.get(poiId);
-    if (!quest || this.claimedPirateQuests.has(poiId)) return;
-    const here = this.currentStationKey(station);
-    if (here !== quest.stationKey) return;
-    if (!quest.targets.every((k) => this.clearedPirateViews.has(k))) return;
+  private refreshMissionBoardUi(): void {
+    if (!this.missionBoardOpen) return;
+    this.missionBoard.refresh(
+      this.visibleMissionOffers(),
+      this.missionsForBoardUi(),
+      this.ship.cargo.freeCu,
+      this.activeMissions.filter((m) => m.kind !== "clearance").length <
+        QUEST.maxActive,
+    );
+  }
 
-    this.ship.addCredits(ECONOMY.pirateQuestReward);
-    this.pirateQuests.delete(poiId);
-    this.claimedPirateQuests.add(poiId);
-    this.messages.push(
-      `${station.name}: System clearance confirmed (+${ECONOMY.pirateQuestReward} cr).`,
-      "station",
+  private openMissionBoard(station: Landmark): void {
+    this.dockedMenu.hide();
+    this.marketMenuOpen = false;
+    this.marketMenu.hide();
+    this.shipMenuOpen = false;
+    this.shipMenu.openView();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
+    this.syncExploreClaimableAtStation(station);
+    this.missionBoard.show(
+      station.name,
+      this.visibleMissionOffers(),
+      this.missionsForBoardUi(),
+      this.ship.cargo.freeCu,
+      this.activeMissions.filter((m) => m.kind !== "clearance").length <
+        QUEST.maxActive,
     );
-    this.dockedMenu.refreshQuest(
-      this.dockedQuestUi(station),
-      window.innerWidth,
-      window.innerHeight,
-    );
+    this.missionBoardOpen = true;
+  }
+
+  private closeMissionBoard(): void {
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
+    if (this.dock.kind === "docked") {
+      this.dockedMenu.show(
+        this.dock.station.name,
+        window.innerWidth,
+        window.innerHeight,
+        this.missionBoardHint(),
+      );
+    }
+  }
+
+  private updateMissionBoard(): void {
+    if (!this.pointer.consumeClick()) return;
+    const result = this.missionBoard.handleClick(this.pointer.x, this.pointer.y);
+    if (result === "close") {
+      this.closeMissionBoard();
+      return;
+    }
+    if (!result || typeof result !== "object") return;
+    if (result.action === "accept") {
+      this.acceptBoardMission(result.missionId);
+      return;
+    }
+    if (result.action === "claim") {
+      this.claimBoardMission(result.missionId);
+    }
+  }
+
+  private pirateAggroActive(): boolean {
+    return this.pirates.some((p) => p.alive && p.mode === "aggro");
+  }
+
+  private stations(): Landmark[] {
+    const list: Landmark[] = [];
+    if (this.local.focus.kind === "station") list.push(this.local.focus);
+    for (const c of this.local.companions) {
+      if (c.kind === "station") list.push(c);
+    }
+    return list;
+  }
+
+  private currentStationKey(station: Landmark): string | null {
+    if (this.local.bodyId === null) return null;
+    return stationKey(this.local.poiId, this.local.bodyId, station.id);
   }
 
   private update(dt: number): void {
@@ -408,10 +695,12 @@ export class Game {
     }
 
     if (this.keyboard.consume("Escape")) {
-      if (this.marketMenuOpen) {
-        this.closeMarketMenu();
+      if (this.missionBoardOpen) {
+        this.closeMissionBoard();
       } else if (this.hangarMenuOpen) {
         this.closeHangarMenu();
+      } else if (this.marketMenuOpen) {
+        this.closeMarketMenu();
       } else if (this.shipMenuOpen) {
         this.closeShipMenu();
       } else if (this.stationMenu.open) {
@@ -448,8 +737,17 @@ export class Game {
       return;
     }
 
+    if (this.missionBoardOpen) {
+      this.updateMissionBoard();
+      const pose = this.ship.sample(1);
+      this.camera.follow(pose.x, pose.y);
+      return;
+    }
+
     if (this.hangarMenuOpen) {
       this.updateHangarMenu();
+      const pose = this.ship.sample(1);
+      this.camera.follow(pose.x, pose.y);
       return;
     }
 
@@ -687,15 +985,18 @@ export class Game {
     this.ship.y = station.y;
     this.projectiles = [];
     this.redeemPendingKills(station.name);
+    this.tryCompleteCargoDelivery(station);
+    this.syncExploreClaimableAtStation(station);
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
     this.dockMarket = createStationMarket(key);
+    this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
-      this.dockedQuestUi(station),
+      this.missionBoardHint(),
     );
     this.messages.push(`Docked at ${station.name}.`);
   }
@@ -729,14 +1030,6 @@ export class Game {
       }
       return;
     }
-    if (action === "acceptQuest") {
-      this.acceptPirateQuest(station);
-      return;
-    }
-    if (action === "claimQuest") {
-      this.claimPirateQuest(station);
-      return;
-    }
     if (action === "bay") {
       this.openBay(station);
       return;
@@ -747,6 +1040,10 @@ export class Game {
     }
     if (action === "market") {
       this.openMarket(station);
+      return;
+    }
+    if (action === "missions") {
+      this.openMissionBoard(station);
       return;
     }
     if (action === "launch") {
@@ -760,9 +1057,12 @@ export class Game {
     this.dockedMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
+    this.missionBoard.hide();
+    this.missionBoardOpen = false;
     this.hangarMenu.hide();
     this.hangarMenuOpen = false;
     this.dockMarket = null;
+    this.dockMissionOffers = [];
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
     const angle = this.ship.heading;
@@ -873,12 +1173,14 @@ export class Game {
   private updateGalaxyMenu(): void {
     if (!this.pointer.consumeClick()) return;
     const jumpRange = this.ship.jumpRange();
+    const hints = this.chartHints();
     const result = this.chart.handleClick(
       this.galaxy,
       this.local.poiId,
       this.pointer.x,
       this.pointer.y,
       jumpRange,
+      hints,
     );
     if (result === "close") {
       this.chartOpen = false;
@@ -895,6 +1197,8 @@ export class Game {
     this.pirateMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     if (this.dock.kind === "docked") {
@@ -908,14 +1212,39 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
+    const context = this.stationStockContext();
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
-    this.shipMenu.openBay(stationBayStock(key));
+    this.shipMenu.openBay(
+      stationBayStock(key, context),
+      stationBayWealth(key, context),
+    );
     this.shipMenuOpen = true;
   }
+
+  /** POI / host flavor used to gate bay module tiers. */
+  private stationStockContext(): StationStockContext {
+    let hostKind: HostKind = "rocky";
+    if (this.local.bodyId !== null && this.local.systemBodies) {
+      const body = this.local.systemBodies.find(
+        (b) => b.id === this.local.bodyId,
+      );
+      if (body) hostKind = body.kind;
+    } else if (this.local.focus.kind !== "station" && this.local.focus.kind !== "debris") {
+      hostKind = this.local.focus.kind;
+    }
+    return {
+      poiType: this.local.poiType,
+      hostKind,
+      starClass: this.local.starClass,
+    };
+  }
+
 
   private openHangar(station: Landmark): void {
     this.ship.stashActiveToFleet();
@@ -924,6 +1253,8 @@ export class Game {
     this.shipMenu.openView();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.hangarMenu.show(station.name);
     this.hangarMenuOpen = true;
   }
@@ -936,7 +1267,7 @@ export class Game {
         this.dock.station.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(this.dock.station),
+        this.missionBoardHint(),
       );
     }
   }
@@ -999,6 +1330,8 @@ export class Game {
     this.dockedMenu.hide();
     this.shipMenuOpen = false;
     this.shipMenu.openView();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     this.marketMenu.show(station.name, this.dockMarket);
@@ -1013,7 +1346,7 @@ export class Game {
         this.dock.station.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(this.dock.station),
+        this.missionBoardHint(),
       );
     }
   }
@@ -1105,7 +1438,7 @@ export class Game {
         dockedStation.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(dockedStation),
+        this.missionBoardHint(),
       );
     }
   }
@@ -1272,12 +1605,15 @@ export class Game {
       panelOpen: this.panelOpen,
       shipMenuOpen: this.shipMenuOpen,
       marketMenuOpen: this.marketMenuOpen,
+      missionBoardOpen: this.missionBoardOpen,
       hangarMenuOpen: this.hangarMenuOpen,
+      chartHints: this.chartHints(),
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,
       shipMenu: this.shipMenu,
       marketMenu: this.marketMenu,
+      missionBoard: this.missionBoard,
       hangarMenu: this.hangarMenu,
       messages: this.messages,
       stationMenu: this.stationMenu,

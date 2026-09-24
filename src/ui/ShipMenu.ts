@@ -4,11 +4,16 @@ import {
   rateOfFire,
   slotKindLabel,
   swapCost,
+  tierLabel,
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
 import type { ShipLoadout } from "../ship/Loadout";
-import { stockForSlot } from "../ship/stationStock";
+import {
+  stockForSlot,
+  wealthLabel,
+  type StationWealth,
+} from "../ship/stationStock";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type ShipMenuMode = "view" | "bay";
@@ -37,6 +42,8 @@ export class ShipMenu {
   selectedOfferIndex = 0;
   /** Modules this station sells (bay mode only). */
   stock: EquipModule[] = [];
+  /** Bay wealth label (bay mode only). */
+  wealth: StationWealth | null = null;
 
   private slotRects: Rect[] = [];
   private offerRects: Rect[] = [];
@@ -47,12 +54,14 @@ export class ShipMenu {
   openView(): void {
     this.mode = "view";
     this.stock = [];
+    this.wealth = null;
     this.selectedOfferIndex = 0;
   }
 
-  openBay(stock: EquipModule[]): void {
+  openBay(stock: EquipModule[], wealth: StationWealth | null = null): void {
     this.mode = "bay";
     this.stock = stock;
+    this.wealth = wealth;
     this.selectedOfferIndex = 0;
   }
 
@@ -91,7 +100,8 @@ export class ShipMenu {
 
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";
-      ctx.fillText(`CR ${credits}`, panel.x + 20, panel.y + 40);
+      const wealthBit = this.wealth ? ` · ${wealthLabel(this.wealth)}` : "";
+      ctx.fillText(`CR ${credits}${wealthBit}`, panel.x + 20, panel.y + 40);
     }
 
     const listX = panel.x + 16;
@@ -252,7 +262,7 @@ export class ShipMenu {
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(200, 220, 245, 0.95)";
-    ctx.fillText(mod.name, x, y + 28);
+    ctx.fillText(`${mod.name}  (${tierLabel(mod.tier)})`, x, y + 28);
 
     ctx.fillStyle = "rgba(140, 160, 190, 0.85)";
     const blurbLines = wrapText(mod.blurb, Math.max(18, Math.floor(w / 7)));
@@ -295,6 +305,10 @@ export class ShipMenu {
       }
       by += 18;
     }
+
+    by += 6;
+    ctx.fillStyle = "rgba(160, 180, 210, 0.8)";
+    ctx.fillText(`List  ${mod.price} cr`, x, by);
   }
 
   private drawStockList(
@@ -344,9 +358,11 @@ export class ShipMenu {
       ctx.font = FONT;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
       ctx.textBaseline = "middle";
-      const name =
-        offer.name.length > 16 ? `${offer.name.slice(0, 15)}…` : offer.name;
-      ctx.fillText(installed ? `${name} ✓` : name, row.x + 8, row.y + row.h / 2);
+      const mark = tierLabel(offer.tier);
+      const base =
+        offer.name.length > 12 ? `${offer.name.slice(0, 11)}…` : offer.name;
+      const name = installed ? `${base} ✓` : `${base} ${mark}`;
+      ctx.fillText(name, row.x + 8, row.y + row.h / 2);
       oy += rowH;
     });
 
