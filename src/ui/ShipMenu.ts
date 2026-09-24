@@ -120,7 +120,9 @@ export class ShipMenu {
     hullName = "Ship",
     cargo: CargoHold | null = null,
     missions: readonly ActiveMission[] = [],
+    reputation: ReputationListing = EMPTY_REP,
   ): void {
+    this.reputation = reputation;
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, width, height);
 
@@ -319,11 +321,12 @@ export class ShipMenu {
     const contentH = contentBottom - contentTop;
     const gap = 10;
 
-    const missionH = Math.max(96, Math.min(130, Math.floor(contentH * 0.22)));
-    const cargoH = Math.max(150, Math.min(210, Math.floor(contentH * 0.32)));
-    const repH = Math.max(100, Math.min(150, Math.floor(contentH * 0.24)));
+    const missionH = Math.max(90, Math.min(120, Math.floor(contentH * 0.2)));
+    const cargoH = Math.max(140, Math.min(190, Math.floor(contentH * 0.3)));
+    // Reputation needs room for factions + non-zero stations (was clipping stations).
+    const repH = Math.max(150, Math.min(220, Math.floor(contentH * 0.3)));
     const loadoutH = Math.max(
-      100,
+      90,
       contentH - missionH - cargoH - repH - gap * 3,
     );
 
@@ -559,7 +562,8 @@ export class ShipMenu {
   }
 
   /**
-   * Factions always listed (even Neutral 0). Stations only when non-zero.
+   * Stations (non-zero) first so they never get clipped by faction stubs.
+   * Factions always listed (even Neutral 0), compact after stations.
    */
   private drawReputationBand(
     ctx: CanvasRenderingContext2D,
@@ -579,38 +583,20 @@ export class ShipMenu {
     ctx.fillText("Reputation", x, y);
 
     ctx.font = FONT;
-    let ry = y + 26;
+    let ry = y + 24;
 
+    // --- Stations first (non-zero only) ---
     ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
-    ctx.fillText("Factions", x, ry);
-    ry += 18;
-
-    for (const f of this.reputation.factions) {
-      if (ry + 16 > y + h) break;
-      ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
-      ctx.fillText(f.label, x + 8, ry);
-      ctx.fillStyle = standingColor(f.score);
-      ctx.textAlign = "right";
-      ctx.fillText(formatStanding(f.score), x + w - 4, ry);
-      ctx.textAlign = "left";
-      ry += 16;
-    }
-
-    ry += 8;
-    if (ry + 16 <= y + h) {
-      ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
-      ctx.fillText("Stations", x, ry);
-      ry += 18;
-    }
+    ctx.fillText("Stations", x, ry);
+    ry += 16;
 
     if (this.reputation.stations.length === 0) {
-      if (ry + 14 <= y + h) {
-        ctx.fillStyle = "rgba(120, 140, 165, 0.75)";
-        ctx.fillText("None above Neutral yet.", x + 8, ry);
-      }
+      ctx.fillStyle = "rgba(120, 140, 165, 0.75)";
+      ctx.fillText("None above Neutral yet.", x + 8, ry);
+      ry += 16;
     } else {
       for (const s of this.reputation.stations) {
-        if (ry + 16 > y + h) break;
+        if (ry + 15 > y + h) break;
         const name =
           s.name.length > 22 ? `${s.name.slice(0, 21)}…` : s.name;
         ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
@@ -619,8 +605,30 @@ export class ShipMenu {
         ctx.textAlign = "right";
         ctx.fillText(formatStanding(s.score), x + w - 4, ry);
         ctx.textAlign = "left";
-        ry += 16;
+        ry += 15;
       }
+    }
+
+    ry += 8;
+    if (ry + 14 > y + h) {
+      ctx.restore();
+      return;
+    }
+
+    // --- Factions always (even at 0) ---
+    ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
+    ctx.fillText("Factions", x, ry);
+    ry += 16;
+
+    for (const f of this.reputation.factions) {
+      if (ry + 15 > y + h) break;
+      ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+      ctx.fillText(f.label, x + 8, ry);
+      ctx.fillStyle = standingColor(f.score);
+      ctx.textAlign = "right";
+      ctx.fillText(formatStanding(f.score), x + w - 4, ry);
+      ctx.textAlign = "left";
+      ry += 15;
     }
 
     ctx.restore();

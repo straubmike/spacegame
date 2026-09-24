@@ -242,7 +242,7 @@ export class Game {
       const angle =
         ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
         180;
-      const dist = PATROL.circuitRadius;
+      const dist = PATROL.spawnDistance;
       this.patrols.push(
         new StationPatrol(
           station.x + Math.cos(angle) * dist,
@@ -2229,6 +2229,7 @@ export class Game {
       hangarMenuOpen: this.hangarMenuOpen,
       chartHints: this.chartHints(),
       activeMissions: this.missionsForBoardUi(),
+      reputationListing: this.reputationListingForUi(),
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,
