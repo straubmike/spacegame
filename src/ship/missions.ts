@@ -3,7 +3,8 @@
  *
  * Archetypes:
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
- *   (cancel keeps freight as stolen — does not dump CU; reputation later)
+ *   (cancel at A's Missions board → cargo returned; cancel elsewhere → stolen;
+ *    reputation hit on steal later)
  * - explore: accept at A → visit/scan target POI → return to A → claim pay
  * - clearance: accept at giver → clear system pirates → return → claim pay
  *

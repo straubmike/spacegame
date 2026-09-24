@@ -812,43 +812,67 @@ export class Game {
       return;
     }
     if (result.action === "cancel") {
-      this.cancelBoardMission(result.missionId);
+      this.cancelBoardMission(result.missionId, { fromBoard: true });
     }
   }
 
-  /** Drop an active contract. Haul freight stays in the hold as stolen (not dumped).
-   * Offer stays in acceptedMissionIds so it does not reappear on that station's board. */
-  private cancelBoardMission(missionId: string): void {
+  /**
+   * Drop an active contract.
+   * - Cancel via origin station's Missions board → return haul freight (no steal).
+   * - Cancel elsewhere (L menu, or board away from origin) → keep freight as stolen.
+   * Offer stays in acceptedMissionIds so it does not reappear on that station's board.
+   */
+  private cancelBoardMission(
+    missionId: string,
+    opts: { fromBoard?: boolean } = {},
+  ): void {
     const idx = this.activeMissions.findIndex((m) => m.id === missionId);
     if (idx < 0) return;
     const mission = this.activeMissions[idx]!;
 
+    const here =
+      this.dock.kind === "docked"
+        ? this.currentStationKey(this.dock.station)
+        : null;
+    const atOriginBoard =
+      !!opts.fromBoard &&
+      here !== null &&
+      here === mission.originStationKey;
+
     let stoleCu = 0;
+    let returnedCu = 0;
     if (mission.kind === "cargo") {
       const lotId = missionCargoId(mission.id);
       const held = this.ship.cargo.amountOf(lotId);
       if (held > 0) {
         this.ship.cargo.remove(lotId, held);
-        const commodityId = mission.commodityId ?? "goods";
-        const name = mission.commodityName ?? "Freight";
-        // Net CU unchanged: remove frees space, then stow as stolen.
-        this.ship.cargo.stow({
-          id: stolenCargoId(commodityId),
-          name,
-          cu: held,
-        });
-        stoleCu = held;
+        if (atOriginBoard) {
+          // Abort at giver: cargo returned — do not keep as stolen.
+          returnedCu = held;
+        } else {
+          const commodityId = mission.commodityId ?? "goods";
+          const name = mission.commodityName ?? "Freight";
+          this.ship.cargo.stow({
+            id: stolenCargoId(commodityId),
+            name,
+            cu: held,
+          });
+          stoleCu = held;
+        }
       }
     }
 
     this.activeMissions.splice(idx, 1);
     // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
-    this.messages.push(
-      stoleCu > 0
-        ? `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`
-        : `Missions: Cancelled "${mission.title}".`,
-      "station",
-    );
+    let msg: string;
+    if (returnedCu > 0) {
+      msg = "Mission aborted, cargo returned.";
+    } else if (stoleCu > 0) {
+      msg = `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`;
+    } else {
+      msg = `Missions: Cancelled "${mission.title}".`;
+    }
+    this.messages.push(msg, "station");
     this.refreshMissionBoardUi();
   }
 
