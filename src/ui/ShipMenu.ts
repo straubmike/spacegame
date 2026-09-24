@@ -8,7 +8,14 @@ import {
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
-import { applyBayDiscount, formatStanding, type ReputationListing } from "../ship/reputation";
+import {
+  applyBayDiscount,
+  formatPirateStanding,
+  formatStanding,
+  pirateStandingBand,
+  standingBand,
+  type ReputationListing,
+} from "../ship/reputation";
 import type { ShipLoadout } from "../ship/Loadout";
 import type { CargoHold } from "../ship/CargoHold";
 import {
@@ -601,7 +608,7 @@ export class ShipMenu {
           s.name.length > 22 ? `${s.name.slice(0, 21)}…` : s.name;
         ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
         ctx.fillText(name, x + 8, ry);
-        ctx.fillStyle = standingColor(s.score);
+        ctx.fillStyle = stationStandingColor(s.score);
         ctx.textAlign = "right";
         ctx.fillText(formatStanding(s.score), x + w - 4, ry);
         ctx.textAlign = "left";
@@ -624,9 +631,9 @@ export class ShipMenu {
       if (ry + 15 > y + h) break;
       ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
       ctx.fillText(f.label, x + 8, ry);
-      ctx.fillStyle = standingColor(f.score);
+      ctx.fillStyle = pirateStandingColor(f.score);
       ctx.textAlign = "right";
-      ctx.fillText(formatStanding(f.score), x + w - 4, ry);
+      ctx.fillText(formatPirateStanding(f.score), x + w - 4, ry);
       ctx.textAlign = "left";
       ry += 15;
     }
@@ -1140,10 +1147,36 @@ function wrapText(text: string, maxChars: number): string[] {
   return lines;
 }
 
-function standingColor(score: number): string {
-  if (score <= -50) return "rgba(220, 120, 110, 0.95)";
-  if (score < 0) return "rgba(210, 170, 120, 0.95)";
-  if (score >= 50) return "rgba(140, 210, 160, 0.95)";
-  if (score > 0) return "rgba(160, 200, 170, 0.9)";
-  return "rgba(160, 180, 200, 0.85)";
+function stationStandingColor(score: number): string {
+  const band = standingBand(score);
+  switch (band) {
+    case "hostile":
+      return "rgba(220, 100, 95, 0.95)";
+    case "violation":
+      return "rgba(220, 140, 90, 0.95)";
+    case "unfriendly":
+      return "rgba(210, 170, 120, 0.95)";
+    case "friendly":
+      return "rgba(160, 200, 170, 0.9)";
+    case "allied":
+      return "rgba(140, 210, 160, 0.95)";
+    default:
+      return "rgba(160, 180, 200, 0.85)";
+  }
+}
+
+function pirateStandingColor(score: number): string {
+  const band = pirateStandingBand(score);
+  switch (band) {
+    case "hostile":
+      return "rgba(220, 100, 95, 0.95)";
+    case "unfriendly":
+      return "rgba(210, 170, 120, 0.95)";
+    case "friendly":
+      return "rgba(160, 200, 170, 0.9)";
+    case "allied":
+      return "rgba(140, 210, 160, 0.95)";
+    default:
+      return "rgba(160, 180, 200, 0.85)";
+  }
 }

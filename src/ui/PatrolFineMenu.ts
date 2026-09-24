@@ -2,14 +2,18 @@ import { FONT, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type PatrolFineMenuAction = "pay" | "close" | null;
 
+export type PatrolFineKind = "violation" | "unfriendly";
+
 /**
- * Click-popup to pay a station fine via a local patrol (clears negative standing).
+ * Click / warning popup to pay a station fine via a local patrol.
+ * Violation → Unfriendly; Unfriendly → Neutral. Hostile cannot pay.
  */
 export class PatrolFineMenu {
   open = false;
   stationName = "";
   fine = 0;
   standingLabel = "";
+  kind: PatrolFineKind = "unfriendly";
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private payBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -17,6 +21,7 @@ export class PatrolFineMenu {
     stationName: string,
     fine: number,
     standingLabel: string,
+    kind: PatrolFineKind,
     cursorX: number,
     cursorY: number,
     viewW: number,
@@ -26,8 +31,9 @@ export class PatrolFineMenu {
     this.stationName = stationName;
     this.fine = fine;
     this.standingLabel = standingLabel;
-    const w = 200;
-    const h = 110;
+    this.kind = kind;
+    const w = 220;
+    const h = 128;
     let x = cursorX + 8;
     let y = cursorY + 8;
     if (x + w > viewW - 8) x = cursorX - w - 8;
@@ -35,7 +41,7 @@ export class PatrolFineMenu {
     x = Math.max(8, x);
     y = Math.max(8, y);
     this.panel = { x, y, w, h };
-    this.payBtn = { x: x + 12, y: y + 70, w: w - 24, h: 28 };
+    this.payBtn = { x: x + 12, y: y + 88, w: w - 24, h: 28 };
   }
 
   hide(): void {
@@ -62,6 +68,12 @@ export class PatrolFineMenu {
       this.panel.x + 12,
       this.panel.y + 46,
     );
+    ctx.fillStyle = "rgba(150, 170, 195, 0.85)";
+    const outcome =
+      this.kind === "violation"
+        ? "Pay → Unfriendly (not Neutral)"
+        : "Pay → Neutral";
+    ctx.fillText(outcome, this.panel.x + 12, this.panel.y + 64);
 
     const canPay = credits >= this.fine && this.fine > 0;
     drawButton(ctx, this.payBtn, `Pay ${this.fine} cr`, {

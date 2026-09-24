@@ -1,14 +1,15 @@
 /**
  * Session reputation — per-station standings + pirate faction.
  *
- * Federations / guilds are design-only for now; merchants tariff is a stub
- * so market code can call it without inventing pricing later.
+ * Station ladder includes Violation between Unfriendly and Hostile.
+ * Federations / guilds are design-only; merchants tariff is a stub.
  */
 
 import { REPUTATION } from "../game/config";
 
 export type StandingBand =
   | "hostile"
+  | "violation"
   | "unfriendly"
   | "neutral"
   | "friendly"
@@ -40,7 +41,20 @@ export function clampStanding(score: number): number {
   return Math.max(REPUTATION.min, Math.min(REPUTATION.max, Math.round(score)));
 }
 
+/** Station standing bands (includes Violation). */
 export function standingBand(score: number): StandingBand {
+  if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
+  if (score <= REPUTATION.violationAtOrBelow) return "violation";
+  if (score <= REPUTATION.unfriendlyAtOrBelow) return "unfriendly";
+  if (score >= REPUTATION.alliedAtOrAbove) return "allied";
+  if (score >= REPUTATION.friendlyAtOrAbove) return "friendly";
+  return "neutral";
+}
+
+/**
+ * Pirate faction has no Violation band — fold that range into Unfriendly.
+ */
+export function pirateStandingBand(score: number): StandingBand {
   if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
   if (score <= REPUTATION.unfriendlyAtOrBelow) return "unfriendly";
   if (score >= REPUTATION.alliedAtOrAbove) return "allied";
@@ -52,6 +66,8 @@ export function standingBandLabel(band: StandingBand): string {
   switch (band) {
     case "hostile":
       return "Hostile";
+    case "violation":
+      return "Violation";
     case "unfriendly":
       return "Unfriendly";
     case "neutral":
@@ -63,9 +79,16 @@ export function standingBandLabel(band: StandingBand): string {
   }
 }
 
-/** e.g. "Friendly (+24)" */
+/** e.g. "Friendly (+24)" — uses station ladder (includes Violation). */
 export function formatStanding(score: number): string {
   const band = standingBandLabel(standingBand(score));
+  const signed = score > 0 ? `+${score}` : `${score}`;
+  return `${band} (${signed})`;
+}
+
+/** Pirate faction label — no Violation band. */
+export function formatPirateStanding(score: number): string {
+  const band = standingBandLabel(pirateStandingBand(score));
   const signed = score > 0 ? `+${score}` : `${score}`;
   return `${band} (${signed})`;
 }
@@ -100,7 +123,6 @@ export class ReputationTracker {
 
   /**
    * Apply a delta. Returns the new score (clamped).
-   * `target` is a station key, or {@link PIRATE_FACTION_ID}.
    * Optional `label` stores a display name for station rows.
    */
   adjust(target: string, delta: number, label?: string): number {
@@ -121,7 +143,7 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Absolute set (e.g. patrol fine clears standing to Neutral 0). */
+  /** Absolute set (fines, attack-patrol → Hostile). */
   setStanding(target: string, value: number, label?: string): number {
     if (label && target !== PIRATE_FACTION_ID) {
       this.stationLabels.set(target, label);
@@ -135,26 +157,48 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Negative standing unlocks patrol fine payoff. */
-  hasOutstandingFine(stationKey: string): boolean {
-    return this.stationStanding(stationKey) < 0;
+  /** Mark station Hostile (attacking a patrol). */
+  markHostile(stationKey: string, label?: string): number {
+    return this.setStanding(stationKey, REPUTATION.hostileAtOrBelow, label);
   }
 
-  /** Credits to clear a negative station standing via patrol. */
+  /**
+   * Redeemable fine available?
+   * Unfriendly (optional → Neutral) or Violation (→ Unfriendly). Hostile: never.
+   */
+  hasOutstandingFine(stationKey: string): boolean {
+    const band = standingBand(this.stationStanding(stationKey));
+    return band === "unfriendly" || band === "violation";
+  }
+
+  /** Credits to pay a patrol fine at the current standing. */
   patrolFineCredits(stationKey: string): number {
+    if (!this.hasOutstandingFine(stationKey)) return 0;
     const standing = this.stationStanding(stationKey);
-    if (standing >= 0) return 0;
     return Math.max(
       REPUTATION.patrolFineMin,
       Math.abs(standing) * REPUTATION.patrolFinePerPoint,
     );
   }
 
-  /** Hostile station standing blocks hail clearance / approach. */
+  /**
+   * Apply patrol fine payoff.
+   * Violation → Unfriendly floor; Unfriendly → Neutral 0. Hostile: no-op.
+   */
+  applyPatrolFine(stationKey: string, label?: string): number | null {
+    const band = standingBand(this.stationStanding(stationKey));
+    if (band === "hostile" || (band !== "unfriendly" && band !== "violation")) {
+      return null;
+    }
+    const next =
+      band === "violation" ? REPUTATION.unfriendlyFloor : 0;
+    return this.setStanding(stationKey, next, label);
+  }
+
+  /** Dock denied at Violation and Hostile. */
   allowsDock(stationKey: string): boolean {
-    return (
-      standingBand(this.stationStanding(stationKey)) !== "hostile"
-    );
+    const band = standingBand(this.stationStanding(stationKey));
+    return band !== "hostile" && band !== "violation";
   }
 
   /** Fraction off bay net install cost (0 … 1). */
@@ -167,12 +211,9 @@ export class ReputationTracker {
 
   /**
    * Pirate encounter stance override for the pack AI.
-   * - allied → skip fee (peaceful passage)
-   * - hostile → fight immediately
-   * - null → normal fee window
    */
   pirateEncounterOverride(): "skipFee" | "instantAggro" | null {
-    const band = standingBand(this.pirateStanding);
+    const band = pirateStandingBand(this.pirateStanding);
     if (band === "allied") return "skipFee";
     if (band === "hostile") return "instantAggro";
     return null;
@@ -181,7 +222,6 @@ export class ReputationTracker {
 
 /**
  * Merchants-guild tariff stub — always 1.0 until market tariffs exist.
- * Call sites can multiply buy/sell by this without redesign later.
  */
 export function merchantTariffMultiplier(_standing = 0): number {
   void _standing;

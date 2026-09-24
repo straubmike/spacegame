@@ -410,27 +410,36 @@ export const DOCK = {
 
 /**
  * Reputation — stations + pirate faction (first slice).
+ * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
 export const REPUTATION = {
   min: -100,
   max: 100,
-  /** Band thresholds (inclusive edges described in standingBand()). */
-  hostileAtOrBelow: -50,
-  unfriendlyAtOrBelow: -20,
+  /**
+   * Station bands (score ≤ threshold):
+   * Hostile ≤ −70 | Violation ≤ −40 | Unfriendly ≤ −15 | else Neutral until Friendly.
+   */
+  hostileAtOrBelow: -70,
+  violationAtOrBelow: -40,
+  unfriendlyAtOrBelow: -15,
   friendlyAtOrAbove: 20,
   alliedAtOrAbove: 50,
+  /** Least-bad Unfriendly score after paying a Violation fine. */
+  unfriendlyFloor: -15,
   /** Station deltas */
-  missionComplete: 10,
-  stealCargo: -25,
+  missionComplete: 12,
+  stealCargo: -22,
   cancelMissionMild: -5,
+  ejectStolenCargo: -8,
+  repairGoodwill: 3,
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
-  /** Patrol fine: max(min, abs(negativeStanding) * perPoint). */
+  /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
 } as const;
@@ -447,7 +456,7 @@ export const PATROL = {
   /** Extra click pad so fines are easy to open while idle/wander. */
   clickPad: 20,
   maxHealth: 12,
-  /** Hunt thrust vs player ship (only while chasing pirates). */
+  /** Hunt thrust vs player ship (only while chasing pirates / player). */
   speedFactor: 0.88,
   /** Slow cruise toward a wander destination (world units / sec). */
   wanderSpeed: 70,
@@ -456,7 +465,7 @@ export const PATROL = {
   turnRateMul: 0.85,
   color: "#6a9ec8",
   stroke: "#3a6a98",
-  /** Engage pirates within this range — farther than station-hug so they intercept. */
+  /** Engage pirates / hostile player within this range. */
   huntRange: 720,
   engageRange: 200,
   /** Mostly idle (pirate-like) before picking a new wander leg. */
@@ -475,4 +484,6 @@ export const PATROL = {
   waypointArrive: 18,
   /** Initial spawn distance from host station. */
   spawnDistance: 120,
+  /** Violation warning window before patrol goes aggro (seconds). */
+  warningSeconds: 60,
 } as const;
