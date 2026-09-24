@@ -10,7 +10,7 @@ export type PatrolPlayerLaw = "ignore" | "warn" | "aggro";
 export type PatrolUpdateResult = {
   /** True the frame a Violation warning window opens. */
   justWarned: boolean;
-  /** True the frame warning expires into combat. */
+  /** True the frame warning expires into combat (Game forces Hostile). */
   justAggroed: boolean;
 };
 

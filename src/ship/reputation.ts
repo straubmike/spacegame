@@ -143,7 +143,7 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Absolute set (fines, attack-patrol → Hostile). */
+  /** Absolute set (fines, attack-patrol / Violation-timeout → Hostile). */
   setStanding(target: string, value: number, label?: string): number {
     if (label && target !== PIRATE_FACTION_ID) {
       this.stationLabels.set(target, label);
@@ -157,7 +157,10 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Mark station Hostile (attacking a patrol). */
+  /**
+   * Mark station Hostile (unredeemable).
+   * Same outcome for attacking a patrol or letting a Violation window expire.
+   */
   markHostile(stationKey: string, label?: string): number {
     return this.setStanding(stationKey, REPUTATION.hostileAtOrBelow, label);
   }

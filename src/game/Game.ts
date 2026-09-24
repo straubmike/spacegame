@@ -1788,10 +1788,19 @@ export class Game {
         );
       }
       if (edge.justAggroed) {
+        // Ignoring the Violation window → same as attacking: force Hostile.
+        const before = this.reputation.stationStanding(patrol.stationKey);
+        const next = this.reputation.markHostile(
+          patrol.stationKey,
+          patrol.stationName,
+        );
         this.messages.push(
-          `${patrol.stationName} patrol: Fine unpaid — weapons free.`,
+          `${patrol.stationName} patrol: Window expired — you are now Hostile. Weapons free.`,
           "station",
         );
+        if (before > REPUTATION.hostileAtOrBelow) {
+          this.pushRepChange(patrol.stationName, next, next - before);
+        }
         this.patrolMenu.hide();
       }
     }
