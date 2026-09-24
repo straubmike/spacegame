@@ -73,6 +73,7 @@ export class ShipMenu {
     height: number,
     pointerX: number,
     pointerY: number,
+    hullName = "Ship",
   ): void {
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, width, height);
@@ -90,12 +91,12 @@ export class ShipMenu {
     ctx.font = FONT_TITLE;
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
-    ctx.fillText(this.mode === "bay" ? "Bay" : "Ship", panel.x + 20, panel.y + 18);
+    ctx.fillText(this.mode === "bay" ? "Bay" : hullName, panel.x + 20, panel.y + 18);
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(150, 175, 210, 0.75)";
-    const subtitle = this.mode === "bay" ? "Refit" : "Loadout";
-    ctx.fillText(subtitle, panel.x + panel.w - (this.mode === "bay" ? 60 : 88), panel.y + 22);
+    const subtitle = this.mode === "bay" ? `${hullName} · Refit` : "Loadout";
+    ctx.fillText(subtitle, panel.x + panel.w - (this.mode === "bay" ? 140 : 88), panel.y + 22);
 
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";

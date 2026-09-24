@@ -520,19 +520,19 @@ export const CATALOG: EquipModule[] = [
 export function createStarterSlots(): ShipSlot[] {
   return [
     {
-      id: "slot_weapon",
+      id: "slot_weapon_0",
       kind: "weapon",
       label: "Weapon",
       equipped: cloneModule(MODULES.energyPulse),
     },
     {
-      id: "slot_drive",
+      id: "slot_drive_0",
       kind: "drive",
       label: "Drive",
       equipped: cloneModule(MODULES.basicDrive),
     },
     {
-      id: "slot_utility",
+      id: "slot_utility_0",
       kind: "utility",
       label: "Utility",
       equipped: null,

@@ -4,6 +4,7 @@ import { FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 export type DockedMenuAction =
   | "repair"
   | "bay"
+  | "hangar"
   | "market"
   | "missions"
   | "launch"
@@ -19,6 +20,7 @@ export class DockedMenu {
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private repairBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private bayBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private hangarBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private marketBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private missionsBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -35,7 +37,7 @@ export class DockedMenu {
     this.missionBoardHint = missionBoardHint;
 
     const w = 280;
-    const rows = 5; // repair, bay, market, missions, launch
+    const rows = 6; // repair, bay, hangar, market, missions, launch
     const h = 56 + rows * 38 + 16;
     this.panel = {
       x: Math.floor((viewW - w) / 2),
@@ -49,6 +51,9 @@ export class DockedMenu {
     y += 38;
 
     this.bayBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
+    y += 38;
+
+    this.hangarBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
     y += 38;
 
     this.marketBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
@@ -100,6 +105,10 @@ export class DockedMenu {
       hover: hit(this.bayBtn, pointerX, pointerY),
     });
 
+    drawButton(ctx, this.hangarBtn, "Hangar", {
+      hover: hit(this.hangarBtn, pointerX, pointerY),
+    });
+
     drawButton(ctx, this.marketBtn, "Market", {
       hover: hit(this.marketBtn, pointerX, pointerY),
     });
@@ -121,6 +130,7 @@ export class DockedMenu {
     if (!this.open) return null;
     if (hit(this.repairBtn, px, py)) return "repair";
     if (hit(this.bayBtn, px, py)) return "bay";
+    if (hit(this.hangarBtn, px, py)) return "hangar";
     if (hit(this.marketBtn, px, py)) return "market";
     if (hit(this.missionsBtn, px, py)) return "missions";
     if (hit(this.launchBtn, px, py)) return "launch";
