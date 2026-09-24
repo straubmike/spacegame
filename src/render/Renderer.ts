@@ -7,7 +7,7 @@ import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud } from "../ui/Hud";
-import type { GalaxyChart } from "../ui/GalaxyChart";
+import type { GalaxyChart, ChartPoiHints } from "../ui/GalaxyChart";
 import type { SystemPanel } from "../ui/SystemPanel";
 import type { MessageSidebar } from "../ui/MessageSidebar";
 import type { StationContextMenu } from "../ui/StationContextMenu";
@@ -15,6 +15,8 @@ import type { DockedMenu } from "../ui/DockedMenu";
 import type { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import type { ShipMenu } from "../ui/ShipMenu";
 import type { MarketMenu } from "../ui/MarketMenu";
+import type { MissionBoardMenu } from "../ui/MissionBoardMenu";
+import type { HangarMenu } from "../ui/HangarMenu";
 import type { Galaxy } from "../galaxy/Galaxy";
 
 export class Renderer {
@@ -49,11 +51,16 @@ export class Renderer {
     panelOpen: boolean;
     shipMenuOpen: boolean;
     marketMenuOpen: boolean;
+    missionBoardOpen: boolean;
+    hangarMenuOpen: boolean;
+    chartHints: ChartPoiHints;
     panel: SystemPanel;
     galaxy: Galaxy;
     chart: GalaxyChart;
     shipMenu: ShipMenu;
     marketMenu: MarketMenu;
+    missionBoard: MissionBoardMenu;
+    hangarMenu: HangarMenu;
     messages: MessageSidebar;
     stationMenu: StationContextMenu;
     dockedMenu: DockedMenu;
@@ -80,7 +87,7 @@ export class Renderer {
       const p = args.camera.worldToScreen(pirate.x, pirate.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPirate(p.x, p.y, pirate);
-      } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen) {
+      } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen && !args.missionBoardOpen && !args.hangarMenuOpen) {
         this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
       }
     }
@@ -91,7 +98,15 @@ export class Renderer {
     }
 
     if (args.ship.alive) {
-      this.drawShip(shipScreen.x, shipScreen.y, pose.heading, args.thrusting);
+      this.drawShip(
+        shipScreen.x,
+        shipScreen.y,
+        pose.heading,
+        args.thrusting,
+        args.ship.hull.size,
+        args.ship.hull.fill,
+        args.ship.hull.stroke,
+      );
     }
 
     if (args.chartOpen) {
@@ -103,7 +118,8 @@ export class Renderer {
         h,
         args.pointerX,
         args.pointerY,
-        args.ship.loadout.jumpRange(),
+        args.ship.jumpRange(),
+        args.chartHints,
       );
     } else if (args.panelOpen) {
       args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);
@@ -116,12 +132,33 @@ export class Renderer {
         h,
         args.pointerX,
         args.pointerY,
+        args.ship.hull.name,
       );
     } else if (args.marketMenuOpen) {
       args.marketMenu.draw(
         ctx,
         args.ship.cargo,
         args.ship.credits,
+        w,
+        h,
+        args.pointerX,
+        args.pointerY,
+      );
+    } else if (args.missionBoardOpen) {
+      args.missionBoard.draw(
+        ctx,
+        args.ship.credits,
+        w,
+        h,
+        args.pointerX,
+        args.pointerY,
+      );
+    } else if (args.hangarMenuOpen) {
+      args.hangarMenu.draw(
+        ctx,
+        args.ship.fleet,
+        args.ship.credits,
+        args.ship.hull.name,
         w,
         h,
         args.pointerX,
@@ -847,8 +884,15 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawShip(x: number, y: number, heading: number, thrusting: boolean): void {
-    const size = SHIP.size;
+  private drawShip(
+    x: number,
+    y: number,
+    heading: number,
+    thrusting: boolean,
+    size: number = SHIP.size,
+    fill = "#c8d6e8",
+    stroke = "#6a8bb0",
+  ): void {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(x, y);
@@ -869,9 +913,9 @@ export class Renderer {
     ctx.lineTo(-size * 0.4, 0);
     ctx.lineTo(-size * 0.7, -size * 0.65);
     ctx.closePath();
-    ctx.fillStyle = "#c8d6e8";
+    ctx.fillStyle = fill;
     ctx.fill();
-    ctx.strokeStyle = "#6a8bb0";
+    ctx.strokeStyle = stroke;
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.restore();
