@@ -36,11 +36,11 @@ export class Ship {
   }
 
   get maxHull(): number {
-    return COMBAT.maxHealth + (this.loadout.utility?.hullBonus ?? 0);
+    return COMBAT.maxHealth + this.loadout.totalHullBonus;
   }
 
   get maxShield(): number {
-    return this.loadout.utility?.shieldMax ?? 0;
+    return this.loadout.primaryShieldUtility?.shieldMax ?? 0;
   }
 
   get missingHealth(): number {
@@ -48,11 +48,11 @@ export class Ship {
   }
 
   get passengerCapacity(): number {
-    return this.loadout.utility?.passengerCapacity ?? 0;
+    return this.loadout.totalPassengerCapacity;
   }
 
   /**
-   * Recompute hull/shield/cargo caps from the utility slot.
+   * Recompute hull/shield/cargo caps from fitted utilities.
    * Call after any utility equip change.
    * Hull max gains raise current HP by the same amount (no free full heal).
    */
@@ -60,8 +60,7 @@ export class Ship {
     opts: { refillShield?: boolean; previousMaxHull?: number } = {},
   ): void {
     const prevMaxHull = opts.previousMaxHull ?? this.maxHull;
-    const util = this.loadout.utility;
-    const nextMaxHull = COMBAT.maxHealth + (util?.hullBonus ?? 0);
+    const nextMaxHull = COMBAT.maxHealth + this.loadout.totalHullBonus;
     const hullGain = Math.max(0, nextMaxHull - prevMaxHull);
 
     if (hullGain > 0) {
@@ -69,14 +68,15 @@ export class Ship {
     }
     this.health = Math.min(this.health, nextMaxHull);
 
-    this.cargo.setCapacity(util?.cargoCapacity ?? 0);
+    this.cargo.setCapacity(this.loadout.totalCargoCapacity);
 
-    if ((util?.shieldMax ?? 0) <= 0) {
+    const shieldUtil = this.loadout.primaryShieldUtility;
+    if (!shieldUtil || shieldUtil.shieldMax <= 0) {
       this.shield = 0;
     } else if (opts.refillShield) {
-      this.shield = util!.shieldMax;
+      this.shield = shieldUtil.shieldMax;
     } else {
-      this.shield = Math.min(this.shield, util!.shieldMax);
+      this.shield = Math.min(this.shield, shieldUtil.shieldMax);
     }
   }
 
@@ -145,7 +145,7 @@ export class Ship {
    */
   tickDefense(dt: number): void {
     this.timeSinceDamage += dt;
-    const util = this.loadout.utility;
+    const util = this.loadout.primaryShieldUtility;
     if (!util || util.shieldMax <= 0) return;
     if (this.shield >= util.shieldMax) return;
     if (this.timeSinceDamage < util.shieldRegenDelay) return;

@@ -18,6 +18,7 @@ export const COMMODITIES: Commodity[] = [
   { id: "luxuries", name: "Luxuries", basePrice: 40 },
   { id: "narcotics", name: "Narcotics", basePrice: 48 },
   { id: "alloys", name: "Alloys", basePrice: 26 },
+  { id: "precious_metals", name: "Precious Metals", basePrice: 58 },
   { id: "fuel_cells", name: "Fuel Cells", basePrice: 14 },
 ];
 
@@ -67,11 +68,16 @@ export function createStationMarket(stationKey: string): StationMarket {
 
   const listings: MarketListing[] = [];
   for (const c of COMMODITIES) {
-    const present = rng() < 0.72;
+    // Belt ores: stations usually buy them so scoop farming has a sink.
+    const isBeltOre =
+      c.id === "minerals" ||
+      c.id === "alloys" ||
+      c.id === "precious_metals";
+    const present = isBeltOre ? rng() < 0.9 : rng() < 0.72;
     if (!present) continue;
 
-    const sells = rng() < 0.7;
-    const buys = rng() < 0.65;
+    const sells = isBeltOre ? rng() < 0.35 : rng() < 0.7;
+    const buys = isBeltOre ? rng() < 0.92 : rng() < 0.65;
     if (!sells && !buys) continue;
 
     const skew = 0.75 + rng() * 0.55;

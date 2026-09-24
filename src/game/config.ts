@@ -113,7 +113,7 @@ export const SYSTEM = {
    */
   habitableCapable: ["F", "G", "K"] as const,
   /** Chance a mid-system slot becomes an asteroid belt instead of rocky */
-  asteroidBeltChance: 0.28,
+  asteroidBeltChance: 0.42,
   starStationChance: 0.4,
   /** Stations only on solid worlds / gas giants — not belts */
   planetStationChance: 0.35,
@@ -201,6 +201,30 @@ export const ECONOMY = {
   redemptionPerPirate: 10,
   /** Bonus for completing a system pirate-clearance quest. */
   pirateQuestReward: 50,
+} as const;
+
+/**
+ * Asteroid-belt prospecting (Must-have 6).
+ * Requires Ore Scanner + Cargo Scoop equipped; yields are optional spice.
+ */
+export const SCOOP = {
+  /** Hold F while in range of a scanned rock to collect. */
+  collectKeyHint: "F",
+  /** Seconds of continuous scooping per 1 CU. */
+  secondsPerCu: 1.6,
+  /** How close (world units beyond rock radius) the scoop must be. */
+  rangePad: 6,
+  /** Max CU remaining on a rich rock when generated. */
+  rockYieldMin: 1,
+  rockYieldMax: 3,
+  /** Share of belt rocks that hold scoopable ore (rest are barren scenery). */
+  richRockChance: 0.28,
+  /** Among rich rocks: minerals / alloys / precious weights (sum ≈ 1). */
+  yieldWeights: {
+    minerals: 0.55,
+    alloys: 0.32,
+    precious_metals: 0.13,
+  },
 } as const;
 
 export const DOCK = {

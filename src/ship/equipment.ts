@@ -49,6 +49,16 @@ export interface UtilityModule extends ModuleBase {
   cargoCapacity: number;
   /** Passenger berths (not CU — people, not freight). */
   passengerCapacity: number;
+  /**
+   * World-unit range to reveal mineral-rich belt rocks (0 = no scan).
+   * Belt farming needs scan + scoop equipped together.
+   */
+  mineralScanRange: number;
+  /**
+   * World-unit scoop reach for collecting scanned ore (0 = no scoop).
+   * Belt farming needs scan + scoop equipped together.
+   */
+  scoopRange: number;
 }
 
 export type EquipModule = WeaponModule | DriveModule | UtilityModule;
@@ -152,6 +162,8 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   hullPlating: {
@@ -166,6 +178,8 @@ export const MODULES = {
     hullBonus: 3,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   cargoRack: {
@@ -180,6 +194,59 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 8,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+  } satisfies UtilityModule,
+
+  oreScanner: {
+    kind: "utility",
+    id: "ore_scanner",
+    name: "Ore Scanner",
+    blurb:
+      "Prospecting suite sensor. Lights up mineral veins in asteroid belts — pair with a Cargo Scoop to farm.",
+    price: 60,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 110,
+    scoopRange: 0,
+  } satisfies UtilityModule,
+
+  cargoScoop: {
+    kind: "utility",
+    id: "cargo_scoop",
+    name: "Cargo Scoop",
+    blurb:
+      "Magnetic intake for belt ore. Needs an Ore Scanner to find veins; includes a small hold for hauls.",
+    price: 70,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 6,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 48,
+  } satisfies UtilityModule,
+
+  passengerBerth: {
+    kind: "utility",
+    id: "passenger_berth",
+    name: "Passenger Berth",
+    blurb:
+      "Cabin space for paying travelers (berths, not CU). Required to accept passenger fare contracts.",
+    price: 90,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 4,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 } as const;
 
@@ -196,6 +263,9 @@ export const CATALOG: EquipModule[] = [
   MODULES.lightShield,
   MODULES.hullPlating,
   MODULES.cargoRack,
+  MODULES.oreScanner,
+  MODULES.cargoScoop,
+  MODULES.passengerBerth,
 ];
 
 export function createStarterSlots(): ShipSlot[] {
@@ -215,7 +285,13 @@ export function createStarterSlots(): ShipSlot[] {
     {
       id: "slot_utility",
       kind: "utility",
-      label: "Utility",
+      label: "Utility 1",
+      equipped: null,
+    },
+    {
+      id: "slot_utility_2",
+      kind: "utility",
+      label: "Utility 2",
       equipped: null,
     },
   ];

@@ -69,7 +69,7 @@ export class ShipMenu {
     ctx.fillRect(0, 0, width, height);
 
     const panelW = this.mode === "bay" ? Math.min(920, width - 40) : 520;
-    const panelH = Math.min(this.mode === "bay" ? 520 : 400, height - 40);
+    const panelH = Math.min(this.mode === "bay" ? 560 : 440, height - 40);
     const panel: Rect = {
       x: Math.floor((width - panelW) / 2),
       y: Math.floor((height - panelH) / 2),
@@ -518,6 +518,19 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       label: "Passengers",
       text: `${mod.passengerCapacity}`,
       value: mod.passengerCapacity,
+    },
+    {
+      label: "Ore scan",
+      text:
+        mod.mineralScanRange > 0
+          ? `${mod.mineralScanRange.toFixed(0)} u`
+          : "—",
+      value: mod.mineralScanRange,
+    },
+    {
+      label: "Scoop range",
+      text: mod.scoopRange > 0 ? `${mod.scoopRange.toFixed(0)} u` : "—",
+      value: mod.scoopRange,
     },
   ];
 }

@@ -70,7 +70,16 @@ export class Renderer {
     ctx.fillRect(0, 0, w, h);
 
     args.starfield.draw(ctx, w, h);
-    this.drawLocal(args.local, args.camera, w, h);
+    this.drawLocal(
+      args.local,
+      args.camera,
+      w,
+      h,
+      args.ship.x,
+      args.ship.y,
+      args.ship.loadout.mineralScanRange,
+      args.ship.loadout.canProspectBelts,
+    );
 
     const pose = args.ship.sample(args.alpha);
     const shipScreen = args.camera.worldToScreen(pose.x, pose.y, w, h);
@@ -141,6 +150,10 @@ export class Renderer {
         poiType: args.local.poiType,
         starClass: args.local.starClass,
         menuOpen: false,
+        inBelt: args.local.focus.kind === "asteroidBelt",
+        canProspect: args.ship.loadout.canProspectBelts,
+        hasScanner: args.ship.loadout.mineralScanRange > 0,
+        hasScoop: args.ship.loadout.scoopRange > 0,
       });
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(ctx, args.pointerX, args.pointerY);
@@ -255,10 +268,34 @@ export class Renderer {
     camera: Camera,
     width: number,
     height: number,
+    shipX: number,
+    shipY: number,
+    scanRange: number,
+    prospecting: boolean,
   ): void {
-    this.drawLandmark(local.focus, local, camera, width, height);
+    this.drawLandmark(
+      local.focus,
+      local,
+      camera,
+      width,
+      height,
+      shipX,
+      shipY,
+      scanRange,
+      prospecting,
+    );
     for (const c of local.companions) {
-      this.drawLandmark(c, local, camera, width, height);
+      this.drawLandmark(
+        c,
+        local,
+        camera,
+        width,
+        height,
+        shipX,
+        shipY,
+        scanRange,
+        prospecting,
+      );
     }
   }
 
@@ -268,6 +305,10 @@ export class Renderer {
     camera: Camera,
     width: number,
     height: number,
+    shipX: number,
+    shipY: number,
+    scanRange: number,
+    prospecting: boolean,
   ): void {
     const p = camera.worldToScreen(body.x, body.y, width, height);
     const margin =
@@ -310,7 +351,16 @@ export class Renderer {
         this.drawWorld(p.x, p.y, body.radius, BODY_COLORS.ice, false);
         break;
       case "asteroidBelt":
-        this.drawBelt(p.x, p.y, body.radius, body.id + local.poiId * 17);
+        this.drawBeltRocks(
+          local,
+          camera,
+          width,
+          height,
+          shipX,
+          shipY,
+          scanRange,
+          prospecting,
+        );
         break;
       case "station":
         this.drawStation(p.x, p.y, body.radius);
@@ -572,52 +622,66 @@ export class Renderer {
     }
   }
 
-  private drawBelt(x: number, y: number, span: number, seed: number): void {
+  private drawBeltRocks(
+    local: LocalView,
+    camera: Camera,
+    width: number,
+    height: number,
+    shipX: number,
+    shipY: number,
+    scanRange: number,
+    prospecting: boolean,
+  ): void {
+    const rocks = local.beltRocks;
+    if (!rocks || rocks.length === 0) return;
     const ctx = this.ctx;
-    const target = LOCAL.beltRockCount;
-    const halfLen = span;
-    const halfThick = LOCAL.beltThickness;
-    const falloff = LOCAL.beltDensityFalloff;
-    const minGap = LOCAL.beltMinGap;
-    const tilt = -0.06 + hash2(seed, 0) * 0.12;
-    const cos = Math.cos(tilt);
-    const sin = Math.sin(tilt);
+    const canScan = scanRange > 0;
 
-    const placed: { x: number; y: number; r: number }[] = [];
-    let attempts = 0;
-    const maxAttempts = target * 40;
-
-    while (placed.length < target && attempts < maxAttempts) {
-      const h1 = hash2(seed, attempts * 3 + 1);
-      const h2 = hash2(seed, attempts * 3 + 2);
-      const h3 = hash2(seed, attempts * 3 + 3);
-      attempts += 1;
-
-      const t = h1 * 2 - 1;
-      const along = Math.sign(t) * Math.pow(Math.abs(t), falloff) * halfLen;
-      const wing = 0.55 + 0.45 * (1 - Math.abs(along) / halfLen);
-      const across = (h2 - 0.5) * 2 * halfThick * wing;
-      const bow = (along / halfLen) * (along / halfLen) * halfThick * 0.12;
-      const rx = x + along * cos - (across + bow) * sin;
-      const ry = y + along * sin + (across + bow) * cos;
-      const size = 1.0 + h3 * 2.4;
-
-      let ok = true;
-      for (const p of placed) {
-        const need = p.r + size + minGap;
-        if (Math.hypot(rx - p.x, ry - p.y) < need) {
-          ok = false;
-          break;
-        }
+    for (const rock of rocks) {
+      const sp = camera.worldToScreen(rock.x, rock.y, width, height);
+      if (
+        sp.x < -20 ||
+        sp.y < -20 ||
+        sp.x > width + 20 ||
+        sp.y > height + 20
+      ) {
+        continue;
       }
-      if (!ok) continue;
 
-      placed.push({ x: rx, y: ry, r: size });
-      const g = 100 + h2 * 55;
+      const dist = Math.hypot(rock.x - shipX, rock.y - shipY);
+      const scanned =
+        canScan &&
+        rock.yieldId !== null &&
+        rock.remaining > 0 &&
+        dist <= scanRange;
+      const scoopable = prospecting && scanned;
+
+      const tone = 100 + ((rock.id * 37) % 55);
       ctx.beginPath();
-      ctx.arc(rx, ry, size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgb(${g * 0.88}, ${g * 0.85}, ${g * 0.92})`;
+      ctx.arc(sp.x, sp.y, rock.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgb(${tone * 0.88}, ${tone * 0.85}, ${tone * 0.92})`;
       ctx.fill();
+
+      if (scoopable) {
+        const ring =
+          rock.yieldId === "precious_metals"
+            ? "rgba(230, 190, 80, 0.85)"
+            : rock.yieldId === "alloys"
+              ? "rgba(140, 200, 230, 0.8)"
+              : "rgba(160, 180, 150, 0.7)";
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, rock.r + 3.5, 0, Math.PI * 2);
+        ctx.strokeStyle = ring;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (scanned) {
+        // Scanner alone: dim ping, no scoop ring.
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, rock.r + 2.5, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(180, 200, 220, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
   }
 

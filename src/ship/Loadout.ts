@@ -32,9 +32,69 @@ export class ShipLoadout {
     return m?.kind === "drive" ? m : null;
   }
 
+  /** First fitted utility (compat for single-slot call sites). */
   get utility(): UtilityModule | null {
-    const m = this.slotByKind("utility")?.equipped;
-    return m?.kind === "utility" ? m : null;
+    return this.utilities[0] ?? null;
+  }
+
+  /** All fitted utility modules (Utility 1 / Utility 2 / …). */
+  get utilities(): UtilityModule[] {
+    const out: UtilityModule[] = [];
+    for (const slot of this.slots) {
+      if (slot.kind === "utility" && slot.equipped?.kind === "utility") {
+        out.push(slot.equipped);
+      }
+    }
+    return out;
+  }
+
+  get mineralScanRange(): number {
+    let best = 0;
+    for (const u of this.utilities) {
+      if (u.mineralScanRange > best) best = u.mineralScanRange;
+    }
+    return best;
+  }
+
+  get scoopRange(): number {
+    let best = 0;
+    for (const u of this.utilities) {
+      if (u.scoopRange > best) best = u.scoopRange;
+    }
+    return best;
+  }
+
+  /** Belt farming unlocks only when both capabilities are fitted. */
+  get canProspectBelts(): boolean {
+    return this.mineralScanRange > 0 && this.scoopRange > 0;
+  }
+
+  get totalCargoCapacity(): number {
+    let n = 0;
+    for (const u of this.utilities) n += u.cargoCapacity;
+    return n;
+  }
+
+  get totalPassengerCapacity(): number {
+    let n = 0;
+    for (const u of this.utilities) n += u.passengerCapacity;
+    return n;
+  }
+
+  get totalHullBonus(): number {
+    let n = 0;
+    for (const u of this.utilities) n += u.hullBonus;
+    return n;
+  }
+
+  /** Strongest shield module wins (not stacked). */
+  get primaryShieldUtility(): UtilityModule | null {
+    let best: UtilityModule | null = null;
+    for (const u of this.utilities) {
+      if (u.shieldMax <= 0) continue;
+      if (!best || u.shieldMax > best.shieldMax) best = u;
+    }
+    return best;
   }
 
   slotByKind(kind: ShipSlot["kind"]): ShipSlot | undefined {
