@@ -1063,8 +1063,12 @@ export class Game {
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
-    if (this.marketMenuOpen && wheel !== 0) {
-      this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+    if (wheel !== 0) {
+      if (this.marketMenuOpen) {
+        this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      } else if (this.shipMenuOpen) {
+        this.shipMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      }
     }
 
     if (this.fadePhase !== "idle") {

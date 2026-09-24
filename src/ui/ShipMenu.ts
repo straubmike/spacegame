@@ -65,7 +65,8 @@ const EMPTY_REP: ReputationListing = { factions: [], stations: [] };
 /**
  * Ship loadout inspector (L) and station Bay.
  * View mode: Loadout / Missions / Cargo / Reputation bands (no overlap).
- * Cargo rows use market-style − / qty / + / Eject (mission freight confirms).
+ * Missions + Cargo lists scroll with the mouse wheel when the pointer is over
+ * that section. Cargo rows use market-style − / qty / + / Eject (mission freight confirms).
  */
 export class ShipMenu {
   mode: ShipMenuMode = "view";
@@ -91,6 +92,14 @@ export class ShipMenu {
   private confirmYesBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private confirmNoBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
+  /** L-menu Missions / Cargo list scroll (wheel when pointer over section). */
+  private missionsScroll = 0;
+  private cargoScroll = 0;
+  private missionsMaxScroll = 0;
+  private cargoMaxScroll = 0;
+  private missionsListRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private cargoListRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+
   openView(reputation: ReputationListing = EMPTY_REP): void {
     this.mode = "view";
     this.stock = [];
@@ -99,6 +108,8 @@ export class ShipMenu {
     this.reputation = reputation;
     this.selectedOfferIndex = 0;
     this.missionConfirm = null;
+    this.missionsScroll = 0;
+    this.cargoScroll = 0;
   }
 
   openBay(
@@ -413,10 +424,10 @@ export class ShipMenu {
     pointerX: number,
     pointerY: number,
   ): void {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
+    const titleH = 28;
+    const listTop = y + titleH;
+    const listH = Math.max(0, h - titleH);
+    this.missionsListRect = { x, y: listTop, w, h: listH };
 
     ctx.font = FONT_TITLE;
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
@@ -425,17 +436,28 @@ export class ShipMenu {
 
     ctx.font = FONT;
     if (missions.length === 0) {
+      this.missionsMaxScroll = 0;
+      this.missionsScroll = 0;
       ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
-      ctx.fillText("No active contracts.", x, y + 28);
-      ctx.restore();
+      ctx.fillText("No active contracts.", x, listTop);
       return;
     }
 
     const rowH = 44;
-    let ry = y + 28;
-    const bottom = y + h;
-    for (const m of missions) {
-      if (ry + rowH > bottom) break;
+    this.missionsMaxScroll = Math.max(0, missions.length * rowH - listH);
+    this.missionsScroll = Math.min(
+      Math.max(0, this.missionsScroll),
+      this.missionsMaxScroll,
+    );
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, listTop, w, listH);
+    ctx.clip();
+
+    missions.forEach((m, i) => {
+      const ry = listTop + i * rowH - this.missionsScroll;
+      if (ry + rowH < listTop || ry > listTop + listH) return;
 
       ctx.fillStyle = "rgba(28, 40, 30, 0.7)";
       ctx.fillRect(x, ry, w, rowH - 6);
@@ -459,9 +481,19 @@ export class ShipMenu {
       drawButton(ctx, btn, "Cancel", {
         hover: hit(btn, pointerX, pointerY),
       });
-      ry += rowH;
-    }
+    });
     ctx.restore();
+
+    this.drawBandScrollbar(
+      ctx,
+      x,
+      listTop,
+      w,
+      listH,
+      this.missionsScroll,
+      this.missionsMaxScroll,
+      missions.length * rowH,
+    );
   }
 
   private drawCargoBand(
@@ -476,10 +508,10 @@ export class ShipMenu {
   ): void {
     this.syncEjectQty(cargo);
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
+    const titleH = 28;
+    const listTop = y + titleH;
+    const listH = Math.max(0, h - titleH);
+    this.cargoListRect = { x, y: listTop, w, h: listH };
 
     const used = cargo?.usedCu ?? 0;
     const cap = cargo?.capacityCu ?? 0;
@@ -490,25 +522,38 @@ export class ShipMenu {
 
     ctx.font = FONT;
     if (!cargo || cap <= 0) {
+      this.cargoMaxScroll = 0;
+      this.cargoScroll = 0;
       ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
-      ctx.fillText("No hold fitted — equip a rack or scoop.", x, y + 28);
-      ctx.restore();
+      ctx.fillText("No hold fitted — equip a rack or scoop.", x, listTop);
       return;
     }
 
     const lots = cargo.list();
     if (lots.length === 0) {
+      this.cargoMaxScroll = 0;
+      this.cargoScroll = 0;
       ctx.fillStyle = "rgba(120, 140, 165, 0.8)";
-      ctx.fillText("Hold empty.", x, y + 28);
-      ctx.restore();
+      ctx.fillText("Hold empty.", x, listTop);
       return;
     }
 
     const rowH = 50;
-    let ry = y + 28;
-    const bottom = y + h;
-    for (const lot of lots) {
-      if (ry + rowH > bottom) break;
+    this.cargoMaxScroll = Math.max(0, lots.length * rowH - listH);
+    this.cargoScroll = Math.min(
+      Math.max(0, this.cargoScroll),
+      this.cargoMaxScroll,
+    );
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, listTop, w, listH);
+    ctx.clip();
+
+    lots.forEach((lot, i) => {
+      const ry = listTop + i * rowH - this.cargoScroll;
+      if (ry + rowH < listTop || ry > listTop + listH) return;
+
       const mission = isMissionCargoId(lot.id);
       const stolen = isStolenCargoId(lot.id);
       const qty = this.ejectQty.get(lot.id) ?? 1;
@@ -563,9 +608,107 @@ export class ShipMenu {
         plus,
         eject,
       });
-      ry += rowH;
-    }
+    });
     ctx.restore();
+
+    this.drawBandScrollbar(
+      ctx,
+      x,
+      listTop,
+      w,
+      listH,
+      this.cargoScroll,
+      this.cargoMaxScroll,
+      lots.length * rowH,
+    );
+  }
+
+  /** Thin scrollbar when a Missions/Cargo list overflows its band. */
+  private drawBandScrollbar(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    listTop: number,
+    w: number,
+    listH: number,
+    scroll: number,
+    maxScroll: number,
+    contentH: number,
+  ): void {
+    if (maxScroll <= 0 || listH <= 0 || contentH <= 0) return;
+    const trackX = x + w - 6;
+    const trackY = listTop;
+    const trackH = listH;
+    ctx.fillStyle = "rgba(40, 52, 70, 0.7)";
+    ctx.fillRect(trackX, trackY, 4, trackH);
+    const thumbH = Math.max(14, (listH / contentH) * trackH);
+    const thumbY = trackY + (scroll / maxScroll) * (trackH - thumbH);
+    ctx.fillStyle = "rgba(150, 175, 210, 0.75)";
+    ctx.fillRect(trackX, thumbY, 4, thumbH);
+  }
+
+  /**
+   * Apply mouse-wheel delta when the pointer is over the Missions or Cargo
+   * list. Returns true if scroll changed.
+   */
+  handleWheel(deltaY: number, px: number, py: number): boolean {
+    if (this.mode !== "view" || this.missionConfirm || deltaY === 0) {
+      return false;
+    }
+
+    if (this.missionsMaxScroll > 0 && hit(this.missionsListRect, px, py)) {
+      const next = Math.min(
+        this.missionsMaxScroll,
+        Math.max(0, this.missionsScroll + deltaY),
+      );
+      if (next === this.missionsScroll) return false;
+      this.missionsScroll = next;
+      return true;
+    }
+
+    if (this.cargoMaxScroll > 0 && hit(this.cargoListRect, px, py)) {
+      const next = Math.min(
+        this.cargoMaxScroll,
+        Math.max(0, this.cargoScroll + deltaY),
+      );
+      if (next === this.cargoScroll) return false;
+      this.cargoScroll = next;
+      return true;
+    }
+
+    // Also accept wheel over the section title / frame (just above the list).
+    const overMissions =
+      this.missionsMaxScroll > 0 &&
+      px >= this.missionsListRect.x &&
+      px <= this.missionsListRect.x + this.missionsListRect.w &&
+      py >= this.missionsListRect.y - 28 &&
+      py < this.missionsListRect.y;
+    if (overMissions) {
+      const next = Math.min(
+        this.missionsMaxScroll,
+        Math.max(0, this.missionsScroll + deltaY),
+      );
+      if (next === this.missionsScroll) return false;
+      this.missionsScroll = next;
+      return true;
+    }
+
+    const overCargo =
+      this.cargoMaxScroll > 0 &&
+      px >= this.cargoListRect.x &&
+      px <= this.cargoListRect.x + this.cargoListRect.w &&
+      py >= this.cargoListRect.y - 28 &&
+      py < this.cargoListRect.y;
+    if (overCargo) {
+      const next = Math.min(
+        this.cargoMaxScroll,
+        Math.max(0, this.cargoScroll + deltaY),
+      );
+      if (next === this.cargoScroll) return false;
+      this.cargoScroll = next;
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -930,37 +1073,42 @@ export class ShipMenu {
     }
 
     if (this.mode === "view") {
-      for (const btn of this.missionCancelBtns) {
-        if (hit(btn.rect, px, py)) {
-          return { action: "cancelMission", missionId: btn.missionId };
+      // Only hit rows inside the clipped list (ignore scrolled-off fragments).
+      if (hit(this.missionsListRect, px, py)) {
+        for (const btn of this.missionCancelBtns) {
+          if (hit(btn.rect, px, py)) {
+            return { action: "cancelMission", missionId: btn.missionId };
+          }
         }
       }
 
-      for (const row of this.cargoRows) {
-        const lot = cargo?.list().find((l) => l.id === row.commodityId);
-        if (!lot) continue;
-        const qty = this.ejectQty.get(row.commodityId) ?? 1;
+      if (hit(this.cargoListRect, px, py)) {
+        for (const row of this.cargoRows) {
+          const lot = cargo?.list().find((l) => l.id === row.commodityId);
+          if (!lot) continue;
+          const qty = this.ejectQty.get(row.commodityId) ?? 1;
 
-        if (hit(row.minus, px, py) && qty > 1) {
-          this.ejectQty.set(row.commodityId, qty - 1);
-          return null;
-        }
-        if (hit(row.plus, px, py) && qty < lot.cu) {
-          this.ejectQty.set(row.commodityId, qty + 1);
-          return null;
-        }
-        if (hit(row.eject, px, py)) {
-          const amount = Math.min(qty, lot.cu);
-          if (amount <= 0) return null;
-          if (isMissionCargoId(lot.id)) {
-            this.missionConfirm = {
-              commodityId: lot.id,
-              name: lot.name,
-              cu: amount,
-            };
+          if (hit(row.minus, px, py) && qty > 1) {
+            this.ejectQty.set(row.commodityId, qty - 1);
             return null;
           }
-          return { action: "eject", commodityId: lot.id, cu: amount };
+          if (hit(row.plus, px, py) && qty < lot.cu) {
+            this.ejectQty.set(row.commodityId, qty + 1);
+            return null;
+          }
+          if (hit(row.eject, px, py)) {
+            const amount = Math.min(qty, lot.cu);
+            if (amount <= 0) return null;
+            if (isMissionCargoId(lot.id)) {
+              this.missionConfirm = {
+                commodityId: lot.id,
+                name: lot.name,
+                cu: amount,
+              };
+              return null;
+            }
+            return { action: "eject", commodityId: lot.id, cu: amount };
+          }
         }
       }
     }
