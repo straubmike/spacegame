@@ -2,7 +2,13 @@ import { COMBAT, PATROL, SHIP } from "../game/config";
 import { spawnProjectile, type Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
 
-type PatrolStance = "idle" | "wander" | "huntPirate" | "warn" | "aggroPlayer";
+type PatrolStance =
+  | "idle"
+  | "wander"
+  | "huntPirate"
+  | "scan"
+  | "warn"
+  | "aggroPlayer";
 
 /** How the patrol treats the player, from host-station standing. */
 export type PatrolPlayerLaw = "ignore" | "warn" | "aggro";
@@ -12,6 +18,10 @@ export type PatrolUpdateResult = {
   justWarned: boolean;
   /** True the frame warning expires into combat (Game forces Hostile). */
   justAggroed: boolean;
+  /** True the frame an illegal-cargo scan comms opens. */
+  justStartedScan: boolean;
+  /** True the frame a scan completes (Game resolves cargo / debt). */
+  justCompletedScan: boolean;
 };
 
 /**
@@ -31,6 +41,11 @@ export class StationPatrol {
   /** Violation warning countdown (seconds); 0 = inactive. */
   warningTimer = 0;
   private warningArmed = false;
+
+  /** Illegal-cargo scan countdown (seconds); 0 = inactive. */
+  scanTimer = 0;
+  /** Cooldown before another opportunistic scan. */
+  private scanCooldown = 0;
 
   private stance: PatrolStance = "idle";
   private stanceTimer: number;
@@ -78,6 +93,7 @@ export class StationPatrol {
     this.defending = true;
     this.warningTimer = 0;
     this.warningArmed = false;
+    this.scanTimer = 0;
     this.stance = "aggroPlayer";
     this.wanderTarget = null;
   }
@@ -91,9 +107,21 @@ export class StationPatrol {
     }
   }
 
+  get isScanning(): boolean {
+    return this.scanTimer > 0;
+  }
+
+  /** Abort an in-progress scan (e.g. player attacked the patrol). */
+  abortScan(): void {
+    this.scanTimer = 0;
+    if (this.stance === "scan" && !this.defending) {
+      this.enterIdle();
+    }
+  }
+
   /**
    * @param law ignore | warn (Violation) | aggro (Hostile)
-   * Returns warn/aggro edge events for Game messaging / UI.
+   * Returns warn/aggro/scan edge events for Game messaging / UI.
    */
   update(
     dt: number,
@@ -103,15 +131,23 @@ export class StationPatrol {
     outShots: Projectile[],
     law: PatrolPlayerLaw,
   ): PatrolUpdateResult {
-    const result: PatrolUpdateResult = { justWarned: false, justAggroed: false };
+    const result: PatrolUpdateResult = {
+      justWarned: false,
+      justAggroed: false,
+      justStartedScan: false,
+      justCompletedScan: false,
+    };
     if (!this.alive) return result;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.scanCooldown = Math.max(0, this.scanCooldown - dt);
 
     const distPlayer = Math.hypot(playerX - this.x, playerY - this.y);
     const playerInRange = distPlayer <= PATROL.huntRange;
+    const playerInScanRange = distPlayer <= PATROL.scanRange;
 
     // Defending or Hostile standing → fight the player.
     if (this.defending || law === "aggro") {
+      if (this.scanTimer > 0) this.abortScan();
       if (this.stance !== "aggroPlayer") {
         this.stance = "aggroPlayer";
         this.wanderTarget = null;
@@ -120,8 +156,9 @@ export class StationPatrol {
       return result;
     }
 
-    // Violation: warning window then aggro.
+    // Violation: warning window then aggro. No new scans while warning.
     if (law === "warn") {
+      if (this.scanTimer > 0) this.abortScan();
       if (playerInRange) {
         if (!this.warningArmed) {
           this.warningArmed = true;
@@ -165,6 +202,48 @@ export class StationPatrol {
       this.warningTimer = 0;
     }
 
+    // Active illegal-cargo scan: finish countdown even if player flees.
+    if (this.scanTimer > 0) {
+      this.stance = "scan";
+      this.wanderTarget = null;
+      this.scanTimer = Math.max(0, this.scanTimer - dt);
+      if (this.scanTimer <= 0) {
+        result.justCompletedScan = true;
+        this.scanCooldown = PATROL.scanCooldownSeconds;
+        this.enterIdle();
+      } else {
+        // Soft-face the player; still swat nearby pirates.
+        const pirate = this.nearestPirate(pirates);
+        if (pirate) {
+          this.chaseAndFire(dt, pirate.x, pirate.y, outShots, false);
+        } else {
+          this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
+          this.applyDrag(dt);
+          this.integrate(dt);
+        }
+        return result;
+      }
+      // Fall through after completion so idle/hunt resumes this frame.
+    }
+
+    // Opportunistic scan while Neutral / Unfriendly / Friendly / Allied (ignore law).
+    // Hostile/warn handled above. Slightly elevated chance for playtest visibility.
+    if (
+      law === "ignore" &&
+      this.scanCooldown <= 0 &&
+      playerInScanRange &&
+      Math.random() < PATROL.scanChancePerSecond * dt
+    ) {
+      this.scanTimer = PATROL.scanSeconds;
+      this.stance = "scan";
+      this.wanderTarget = null;
+      result.justStartedScan = true;
+      this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
+      this.applyDrag(dt);
+      this.integrate(dt);
+      return result;
+    }
+
     // Ignore / Unfriendly: hunt pirates, idle, wander.
     const pirate = this.nearestPirate(pirates);
     if (pirate) {
@@ -174,7 +253,11 @@ export class StationPatrol {
       return result;
     }
 
-    if (this.stance === "huntPirate" || this.stance === "warn") {
+    if (
+      this.stance === "huntPirate" ||
+      this.stance === "warn" ||
+      this.stance === "scan"
+    ) {
       this.enterIdle();
     }
 
