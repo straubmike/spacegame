@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, SHIP } from "./config";
+import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -13,6 +13,7 @@ import {
 import { swapCost, type EquipModule } from "../ship/equipment";
 import { stationBayStock } from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
+import { hullById } from "../ship/hulls";
 import type { Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
@@ -30,6 +31,7 @@ import { DockedMenu, type DockedQuestUi } from "../ui/DockedMenu";
 import { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
+import { HangarMenu } from "../ui/HangarMenu";
 
 type FadePhase = "idle" | "fadeOut" | "fadeIn";
 
@@ -66,6 +68,7 @@ export class Game {
   private readonly pirateMenu = new PirateFeeMenu();
   private readonly shipMenu = new ShipMenu();
   private readonly marketMenu = new MarketMenu();
+  private readonly hangarMenu = new HangarMenu();
   /** Active market for the current dock session (mutated by trades). */
   private dockMarket: StationMarket | null = null;
   /** Local views where the pirate fee has already been paid. */
@@ -91,6 +94,7 @@ export class Game {
   private panelOpen = false;
   private shipMenuOpen = false;
   private marketMenuOpen = false;
+  private hangarMenuOpen = false;
   private fadePhase: FadePhase = "idle";
   private fadeTimer = 0;
   private fadeAlpha = 0;
@@ -170,6 +174,8 @@ export class Game {
     this.pirateMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
+    this.hangarMenu.hide();
+    this.hangarMenuOpen = false;
     this.dockMarket = null;
   }
 
@@ -183,7 +189,8 @@ export class Game {
       this.chartOpen ||
       this.panelOpen ||
       this.shipMenuOpen ||
-      this.marketMenuOpen
+      this.marketMenuOpen ||
+      this.hangarMenuOpen
     );
   }
 
@@ -403,6 +410,8 @@ export class Game {
     if (this.keyboard.consume("Escape")) {
       if (this.marketMenuOpen) {
         this.closeMarketMenu();
+      } else if (this.hangarMenuOpen) {
+        this.closeHangarMenu();
       } else if (this.shipMenuOpen) {
         this.closeShipMenu();
       } else if (this.stationMenu.open) {
@@ -436,6 +445,11 @@ export class Game {
 
     if (this.marketMenuOpen) {
       this.updateMarketMenu();
+      return;
+    }
+
+    if (this.hangarMenuOpen) {
+      this.updateHangarMenu();
       return;
     }
 
@@ -727,6 +741,10 @@ export class Game {
       this.openBay(station);
       return;
     }
+    if (action === "hangar") {
+      this.openHangar(station);
+      return;
+    }
     if (action === "market") {
       this.openMarket(station);
       return;
@@ -742,13 +760,16 @@ export class Game {
     this.dockedMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
+    this.hangarMenu.hide();
+    this.hangarMenuOpen = false;
     this.dockMarket = null;
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
     const angle = this.ship.heading;
+    const size = this.ship.hull.size;
     this.ship.arriveAt(
-      station.x + Math.cos(angle) * (station.radius + SHIP.size * 2),
-      station.y + Math.sin(angle) * (station.radius + SHIP.size * 2),
+      station.x + Math.cos(angle) * (station.radius + size * 2),
+      station.y + Math.sin(angle) * (station.radius + size * 2),
       angle,
     );
     this.messages.push(`Launched from ${station.name}.`);
@@ -765,16 +786,23 @@ export class Game {
       this.ship.loadout.canFire();
 
     if (canFire) {
-      this.projectiles.push(
-        spawnProjectile(
-          this.ship.x,
-          this.ship.y,
-          this.ship.heading,
-          SHIP.size,
-          false,
-        ),
-      );
-      this.ship.loadout.consumeAmmo();
+      const shots = this.ship.loadout.fireWeaponCount();
+      const size = this.ship.hull.size;
+      const spread =
+        shots > 1 ? (8 * Math.PI) / 180 / Math.max(1, shots - 1) : 0;
+      const start = shots > 1 ? -spread * ((shots - 1) / 2) : 0;
+      for (let i = 0; i < shots; i += 1) {
+        this.projectiles.push(
+          spawnProjectile(
+            this.ship.x,
+            this.ship.y,
+            this.ship.heading + start + spread * i,
+            size,
+            false,
+          ),
+        );
+      }
+      this.ship.loadout.consumeAmmo(shots);
       this.fireCooldown = this.ship.loadout.fireCooldown();
     }
 
@@ -844,7 +872,7 @@ export class Game {
 
   private updateGalaxyMenu(): void {
     if (!this.pointer.consumeClick()) return;
-    const jumpRange = this.ship.loadout.jumpRange();
+    const jumpRange = this.ship.jumpRange();
     const result = this.chart.handleClick(
       this.galaxy,
       this.local.poiId,
@@ -867,6 +895,8 @@ export class Game {
     this.pirateMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
     if (this.dock.kind === "docked") {
       this.dockedMenu.hide();
     }
@@ -881,8 +911,82 @@ export class Game {
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
     this.shipMenu.openBay(stationBayStock(key));
     this.shipMenuOpen = true;
+  }
+
+  private openHangar(station: Landmark): void {
+    this.ship.stashActiveToFleet();
+    this.dockedMenu.hide();
+    this.shipMenuOpen = false;
+    this.shipMenu.openView();
+    this.marketMenuOpen = false;
+    this.marketMenu.hide();
+    this.hangarMenu.show(station.name);
+    this.hangarMenuOpen = true;
+  }
+
+  private closeHangarMenu(): void {
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
+    if (this.dock.kind === "docked") {
+      this.dockedMenu.show(
+        this.dock.station.name,
+        window.innerWidth,
+        window.innerHeight,
+        this.dockedQuestUi(this.dock.station),
+      );
+    }
+  }
+
+  private updateHangarMenu(): void {
+    if (!this.pointer.consumeClick()) return;
+    const result = this.hangarMenu.handleClick(
+      this.ship.fleet,
+      this.ship.credits,
+      this.pointer.x,
+      this.pointer.y,
+    );
+    if (result === "close") {
+      this.closeHangarMenu();
+      return;
+    }
+    if (!result || typeof result !== "object") return;
+
+    if (result.action === "board") {
+      if (this.ship.boardOwned(result.instanceId)) {
+        this.messages.push(
+          `Hangar: Boarded ${this.ship.hull.name}.`,
+          "station",
+        );
+      }
+      return;
+    }
+
+    if (result.action === "buy") {
+      const hull = hullById(result.hullId);
+      if (!hull) return;
+      const status = this.ship.buyHull(hull, true);
+      if (status === "credits") {
+        this.messages.push(
+          `Hangar: Need ${hull.price} cr for ${hull.name}.`,
+          "station",
+        );
+        return;
+      }
+      if (status === "owned") {
+        this.messages.push(`Hangar: You already own a ${hull.name}.`, "station");
+        return;
+      }
+      if (status === "ok") {
+        this.messages.push(
+          `Hangar: Purchased ${hull.name} (−${hull.price} cr). Now active.`,
+          "station",
+        );
+      }
+    }
   }
 
   private openMarket(station: Landmark): void {
@@ -895,6 +999,8 @@ export class Game {
     this.dockedMenu.hide();
     this.shipMenuOpen = false;
     this.shipMenu.openView();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
     this.marketMenu.show(station.name, this.dockMarket);
     this.marketMenuOpen = true;
   }
@@ -1073,7 +1179,7 @@ export class Game {
       if (travel.poiId === this.local.poiId) return;
       const current = this.galaxy.get(this.local.poiId);
       const target = this.galaxy.get(travel.poiId);
-      const jumpRange = this.ship.loadout.jumpRange();
+      const jumpRange = this.ship.jumpRange();
       if (this.galaxy.distance(current, target) > jumpRange) return;
       if (!this.ship.loadout.canJump()) {
         this.messages.push("Drive: No warp charges remaining — repair to refill.");
@@ -1166,11 +1272,13 @@ export class Game {
       panelOpen: this.panelOpen,
       shipMenuOpen: this.shipMenuOpen,
       marketMenuOpen: this.marketMenuOpen,
+      hangarMenuOpen: this.hangarMenuOpen,
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,
       shipMenu: this.shipMenu,
       marketMenu: this.marketMenu,
+      hangarMenu: this.hangarMenu,
       messages: this.messages,
       stationMenu: this.stationMenu,
       dockedMenu: this.dockedMenu,
