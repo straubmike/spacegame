@@ -8,6 +8,14 @@ import {
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
+import {
+  applyBayDiscount,
+  formatPirateStanding,
+  formatStanding,
+  pirateStandingBand,
+  standingBand,
+  type ReputationListing,
+} from "../ship/reputation";
 import type { ShipLoadout } from "../ship/Loadout";
 import type { CargoHold } from "../ship/CargoHold";
 import {
@@ -52,9 +60,11 @@ interface MissionEjectConfirm {
   cu: number;
 }
 
+const EMPTY_REP: ReputationListing = { factions: [], stations: [] };
+
 /**
  * Ship loadout inspector (L) and station Bay.
- * View mode: larger panel with separate Loadout / Missions / Cargo bands.
+ * View mode: Loadout / Missions / Cargo / Reputation bands (no overlap).
  * Cargo rows use market-style − / qty / + / Eject (mission freight confirms).
  */
 export class ShipMenu {
@@ -63,6 +73,10 @@ export class ShipMenu {
   selectedOfferIndex = 0;
   stock: EquipModule[] = [];
   wealth: StationWealth | null = null;
+  /** Bay net-cost discount fraction from station standing (0…1). */
+  bayDiscount = 0;
+  /** L-menu Reputation band payload. */
+  reputation: ReputationListing = EMPTY_REP;
 
   private slotRects: Rect[] = [];
   private offerRects: Rect[] = [];
@@ -77,18 +91,27 @@ export class ShipMenu {
   private confirmYesBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private confirmNoBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
-  openView(): void {
+  openView(reputation: ReputationListing = EMPTY_REP): void {
     this.mode = "view";
     this.stock = [];
     this.wealth = null;
+    this.bayDiscount = 0;
+    this.reputation = reputation;
     this.selectedOfferIndex = 0;
     this.missionConfirm = null;
   }
 
-  openBay(stock: EquipModule[], wealth: StationWealth | null = null): void {
+  openBay(
+    stock: EquipModule[],
+    wealth: StationWealth | null = null,
+    bayDiscount = 0,
+    reputation: ReputationListing = EMPTY_REP,
+  ): void {
     this.mode = "bay";
     this.stock = stock;
     this.wealth = wealth;
+    this.bayDiscount = bayDiscount;
+    this.reputation = reputation;
     this.selectedOfferIndex = 0;
     this.missionConfirm = null;
   }
@@ -104,7 +127,9 @@ export class ShipMenu {
     hullName = "Ship",
     cargo: CargoHold | null = null,
     missions: readonly ActiveMission[] = [],
+    reputation: ReputationListing = EMPTY_REP,
   ): void {
+    this.reputation = reputation;
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, width, height);
 
@@ -142,7 +167,15 @@ export class ShipMenu {
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";
       const wealthBit = this.wealth ? ` · ${wealthLabel(this.wealth)}` : "";
-      ctx.fillText(`CR ${credits}${wealthBit}`, panel.x + 20, panel.y + 40);
+      const discBit =
+        this.bayDiscount > 0
+          ? ` · Rep −${Math.round(this.bayDiscount * 100)}% bay`
+          : "";
+      ctx.fillText(
+        `CR ${credits}${wealthBit}${discBit}`,
+        panel.x + 20,
+        panel.y + 40,
+      );
     }
 
     const listX = panel.x + 16;
@@ -271,7 +304,8 @@ export class ShipMenu {
   }
 
   /**
-   * Three non-overlapping right-hand bands: Loadout → Missions → Cargo.
+   * Four non-overlapping right-hand bands:
+   * Loadout → Missions → Cargo → Reputation.
    */
   private drawViewBands(
     ctx: CanvasRenderingContext2D,
@@ -292,15 +326,21 @@ export class ShipMenu {
     const contentTop = listY;
     const contentBottom = footerY - 10;
     const contentH = contentBottom - contentTop;
-    const gap = 12;
+    const gap = 10;
 
-    const missionH = Math.max(110, Math.min(150, Math.floor(contentH * 0.26)));
-    const cargoH = Math.max(180, Math.min(240, Math.floor(contentH * 0.38)));
-    const loadoutH = Math.max(120, contentH - missionH - cargoH - gap * 2);
+    const missionH = Math.max(90, Math.min(120, Math.floor(contentH * 0.2)));
+    const cargoH = Math.max(140, Math.min(190, Math.floor(contentH * 0.3)));
+    // Reputation needs room for factions + non-zero stations (was clipping stations).
+    const repH = Math.max(150, Math.min(220, Math.floor(contentH * 0.3)));
+    const loadoutH = Math.max(
+      90,
+      contentH - missionH - cargoH - repH - gap * 3,
+    );
 
     const loadoutY = contentTop;
     const missionY = loadoutY + loadoutH + gap;
     const cargoY = missionY + missionH + gap;
+    const repY = cargoY + cargoH + gap;
 
     this.drawSectionFrame(ctx, detailX, loadoutY, detailW, loadoutH);
     this.drawCompareColumn(
@@ -338,6 +378,15 @@ export class ShipMenu {
       cargo,
       pointerX,
       pointerY,
+    );
+
+    this.drawSectionFrame(ctx, detailX, repY, detailW, repH);
+    this.drawReputationBand(
+      ctx,
+      detailX + 10,
+      repY + 8,
+      detailW - 20,
+      repH - 16,
     );
   }
 
@@ -516,6 +565,79 @@ export class ShipMenu {
       });
       ry += rowH;
     }
+    ctx.restore();
+  }
+
+  /**
+   * Stations (non-zero) first so they never get clipped by faction stubs.
+   * Factions always listed (even Neutral 0), compact after stations.
+   */
+  private drawReputationBand(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+
+    ctx.font = FONT_TITLE;
+    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+    ctx.textBaseline = "top";
+    ctx.fillText("Reputation", x, y);
+
+    ctx.font = FONT;
+    let ry = y + 24;
+
+    // --- Stations first (non-zero only) ---
+    ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
+    ctx.fillText("Stations", x, ry);
+    ry += 16;
+
+    if (this.reputation.stations.length === 0) {
+      ctx.fillStyle = "rgba(120, 140, 165, 0.75)";
+      ctx.fillText("None above Neutral yet.", x + 8, ry);
+      ry += 16;
+    } else {
+      for (const s of this.reputation.stations) {
+        if (ry + 15 > y + h) break;
+        const name =
+          s.name.length > 22 ? `${s.name.slice(0, 21)}…` : s.name;
+        ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+        ctx.fillText(name, x + 8, ry);
+        ctx.fillStyle = stationStandingColor(s.score);
+        ctx.textAlign = "right";
+        ctx.fillText(formatStanding(s.score), x + w - 4, ry);
+        ctx.textAlign = "left";
+        ry += 15;
+      }
+    }
+
+    ry += 8;
+    if (ry + 14 > y + h) {
+      ctx.restore();
+      return;
+    }
+
+    // --- Factions always (even at 0) ---
+    ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
+    ctx.fillText("Factions", x, ry);
+    ry += 16;
+
+    for (const f of this.reputation.factions) {
+      if (ry + 15 > y + h) break;
+      ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+      ctx.fillText(f.label, x + 8, ry);
+      ctx.fillStyle = pirateStandingColor(f.score);
+      ctx.textAlign = "right";
+      ctx.fillText(formatPirateStanding(f.score), x + w - 4, ry);
+      ctx.textAlign = "left";
+      ry += 15;
+    }
+
     ctx.restore();
   }
 
@@ -740,7 +862,10 @@ export class ShipMenu {
 
     const offer = this.offers[this.selectedOfferIndex]!;
     const installed = slot.equipped?.id === offer.id;
-    const cost = swapCost(slot.equipped, offer);
+    const cost = applyBayDiscount(
+      swapCost(slot.equipped, offer),
+      this.bayDiscount,
+    );
     const canAfford = credits >= cost;
     const canInstall = !installed && canAfford;
 
@@ -752,7 +877,9 @@ export class ShipMenu {
       ? "Already fitted"
       : cost === 0
         ? "Free (trade-in)"
-        : `${cost} cr`;
+        : this.bayDiscount > 0
+          ? `${cost} cr (rep discount)`
+          : `${cost} cr`;
     ctx.fillText(costLine, x, costY);
 
     this.installBtn = {
@@ -1018,4 +1145,38 @@ function wrapText(text: string, maxChars: number): string[] {
   }
   if (cur) lines.push(cur);
   return lines;
+}
+
+function stationStandingColor(score: number): string {
+  const band = standingBand(score);
+  switch (band) {
+    case "hostile":
+      return "rgba(220, 100, 95, 0.95)";
+    case "violation":
+      return "rgba(220, 140, 90, 0.95)";
+    case "unfriendly":
+      return "rgba(210, 170, 120, 0.95)";
+    case "friendly":
+      return "rgba(160, 200, 170, 0.9)";
+    case "allied":
+      return "rgba(140, 210, 160, 0.95)";
+    default:
+      return "rgba(160, 180, 200, 0.85)";
+  }
+}
+
+function pirateStandingColor(score: number): string {
+  const band = pirateStandingBand(score);
+  switch (band) {
+    case "hostile":
+      return "rgba(220, 100, 95, 0.95)";
+    case "unfriendly":
+      return "rgba(210, 170, 120, 0.95)";
+    case "friendly":
+      return "rgba(160, 200, 170, 0.9)";
+    case "allied":
+      return "rgba(140, 210, 160, 0.95)";
+    default:
+      return "rgba(160, 180, 200, 0.85)";
+  }
 }

@@ -1,8 +1,9 @@
-import { BODY_COLORS, COMBAT, LOCAL, PIRATE_TIERS, SHIP, STARS } from "../game/config";
+import { BODY_COLORS, COMBAT, LOCAL, PATROL, PIRATE_TIERS, SHIP, STARS } from "../game/config";
 import { STAR_COLORS } from "../galaxy/generateLocal";
 import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
 import type { Pirate } from "../entities/Pirate";
+import type { StationPatrol } from "../entities/StationPatrol";
 import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
@@ -13,11 +14,13 @@ import type { MessageSidebar } from "../ui/MessageSidebar";
 import type { StationContextMenu } from "../ui/StationContextMenu";
 import type { DockedMenu } from "../ui/DockedMenu";
 import type { PirateFeeMenu } from "../ui/PirateFeeMenu";
+import type { PatrolFineMenu } from "../ui/PatrolFineMenu";
 import type { ShipMenu } from "../ui/ShipMenu";
 import type { MarketMenu } from "../ui/MarketMenu";
 import type { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import type { HangarMenu } from "../ui/HangarMenu";
 import type { ActiveMission } from "../ship/missions";
+import type { ReputationListing } from "../ship/reputation";
 import type { Galaxy } from "../galaxy/Galaxy";
 
 export class Renderer {
@@ -45,6 +48,7 @@ export class Renderer {
     starfield: Starfield;
     local: LocalView;
     pirates: Pirate[];
+    patrols: StationPatrol[];
     projectiles: Projectile[];
     alpha: number;
     thrusting: boolean;
@@ -56,6 +60,7 @@ export class Renderer {
     hangarMenuOpen: boolean;
     chartHints: ChartPoiHints;
     activeMissions: readonly ActiveMission[];
+    reputationListing: ReputationListing;
     panel: SystemPanel;
     galaxy: Galaxy;
     chart: GalaxyChart;
@@ -67,6 +72,7 @@ export class Renderer {
     stationMenu: StationContextMenu;
     dockedMenu: DockedMenu;
     pirateMenu: PirateFeeMenu;
+    patrolMenu: PatrolFineMenu;
     pointerX: number;
     pointerY: number;
     fadeAlpha: number;
@@ -100,6 +106,14 @@ export class Renderer {
         this.drawPirate(p.x, p.y, pirate);
       } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen && !args.missionBoardOpen && !args.hangarMenuOpen) {
         this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
+      }
+    }
+
+    for (const patrol of args.patrols) {
+      if (!patrol.alive) continue;
+      const p = args.camera.worldToScreen(patrol.x, patrol.y, w, h);
+      if (this.isOnScreen(p.x, p.y, w, h)) {
+        this.drawPatrol(p.x, p.y, patrol);
       }
     }
 
@@ -146,6 +160,7 @@ export class Renderer {
         args.ship.hull.name,
         args.ship.cargo,
         args.activeMissions,
+        args.reputationListing,
       );
     } else if (args.marketMenuOpen) {
       args.marketMenu.draw(
@@ -199,6 +214,12 @@ export class Renderer {
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(ctx, args.pointerX, args.pointerY);
       args.pirateMenu.draw(
+        ctx,
+        args.pointerX,
+        args.pointerY,
+        args.ship.credits,
+      );
+      args.patrolMenu.draw(
         ctx,
         args.pointerX,
         args.pointerY,
@@ -332,6 +353,35 @@ export class Renderer {
     ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(x - barW / 2, y - size - 10, barW, 3);
     ctx.fillStyle = "#e07060";
+    ctx.fillRect(x - barW / 2, y - size - 10, barW * ratio, 3);
+  }
+
+  /** Cool-toned diamond — reads as law / patrol vs warm pirate wedges. */
+  private drawPatrol(x: number, y: number, patrol: StationPatrol): void {
+    const size = PATROL.size;
+    const ctx = this.ctx;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(patrol.heading);
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(0, size * 0.55);
+    ctx.lineTo(-size * 0.75, 0);
+    ctx.lineTo(0, -size * 0.55);
+    ctx.closePath();
+    ctx.fillStyle = PATROL.color;
+    ctx.fill();
+    ctx.strokeStyle = PATROL.stroke;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+
+    const barW = Math.max(18, size + 8);
+    const ratio = patrol.health / patrol.maxHealth;
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(x - barW / 2, y - size - 10, barW, 3);
+    ctx.fillStyle = "#70b0e0";
     ctx.fillRect(x - barW / 2, y - size - 10, barW * ratio, 3);
   }
 

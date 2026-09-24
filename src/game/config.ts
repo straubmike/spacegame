@@ -407,3 +407,87 @@ export const DOCK = {
   /** seconds before a comms line expires */
   messageTtl: 8,
 } as const;
+
+/**
+ * Reputation — stations + pirate faction (first slice).
+ * Station ladder includes Violation between Unfriendly and Hostile.
+ * See docs/reputation-system.md in the project Context store.
+ */
+export const REPUTATION = {
+  min: -100,
+  max: 100,
+  /**
+   * Station bands (score ≤ threshold):
+   * Hostile ≤ −70 | Violation ≤ −40 | Unfriendly ≤ −15 | else Neutral until Friendly.
+   */
+  hostileAtOrBelow: -70,
+  violationAtOrBelow: -40,
+  unfriendlyAtOrBelow: -15,
+  friendlyAtOrAbove: 20,
+  alliedAtOrAbove: 50,
+  /** Least-bad Unfriendly score after paying a Violation fine. */
+  unfriendlyFloor: -15,
+  /** Station deltas */
+  missionComplete: 12,
+  /**
+   * Steal cargo delta. A single steal also **floors at Unfriendly**
+   * (`unfriendlyFloor`) so positive standing cannot land in Neutral.
+   */
+  stealCargo: -22,
+  cancelMissionMild: -5,
+  ejectStolenCargo: -8,
+  repairGoodwill: 3,
+  /** Pirate faction deltas */
+  pirateKill: -8,
+  pirateFeePaid: 5,
+  /** Bay net-install discount fractions by station band. */
+  bayDiscountFriendly: 0.08,
+  bayDiscountAllied: 0.15,
+  /** Patrol fine: max(min, abs(standing) * perPoint). */
+  patrolFineMin: 15,
+  patrolFinePerPoint: 2,
+} as const;
+
+/**
+ * Station patrol NPCs — local law tied to a host station.
+ * Distinct from pirate encounter template id "patrol".
+ */
+export const PATROL = {
+  /** Chance a given station gets a patrol when entering its local view. */
+  spawnChance: 0.62,
+  size: 12,
+  radius: 13,
+  /** Extra click pad so fines are easy to open while idle/wander. */
+  clickPad: 20,
+  maxHealth: 12,
+  /** Hunt thrust vs player ship (only while chasing pirates / player). */
+  speedFactor: 0.88,
+  /** Slow cruise toward a wander destination (world units / sec). */
+  wanderSpeed: 70,
+  fireCooldown: 0.55,
+  damage: 1,
+  turnRateMul: 0.85,
+  color: "#6a9ec8",
+  stroke: "#3a6a98",
+  /** Engage pirates / hostile player within this range. */
+  huntRange: 720,
+  engageRange: 200,
+  /** Mostly idle (pirate-like) before picking a new wander leg. */
+  idleHoldMin: 5,
+  idleHoldMax: 12,
+  /**
+   * Wander destinations: mix of near-station legs and farther intercept legs.
+   * Chance of picking a near destination (else far).
+   */
+  wanderNearChance: 0.35,
+  wanderNearMin: 90,
+  wanderNearMax: 180,
+  wanderFarMin: 300,
+  wanderFarMax: 560,
+  /** Arrive within this distance to finish a wander leg. */
+  waypointArrive: 18,
+  /** Initial spawn distance from host station. */
+  spawnDistance: 120,
+  /** Violation warning window before patrol goes aggro (seconds). */
+  warningSeconds: 60,
+} as const;
