@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, SHIP } from "./config";
+import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, QUEST, SHIP } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -13,6 +13,13 @@ import {
 import { swapCost, type EquipModule } from "../ship/equipment";
 import { stationBayStock } from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
+import {
+  generateStationMissions,
+  missionCargoId,
+  stationRefFromLocal,
+  type ActiveMission,
+  type MissionOffer,
+} from "../ship/missions";
 import type { Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
@@ -30,6 +37,7 @@ import { DockedMenu, type DockedQuestUi } from "../ui/DockedMenu";
 import { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
+import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 
 type FadePhase = "idle" | "fadeOut" | "fadeIn";
 
@@ -66,8 +74,11 @@ export class Game {
   private readonly pirateMenu = new PirateFeeMenu();
   private readonly shipMenu = new ShipMenu();
   private readonly marketMenu = new MarketMenu();
+  private readonly missionBoard = new MissionBoardMenu();
   /** Active market for the current dock session (mutated by trades). */
   private dockMarket: StationMarket | null = null;
+  /** Offers posted at the current dock (seeded per station). */
+  private dockMissionOffers: MissionOffer[] = [];
   /** Local views where the pirate fee has already been paid. */
   private readonly paidPirateViews = new Set<string>();
   /** Pirate slots permanently cleared (killed or driven off). */
@@ -78,6 +89,10 @@ export class Game {
   private readonly pirateQuests = new Map<number, PirateQuest>();
   /** Systems whose clearance quest has already been claimed. */
   private readonly claimedPirateQuests = new Set<number>();
+  /** Accepted board missions (cargo / explore). */
+  private readonly activeMissions: ActiveMission[] = [];
+  /** Offer ids already taken this session (hide from boards). */
+  private readonly acceptedMissionIds = new Set<string>();
 
   /** Stations that have granted docking clearance this local visit. */
   private readonly dockClearance = new Set<number>();
@@ -91,6 +106,7 @@ export class Game {
   private panelOpen = false;
   private shipMenuOpen = false;
   private marketMenuOpen = false;
+  private missionBoardOpen = false;
   private fadePhase: FadePhase = "idle";
   private fadeTimer = 0;
   private fadeAlpha = 0;
@@ -151,6 +167,7 @@ export class Game {
         ),
       );
     }
+    this.checkExploreScanProgress();
   }
 
   private pirateKey(poiId = this.local.poiId, bodyId = this.local.bodyId): string {
@@ -171,6 +188,9 @@ export class Game {
     this.marketMenu.hide();
     this.marketMenuOpen = false;
     this.dockMarket = null;
+    this.missionBoard.hide();
+    this.missionBoardOpen = false;
+    this.dockMissionOffers = [];
   }
 
   /** Clear hail approvals when leaving / regenerating a local view. */
@@ -183,8 +203,44 @@ export class Game {
       this.chartOpen ||
       this.panelOpen ||
       this.shipMenuOpen ||
-      this.marketMenuOpen
+      this.marketMenuOpen ||
+      this.missionBoardOpen
     );
+  }
+
+  private missionBoardHint(): string {
+    const claimable = this.activeMissions.filter(
+      (m) => m.status === "readyToClaim",
+    ).length;
+    if (claimable > 0) return `${claimable} ready`;
+    const n = this.activeMissions.length;
+    if (n > 0) return `${n} active`;
+    const open = this.dockMissionOffers.filter(
+      (o) => !this.acceptedMissionIds.has(o.id),
+    ).length;
+    return open > 0 ? `${open} open` : "";
+  }
+
+  private visibleMissionOffers(): MissionOffer[] {
+    return this.dockMissionOffers.filter(
+      (o) => !this.acceptedMissionIds.has(o.id),
+    );
+  }
+
+  private missionsForBoardUi(): ActiveMission[] {
+    if (this.dock.kind !== "docked") return [...this.activeMissions];
+    const here = this.currentStationKey(this.dock.station);
+    return this.activeMissions.map((m) => {
+      if (m.kind !== "explore") return m;
+      if (
+        m.scanned &&
+        here === m.originStationKey &&
+        m.status !== "readyToClaim"
+      ) {
+        return { ...m, status: "readyToClaim" as const };
+      }
+      return m;
+    });
   }
 
   private pirateAggroActive(): boolean {
@@ -333,6 +389,7 @@ export class Game {
       this.dockedQuestUi(station),
       window.innerWidth,
       window.innerHeight,
+      this.missionBoardHint(),
     );
   }
 
@@ -356,7 +413,200 @@ export class Game {
       this.dockedQuestUi(station),
       window.innerWidth,
       window.innerHeight,
+      this.missionBoardHint(),
     );
+  }
+
+  /** On arriving in a local view — complete explore scans when at the target POI. */
+  private checkExploreScanProgress(): void {
+    for (const mission of this.activeMissions) {
+      if (mission.kind !== "explore" || mission.scanned) continue;
+      if (mission.targetPoiId !== this.local.poiId) continue;
+      mission.scanned = true;
+      this.messages.push(
+        `Scan complete: ${mission.targetPoiName}. Return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
+      );
+    }
+  }
+
+  private tryCompleteCargoDelivery(station: Landmark): void {
+    const here = this.currentStationKey(station);
+    if (!here) return;
+
+    const delivered: ActiveMission[] = [];
+    for (const mission of this.activeMissions) {
+      if (mission.kind !== "cargo") continue;
+      if (mission.destStationKey !== here) continue;
+      const lotId = missionCargoId(mission.id);
+      const need = mission.cu ?? 0;
+      if (this.ship.cargo.amountOf(lotId) < need) {
+        this.messages.push(
+          `${station.name}: Missing ${need} CU mission freight for "${mission.title}".`,
+          "station",
+        );
+        continue;
+      }
+      this.ship.cargo.remove(lotId, need);
+      this.ship.addCredits(mission.reward);
+      delivered.push(mission);
+      this.messages.push(
+        `${station.name}: Cargo delivered — ${mission.title} (+${mission.reward} cr).`,
+        "station",
+      );
+    }
+    for (const m of delivered) {
+      const i = this.activeMissions.indexOf(m);
+      if (i >= 0) this.activeMissions.splice(i, 1);
+    }
+  }
+
+  private syncExploreClaimableAtStation(station: Landmark): void {
+    const here = this.currentStationKey(station);
+    if (!here) return;
+    for (const mission of this.activeMissions) {
+      if (mission.kind !== "explore") continue;
+      if (!mission.scanned) continue;
+      if (mission.originStationKey !== here) continue;
+      mission.status = "readyToClaim";
+    }
+  }
+
+  private acceptBoardMission(missionId: string): void {
+    if (this.dock.kind !== "docked") return;
+    if (this.activeMissions.length >= QUEST.maxActive) {
+      this.messages.push(
+        `Missions: Already holding ${QUEST.maxActive} contracts — complete one first.`,
+        "station",
+      );
+      return;
+    }
+    const offer = this.dockMissionOffers.find((o) => o.id === missionId);
+    if (!offer || this.acceptedMissionIds.has(missionId)) return;
+
+    if (offer.kind === "cargo") {
+      const cu = offer.cu ?? 0;
+      const name = offer.commodityName ?? "Freight";
+      if (!this.ship.cargo.canStow(cu)) {
+        this.messages.push(
+          `Missions: Need ${cu} free CU (equip a cargo rack in the Bay).`,
+          "station",
+        );
+        return;
+      }
+      if (
+        !this.ship.cargo.stow({
+          id: missionCargoId(offer.id),
+          name: `Contract: ${name}`,
+          cu,
+        })
+      ) {
+        this.messages.push("Missions: Could not load freight.", "station");
+        return;
+      }
+    }
+
+    const active: ActiveMission = {
+      ...offer,
+      status: "inProgress",
+      scanned: false,
+    };
+    this.activeMissions.push(active);
+    this.acceptedMissionIds.add(offer.id);
+    this.messages.push(
+      offer.kind === "cargo"
+        ? `Missions: Accepted — haul to ${offer.destStationName} (+${offer.reward} cr).`
+        : `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`,
+      "station",
+    );
+    this.refreshMissionBoardUi();
+  }
+
+  private claimBoardMission(missionId: string): void {
+    if (this.dock.kind !== "docked") return;
+    const station = this.dock.station;
+    const here = this.currentStationKey(station);
+    const idx = this.activeMissions.findIndex((m) => m.id === missionId);
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
+
+    if (mission.kind === "explore") {
+      if (!mission.scanned || here !== mission.originStationKey) {
+        this.messages.push(
+          `Missions: Finish the scan and return to ${mission.originStationName}.`,
+          "station",
+        );
+        return;
+      }
+      this.ship.addCredits(mission.reward);
+      this.activeMissions.splice(idx, 1);
+      this.messages.push(
+        `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
+        "station",
+      );
+      this.refreshMissionBoardUi();
+      return;
+    }
+
+    // Cargo pays on delivery; claim button is unused for cargo.
+    this.messages.push("Missions: Deliver the freight at the destination station.", "station");
+  }
+
+  private refreshMissionBoardUi(): void {
+    if (!this.missionBoardOpen) return;
+    this.missionBoard.refresh(
+      this.visibleMissionOffers(),
+      this.missionsForBoardUi(),
+      this.ship.cargo.freeCu,
+      this.activeMissions.length < QUEST.maxActive,
+    );
+  }
+
+  private openMissionBoard(station: Landmark): void {
+    this.dockedMenu.hide();
+    this.marketMenuOpen = false;
+    this.marketMenu.hide();
+    this.shipMenuOpen = false;
+    this.shipMenu.openView();
+    this.syncExploreClaimableAtStation(station);
+    this.missionBoard.show(
+      station.name,
+      this.visibleMissionOffers(),
+      this.missionsForBoardUi(),
+      this.ship.cargo.freeCu,
+      this.activeMissions.length < QUEST.maxActive,
+    );
+    this.missionBoardOpen = true;
+  }
+
+  private closeMissionBoard(): void {
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
+    if (this.dock.kind === "docked") {
+      this.dockedMenu.show(
+        this.dock.station.name,
+        window.innerWidth,
+        window.innerHeight,
+        this.dockedQuestUi(this.dock.station),
+        this.missionBoardHint(),
+      );
+    }
+  }
+
+  private updateMissionBoard(): void {
+    if (!this.pointer.consumeClick()) return;
+    const result = this.missionBoard.handleClick(this.pointer.x, this.pointer.y);
+    if (result === "close") {
+      this.closeMissionBoard();
+      return;
+    }
+    if (!result || typeof result !== "object") return;
+    if (result.action === "accept") {
+      this.acceptBoardMission(result.missionId);
+      return;
+    }
+    if (result.action === "claim") {
+      this.claimBoardMission(result.missionId);
+    }
   }
 
   private update(dt: number): void {
@@ -401,7 +651,9 @@ export class Game {
     }
 
     if (this.keyboard.consume("Escape")) {
-      if (this.marketMenuOpen) {
+      if (this.missionBoardOpen) {
+        this.closeMissionBoard();
+      } else if (this.marketMenuOpen) {
         this.closeMarketMenu();
       } else if (this.shipMenuOpen) {
         this.closeShipMenu();
@@ -436,6 +688,13 @@ export class Game {
 
     if (this.marketMenuOpen) {
       this.updateMarketMenu();
+      return;
+    }
+
+    if (this.missionBoardOpen) {
+      this.updateMissionBoard();
+      const pose = this.ship.sample(1);
+      this.camera.follow(pose.x, pose.y);
       return;
     }
 
@@ -673,15 +932,28 @@ export class Game {
     this.ship.y = station.y;
     this.projectiles = [];
     this.redeemPendingKills(station.name);
+    this.tryCompleteCargoDelivery(station);
+    this.syncExploreClaimableAtStation(station);
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
     this.dockMarket = createStationMarket(key);
+    const ref = stationRefFromLocal(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      station.id,
+      station.name,
+    );
+    this.dockMissionOffers = ref
+      ? generateStationMissions(this.galaxy, ref)
+      : [];
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
       this.dockedQuestUi(station),
+      this.missionBoardHint(),
     );
     this.messages.push(`Docked at ${station.name}.`);
   }
@@ -731,6 +1003,10 @@ export class Game {
       this.openMarket(station);
       return;
     }
+    if (action === "missions") {
+      this.openMissionBoard(station);
+      return;
+    }
     if (action === "launch") {
       this.launchFromStation();
     }
@@ -742,7 +1018,10 @@ export class Game {
     this.dockedMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
+    this.missionBoard.hide();
+    this.missionBoardOpen = false;
     this.dockMarket = null;
+    this.dockMissionOffers = [];
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
     const angle = this.ship.heading;
@@ -867,6 +1146,8 @@ export class Game {
     this.pirateMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     if (this.dock.kind === "docked") {
       this.dockedMenu.hide();
     }
@@ -881,6 +1162,8 @@ export class Game {
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.shipMenu.openBay(stationBayStock(key));
     this.shipMenuOpen = true;
   }
@@ -895,6 +1178,8 @@ export class Game {
     this.dockedMenu.hide();
     this.shipMenuOpen = false;
     this.shipMenu.openView();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
     this.marketMenu.show(station.name, this.dockMarket);
     this.marketMenuOpen = true;
   }
@@ -908,6 +1193,7 @@ export class Game {
         window.innerWidth,
         window.innerHeight,
         this.dockedQuestUi(this.dock.station),
+        this.missionBoardHint(),
       );
     }
   }
@@ -1000,6 +1286,7 @@ export class Game {
         window.innerWidth,
         window.innerHeight,
         this.dockedQuestUi(dockedStation),
+        this.missionBoardHint(),
       );
     }
   }
@@ -1166,11 +1453,13 @@ export class Game {
       panelOpen: this.panelOpen,
       shipMenuOpen: this.shipMenuOpen,
       marketMenuOpen: this.marketMenuOpen,
+      missionBoardOpen: this.missionBoardOpen,
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,
       shipMenu: this.shipMenu,
       marketMenu: this.marketMenu,
+      missionBoard: this.missionBoard,
       messages: this.messages,
       stationMenu: this.stationMenu,
       dockedMenu: this.dockedMenu,
