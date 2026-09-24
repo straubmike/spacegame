@@ -429,6 +429,10 @@ export const REPUTATION = {
   unfriendlyFloor: -15,
   /** Station deltas */
   missionComplete: 12,
+  /**
+   * Steal cargo delta. A single steal also **floors at Unfriendly**
+   * (`unfriendlyFloor`) so positive standing cannot land in Neutral.
+   */
   stealCargo: -22,
   cancelMissionMild: -5,
   ejectStolenCargo: -8,

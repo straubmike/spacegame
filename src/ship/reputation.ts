@@ -163,6 +163,23 @@ export class ReputationTracker {
   }
 
   /**
+   * Cargo steal (keep freight on cancel).
+   * Applies steal delta, then **forces at least Unfriendly** so a single steal
+   * never leaves you Neutral after positive standing (e.g. +15 −22 → −7).
+   */
+  applyCargoSteal(stationKey: string, label?: string): number {
+    const next = clampStanding(
+      this.stationStanding(stationKey) + REPUTATION.stealCargo,
+    );
+    // Still Neutral or better → snap to Unfriendly floor.
+    const forced =
+      next > REPUTATION.unfriendlyAtOrBelow
+        ? REPUTATION.unfriendlyFloor
+        : next;
+    return this.setStanding(stationKey, forced, label);
+  }
+
+  /**
    * Redeemable fine available?
    * Unfriendly (optional → Neutral) or Violation (→ Unfriendly). Hostile: never.
    */

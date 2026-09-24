@@ -965,10 +965,15 @@ export class Game {
     // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
 
     if (stoleCu > 0) {
-      this.adjustStationRep(
+      const before = this.reputation.stationStanding(mission.originStationKey);
+      const next = this.reputation.applyCargoSteal(
         mission.originStationKey,
         mission.originStationName,
-        REPUTATION.stealCargo,
+      );
+      this.pushRepChange(
+        mission.originStationName,
+        next,
+        next - before,
       );
     } else if (mission.kind !== "cargo" || returnedCu > 0) {
       this.adjustStationRep(
