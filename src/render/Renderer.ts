@@ -7,7 +7,7 @@ import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud } from "../ui/Hud";
-import type { GalaxyChart } from "../ui/GalaxyChart";
+import type { GalaxyChart, ChartPoiHints } from "../ui/GalaxyChart";
 import type { SystemPanel } from "../ui/SystemPanel";
 import type { MessageSidebar } from "../ui/MessageSidebar";
 import type { StationContextMenu } from "../ui/StationContextMenu";
@@ -51,6 +51,7 @@ export class Renderer {
     shipMenuOpen: boolean;
     marketMenuOpen: boolean;
     missionBoardOpen: boolean;
+    chartHints: ChartPoiHints;
     panel: SystemPanel;
     galaxy: Galaxy;
     chart: GalaxyChart;
@@ -107,6 +108,7 @@ export class Renderer {
         args.pointerX,
         args.pointerY,
         args.ship.loadout.jumpRange(),
+        args.chartHints,
       );
     } else if (args.panelOpen) {
       args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);

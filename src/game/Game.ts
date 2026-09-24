@@ -15,7 +15,9 @@ import { stationBayStock } from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
 import {
   generateStationMissions,
+  makeClearanceOffer,
   missionCargoId,
+  questChartPoiIds,
   stationRefFromLocal,
   type ActiveMission,
   type MissionOffer,
@@ -29,11 +31,11 @@ import { Projectile, spawnProjectile } from "../entities/Projectile";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
 import { Renderer } from "../render/Renderer";
-import { GalaxyChart } from "../ui/GalaxyChart";
+import { GalaxyChart, type ChartPoiHints } from "../ui/GalaxyChart";
 import { SystemPanel } from "../ui/SystemPanel";
 import { MessageSidebar } from "../ui/MessageSidebar";
 import { StationContextMenu } from "../ui/StationContextMenu";
-import { DockedMenu, type DockedQuestUi } from "../ui/DockedMenu";
+import { DockedMenu } from "../ui/DockedMenu";
 import { PirateFeeMenu } from "../ui/PirateFeeMenu";
 import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
@@ -49,13 +51,6 @@ type DockState =
   | { kind: "free" }
   | { kind: "approaching"; station: Landmark }
   | { kind: "docked"; station: Landmark };
-
-/** Active system clearance contract. */
-interface PirateQuest {
-  poiId: number;
-  stationKey: string;
-  targets: string[];
-}
 
 export class Game {
   private readonly keyboard: Keyboard;
@@ -85,14 +80,16 @@ export class Game {
   private readonly clearedPirateViews = new Set<string>();
   /** Eliminated pirates not yet cashed in at a station. */
   private pendingPirateKills = 0;
-  /** One active clearance quest per star system. */
-  private readonly pirateQuests = new Map<number, PirateQuest>();
-  /** Systems whose clearance quest has already been claimed. */
-  private readonly claimedPirateQuests = new Set<number>();
-  /** Accepted board missions (cargo / explore). */
+  /** Accepted board missions (cargo / explore / clearance). */
   private readonly activeMissions: ActiveMission[] = [];
   /** Offer ids already taken this session (hide from boards). */
   private readonly acceptedMissionIds = new Set<string>();
+  /** Systems whose clearance contract has already been claimed. */
+  private readonly claimedClearanceSystems = new Set<number>();
+  /** POIs the player has entered this session. */
+  private readonly visitedPoiIds = new Set<number>();
+  /** POIs scanned via exploration contracts. */
+  private readonly scannedPoiIds = new Set<number>();
 
   /** Stations that have granted docking clearance this local visit. */
   private readonly dockClearance = new Set<number>();
@@ -127,6 +124,7 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
+    this.visitedPoiIds.add(GALAXY.startPoiId);
     this.enterLocal();
 
     this.loop = new Loop(
@@ -215,9 +213,7 @@ export class Game {
     if (claimable > 0) return `${claimable} ready`;
     const n = this.activeMissions.length;
     if (n > 0) return `${n} active`;
-    const open = this.dockMissionOffers.filter(
-      (o) => !this.acceptedMissionIds.has(o.id),
-    ).length;
+    const open = this.visibleMissionOffers().length;
     return open > 0 ? `${open} open` : "";
   }
 
@@ -227,38 +223,81 @@ export class Game {
     );
   }
 
+  private chartHints(): ChartPoiHints {
+    const questPoiIds = questChartPoiIds(this.activeMissions);
+    const selectableOutOfRange = new Set<number>([
+      ...this.visitedPoiIds,
+      ...this.scannedPoiIds,
+      ...questPoiIds,
+    ]);
+    return { selectableOutOfRange, questPoiIds };
+  }
+
   private missionsForBoardUi(): ActiveMission[] {
-    if (this.dock.kind !== "docked") return [...this.activeMissions];
-    const here = this.currentStationKey(this.dock.station);
+    const here =
+      this.dock.kind === "docked"
+        ? this.currentStationKey(this.dock.station)
+        : null;
     return this.activeMissions.map((m) => {
-      if (m.kind !== "explore") return m;
-      if (
-        m.scanned &&
-        here === m.originStationKey &&
-        m.status !== "readyToClaim"
-      ) {
-        return { ...m, status: "readyToClaim" as const };
+      if (m.kind === "explore") {
+        if (
+          m.scanned &&
+          here === m.originStationKey &&
+          m.status !== "readyToClaim"
+        ) {
+          return { ...m, status: "readyToClaim" as const };
+        }
+        return m;
+      }
+      if (m.kind === "clearance") {
+        const remaining = (m.pirateTargets ?? []).filter(
+          (k) => !this.clearedPirateViews.has(k),
+        );
+        const done = remaining.length === 0;
+        const atGiver = here === m.originStationKey;
+        return {
+          ...m,
+          pirateTargets: remaining,
+          status:
+            done && atGiver
+              ? ("readyToClaim" as const)
+              : ("inProgress" as const),
+        };
       }
       return m;
     });
   }
 
-  private pirateAggroActive(): boolean {
-    return this.pirates.some((p) => p.alive && p.mode === "aggro");
-  }
+  private buildDockMissionOffers(station: Landmark): MissionOffer[] {
+    const ref = stationRefFromLocal(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      station.id,
+      station.name,
+    );
+    const offers = ref ? generateStationMissions(this.galaxy, ref) : [];
+    if (!ref || this.local.poiType !== "starSystem") return offers;
 
-  private stations(): Landmark[] {
-    const list: Landmark[] = [];
-    if (this.local.focus.kind === "station") list.push(this.local.focus);
-    for (const c of this.local.companions) {
-      if (c.kind === "station") list.push(c);
+    const giver = this.questGiverForCurrentSystem();
+    if (
+      giver &&
+      giver.key === ref.key &&
+      !this.claimedClearanceSystems.has(this.local.poiId) &&
+      !this.acceptedMissionIds.has(`clearance:${this.local.poiId}`) &&
+      !this.activeMissions.some(
+        (m) => m.kind === "clearance" && m.originPoiId === this.local.poiId,
+      )
+    ) {
+      const targets = this.unclearedPirateKeys(this.local.poiId);
+      const clearance = makeClearanceOffer(
+        giver,
+        targets,
+        this.local.poiName,
+      );
+      if (clearance) offers.unshift(clearance);
     }
-    return list;
-  }
-
-  private currentStationKey(station: Landmark): string | null {
-    if (this.local.bodyId === null) return null;
-    return stationKey(this.local.poiId, this.local.bodyId, station.id);
+    return offers;
   }
 
   private questGiverForCurrentSystem(): SystemStationRef | null {
@@ -270,46 +309,6 @@ export class Game {
     return listSystemPirateKeys(this.galaxy, poiId).filter(
       (k) => !this.clearedPirateViews.has(k),
     );
-  }
-
-  private dockedQuestUi(station: Landmark): DockedQuestUi {
-    const empty: DockedQuestUi = {
-      canOffer: false,
-      inProgress: false,
-      canClaim: false,
-      remaining: 0,
-    };
-    if (this.local.poiType !== "starSystem") return empty;
-
-    const poiId = this.local.poiId;
-    const here = this.currentStationKey(station);
-    const giver = this.questGiverForCurrentSystem();
-    const quest = this.pirateQuests.get(poiId);
-    const claimed = this.claimedPirateQuests.has(poiId);
-    const remaining = this.unclearedPirateKeys(poiId).length;
-
-    if (quest) {
-      const atGiver = here !== null && here === quest.stationKey;
-      const done = quest.targets.every((k) => this.clearedPirateViews.has(k));
-      const canClaim = done && atGiver && !claimed;
-      return {
-        canOffer: false,
-        /** Keep a status row until claimed (incl. “return with proof”). */
-        inProgress: !canClaim,
-        canClaim,
-        remaining: quest.targets.filter((k) => !this.clearedPirateViews.has(k))
-          .length,
-      };
-    }
-
-    if (claimed || !giver || remaining === 0) return empty;
-    const atGiver = here !== null && here === giver.key;
-    return {
-      canOffer: atGiver,
-      inProgress: false,
-      canClaim: false,
-      remaining,
-    };
   }
 
   private redeemPendingKills(stationName: string): void {
@@ -335,10 +334,16 @@ export class Game {
     this.paidPirateViews.delete(key);
     if (killed) this.pendingPirateKills += 1;
 
-    const quest = this.pirateQuests.get(this.local.poiId);
-    if (quest && quest.targets.includes(key)) {
-      const left = quest.targets.filter((k) => !this.clearedPirateViews.has(k))
-        .length;
+    const clearance = this.activeMissions.find(
+      (m) =>
+        m.kind === "clearance" &&
+        m.originPoiId === this.local.poiId &&
+        (m.pirateTargets ?? []).includes(key),
+    );
+    if (clearance) {
+      const left = (clearance.pirateTargets ?? []).filter(
+        (k) => !this.clearedPirateViews.has(k),
+      ).length;
       if (left === 0) {
         this.messages.push(
           killed
@@ -363,66 +368,14 @@ export class Game {
     }
   }
 
-  private acceptPirateQuest(station: Landmark): void {
-    if (this.local.poiType !== "starSystem") return;
-    const poiId = this.local.poiId;
-    if (this.pirateQuests.has(poiId) || this.claimedPirateQuests.has(poiId)) {
-      return;
-    }
-    const giver = this.questGiverForCurrentSystem();
-    const here = this.currentStationKey(station);
-    if (!giver || here !== giver.key) return;
-
-    const targets = this.unclearedPirateKeys(poiId);
-    if (targets.length === 0) return;
-
-    this.pirateQuests.set(poiId, {
-      poiId,
-      stationKey: giver.key,
-      targets,
-    });
-    this.messages.push(
-      `${station.name}: Contract accepted — clear ${targets.length} pirate${targets.length === 1 ? "" : "s"} in this system (+${ECONOMY.pirateQuestReward} cr).`,
-      "station",
-    );
-    this.dockedMenu.refreshQuest(
-      this.dockedQuestUi(station),
-      window.innerWidth,
-      window.innerHeight,
-      this.missionBoardHint(),
-    );
-  }
-
-  private claimPirateQuest(station: Landmark): void {
-    if (this.local.poiType !== "starSystem") return;
-    const poiId = this.local.poiId;
-    const quest = this.pirateQuests.get(poiId);
-    if (!quest || this.claimedPirateQuests.has(poiId)) return;
-    const here = this.currentStationKey(station);
-    if (here !== quest.stationKey) return;
-    if (!quest.targets.every((k) => this.clearedPirateViews.has(k))) return;
-
-    this.ship.addCredits(ECONOMY.pirateQuestReward);
-    this.pirateQuests.delete(poiId);
-    this.claimedPirateQuests.add(poiId);
-    this.messages.push(
-      `${station.name}: System clearance confirmed (+${ECONOMY.pirateQuestReward} cr).`,
-      "station",
-    );
-    this.dockedMenu.refreshQuest(
-      this.dockedQuestUi(station),
-      window.innerWidth,
-      window.innerHeight,
-      this.missionBoardHint(),
-    );
-  }
-
   /** On arriving in a local view — complete explore scans when at the target POI. */
   private checkExploreScanProgress(): void {
+    this.visitedPoiIds.add(this.local.poiId);
     for (const mission of this.activeMissions) {
       if (mission.kind !== "explore" || mission.scanned) continue;
       if (mission.targetPoiId !== this.local.poiId) continue;
       mission.scanned = true;
+      this.scannedPoiIds.add(this.local.poiId);
       this.messages.push(
         `Scan complete: ${mission.targetPoiName}. Return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
       );
@@ -464,24 +417,43 @@ export class Game {
     const here = this.currentStationKey(station);
     if (!here) return;
     for (const mission of this.activeMissions) {
-      if (mission.kind !== "explore") continue;
-      if (!mission.scanned) continue;
-      if (mission.originStationKey !== here) continue;
-      mission.status = "readyToClaim";
+      if (mission.kind === "explore") {
+        if (!mission.scanned) continue;
+        if (mission.originStationKey !== here) continue;
+        mission.status = "readyToClaim";
+        continue;
+      }
+      if (mission.kind === "clearance") {
+        const done = (mission.pirateTargets ?? []).every((k) =>
+          this.clearedPirateViews.has(k),
+        );
+        if (done && mission.originStationKey === here) {
+          mission.status = "readyToClaim";
+        }
+      }
     }
   }
 
   private acceptBoardMission(missionId: string): void {
     if (this.dock.kind !== "docked") return;
-    if (this.activeMissions.length >= QUEST.maxActive) {
+    const offer = this.dockMissionOffers.find((o) => o.id === missionId);
+    if (!offer || this.acceptedMissionIds.has(missionId)) return;
+
+    if (offer.kind === "clearance") {
+      if (this.activeMissions.some((m) => m.kind === "clearance")) {
+        this.messages.push(
+          "Missions: Already running a pirate clearance contract.",
+          "station",
+        );
+        return;
+      }
+    } else if (this.activeMissions.length >= QUEST.maxActive) {
       this.messages.push(
         `Missions: Already holding ${QUEST.maxActive} contracts — complete one first.`,
         "station",
       );
       return;
     }
-    const offer = this.dockMissionOffers.find((o) => o.id === missionId);
-    if (!offer || this.acceptedMissionIds.has(missionId)) return;
 
     if (offer.kind === "cargo") {
       const cu = offer.cu ?? 0;
@@ -507,17 +479,25 @@ export class Game {
 
     const active: ActiveMission = {
       ...offer,
+      pirateTargets: offer.pirateTargets
+        ? [...offer.pirateTargets]
+        : undefined,
       status: "inProgress",
       scanned: false,
     };
     this.activeMissions.push(active);
     this.acceptedMissionIds.add(offer.id);
-    this.messages.push(
-      offer.kind === "cargo"
-        ? `Missions: Accepted — haul to ${offer.destStationName} (+${offer.reward} cr).`
-        : `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`,
-      "station",
-    );
+
+    let msg: string;
+    if (offer.kind === "cargo") {
+      msg = `Missions: Accepted — haul to ${offer.destStationName} (+${offer.reward} cr).`;
+    } else if (offer.kind === "clearance") {
+      const n = offer.pirateTargets?.length ?? 0;
+      msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
+    } else {
+      msg = `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
+    }
+    this.messages.push(msg, "station");
     this.refreshMissionBoardUi();
   }
 
@@ -547,8 +527,40 @@ export class Game {
       return;
     }
 
+    if (mission.kind === "clearance") {
+      if (here !== mission.originStationKey) {
+        this.messages.push(
+          `Missions: Return to ${mission.originStationName} to claim clearance.`,
+          "station",
+        );
+        return;
+      }
+      const done = (mission.pirateTargets ?? []).every((k) =>
+        this.clearedPirateViews.has(k),
+      );
+      if (!done) {
+        this.messages.push(
+          "Missions: Pirates still remain in this system.",
+          "station",
+        );
+        return;
+      }
+      this.ship.addCredits(mission.reward);
+      this.activeMissions.splice(idx, 1);
+      this.claimedClearanceSystems.add(mission.originPoiId);
+      this.messages.push(
+        `${station.name}: System clearance confirmed (+${mission.reward} cr).`,
+        "station",
+      );
+      this.refreshMissionBoardUi();
+      return;
+    }
+
     // Cargo pays on delivery; claim button is unused for cargo.
-    this.messages.push("Missions: Deliver the freight at the destination station.", "station");
+    this.messages.push(
+      "Missions: Deliver the freight at the destination station.",
+      "station",
+    );
   }
 
   private refreshMissionBoardUi(): void {
@@ -557,7 +569,8 @@ export class Game {
       this.visibleMissionOffers(),
       this.missionsForBoardUi(),
       this.ship.cargo.freeCu,
-      this.activeMissions.length < QUEST.maxActive,
+      this.activeMissions.filter((m) => m.kind !== "clearance").length <
+        QUEST.maxActive,
     );
   }
 
@@ -573,7 +586,8 @@ export class Game {
       this.visibleMissionOffers(),
       this.missionsForBoardUi(),
       this.ship.cargo.freeCu,
-      this.activeMissions.length < QUEST.maxActive,
+      this.activeMissions.filter((m) => m.kind !== "clearance").length <
+        QUEST.maxActive,
     );
     this.missionBoardOpen = true;
   }
@@ -586,7 +600,6 @@ export class Game {
         this.dock.station.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(this.dock.station),
         this.missionBoardHint(),
       );
     }
@@ -607,6 +620,24 @@ export class Game {
     if (result.action === "claim") {
       this.claimBoardMission(result.missionId);
     }
+  }
+
+  private pirateAggroActive(): boolean {
+    return this.pirates.some((p) => p.alive && p.mode === "aggro");
+  }
+
+  private stations(): Landmark[] {
+    const list: Landmark[] = [];
+    if (this.local.focus.kind === "station") list.push(this.local.focus);
+    for (const c of this.local.companions) {
+      if (c.kind === "station") list.push(c);
+    }
+    return list;
+  }
+
+  private currentStationKey(station: Landmark): string | null {
+    if (this.local.bodyId === null) return null;
+    return stationKey(this.local.poiId, this.local.bodyId, station.id);
   }
 
   private update(dt: number): void {
@@ -938,21 +969,11 @@ export class Game {
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
     this.dockMarket = createStationMarket(key);
-    const ref = stationRefFromLocal(
-      this.galaxy,
-      this.local.poiId,
-      this.local.bodyId,
-      station.id,
-      station.name,
-    );
-    this.dockMissionOffers = ref
-      ? generateStationMissions(this.galaxy, ref)
-      : [];
+    this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
-      this.dockedQuestUi(station),
       this.missionBoardHint(),
     );
     this.messages.push(`Docked at ${station.name}.`);
@@ -985,14 +1006,6 @@ export class Game {
           `Partial repair: +${healed} HP (−${cost} cr). Need more credits for full restore.`,
         );
       }
-      return;
-    }
-    if (action === "acceptQuest") {
-      this.acceptPirateQuest(station);
-      return;
-    }
-    if (action === "claimQuest") {
-      this.claimPirateQuest(station);
       return;
     }
     if (action === "bay") {
@@ -1124,12 +1137,14 @@ export class Game {
   private updateGalaxyMenu(): void {
     if (!this.pointer.consumeClick()) return;
     const jumpRange = this.ship.loadout.jumpRange();
+    const hints = this.chartHints();
     const result = this.chart.handleClick(
       this.galaxy,
       this.local.poiId,
       this.pointer.x,
       this.pointer.y,
       jumpRange,
+      hints,
     );
     if (result === "close") {
       this.chartOpen = false;
@@ -1192,7 +1207,6 @@ export class Game {
         this.dock.station.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(this.dock.station),
         this.missionBoardHint(),
       );
     }
@@ -1285,7 +1299,6 @@ export class Game {
         dockedStation.name,
         window.innerWidth,
         window.innerHeight,
-        this.dockedQuestUi(dockedStation),
         this.missionBoardHint(),
       );
     }
@@ -1454,6 +1467,7 @@ export class Game {
       shipMenuOpen: this.shipMenuOpen,
       marketMenuOpen: this.marketMenuOpen,
       missionBoardOpen: this.missionBoardOpen,
+      chartHints: this.chartHints(),
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,

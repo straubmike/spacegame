@@ -1,16 +1,17 @@
 /**
- * Station mission board — non-combat contracts.
+ * Station mission board contracts.
  *
- * Archetypes (first slice):
+ * Archetypes:
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
  * - explore: accept at A → visit/scan target POI → return to A → claim pay
+ * - clearance: accept at giver → clear system pirates → return → claim pay
  *
  * Passenger fares (design only until berth utility ships):
  * - require passengerCapacity berths; pickup A → deliver B across multi-jump range
  * - payouts higher than cargo of similar distance/risk; berths ≠ CU
  */
 
-import { GALAXY, QUEST } from "../game/config";
+import { ECONOMY, GALAXY, QUEST } from "../game/config";
 import { listSystemStations, type SystemStationRef } from "../galaxy/pirates";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
@@ -18,7 +19,7 @@ import { hash2, mulberry32 } from "../galaxy/rng";
 import { COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
-export type MissionKind = "cargo" | "explore";
+export type MissionKind = "cargo" | "explore" | "clearance";
 
 export interface MissionOffer {
   id: string;
@@ -38,10 +39,12 @@ export interface MissionOffer {
   destStationName?: string;
   destPoiId?: number;
   destBodyId?: number;
-  /** Exploration target. */
+  /** Exploration / clearance target POI (chart highlight). */
   targetPoiId?: number;
   targetPoiName?: string;
   targetPoiType?: PoiType;
+  /** Clearance: pirate view keys to clear. */
+  pirateTargets?: string[];
 }
 
 export type ActiveMissionStatus = "inProgress" | "readyToClaim";
@@ -71,6 +74,27 @@ export function isMissionCargoId(id: string): boolean {
 }
 
 /**
+ * Chart POI ids that are active quest destinations (or return-to-claim origins).
+ */
+export function questChartPoiIds(missions: readonly ActiveMission[]): Set<number> {
+  const ids = new Set<number>();
+  for (const m of missions) {
+    if (m.kind === "explore") {
+      if (m.scanned) {
+        ids.add(m.originPoiId);
+      } else if (m.targetPoiId !== undefined) {
+        ids.add(m.targetPoiId);
+      }
+    } else if (m.kind === "cargo" && m.destPoiId !== undefined) {
+      ids.add(m.destPoiId);
+    } else if (m.kind === "clearance" && m.targetPoiId !== undefined) {
+      ids.add(m.targetPoiId);
+    }
+  }
+  return ids;
+}
+
+/**
  * Seeded board for one station visit. Regenerates the same offers for a given
  * station key until the session ends (offers are not consumed from the seed —
  * Game tracks accepted ids separately).
@@ -97,6 +121,29 @@ export function generateStationMissions(
   }
 
   return offers;
+}
+
+/** System pirate-clearance contract at the quest-giver station. */
+export function makeClearanceOffer(
+  station: SystemStationRef,
+  pirateTargets: string[],
+  poiName: string,
+): MissionOffer | null {
+  if (pirateTargets.length === 0) return null;
+  const n = pirateTargets.length;
+  return {
+    id: `clearance:${station.poiId}`,
+    kind: "clearance",
+    title: `Clear system pirates`,
+    blurb: `Eliminate or drive off ${n} pirate${n === 1 ? "" : "s"} in ${poiName}, then return here.`,
+    reward: ECONOMY.pirateQuestReward,
+    originStationKey: station.key,
+    originStationName: station.name,
+    originPoiId: station.poiId,
+    targetPoiId: station.poiId,
+    targetPoiName: poiName,
+    pirateTargets: [...pirateTargets],
+  };
 }
 
 function makeCargoOffer(

@@ -6,24 +6,12 @@ export type DockedMenuAction =
   | "bay"
   | "market"
   | "missions"
-  | "acceptQuest"
-  | "claimQuest"
   | "launch"
   | null;
 
-export interface DockedQuestUi {
-  /** Station can offer a new clearance quest. */
-  canOffer: boolean;
-  /** Active quest for this system; waiting on pirate clears. */
-  inProgress: boolean;
-  /** All targets cleared — claim reward here. */
-  canClaim: boolean;
-  /** Remaining uncleared targets (for in-progress label). */
-  remaining: number;
-}
-
 /**
  * Shown while the player is docked at a station.
+ * Contracts live under Missions (including pirate clearance).
  */
 export class DockedMenu {
   open = false;
@@ -33,32 +21,21 @@ export class DockedMenu {
   private bayBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private marketBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private missionsBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private questBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private quest: DockedQuestUi = {
-    canOffer: false,
-    inProgress: false,
-    canClaim: false,
-    remaining: 0,
-  };
-  private showQuestRow = false;
   private missionBoardHint = "";
 
   show(
     stationName: string,
     viewW: number,
     viewH: number,
-    quest: DockedQuestUi,
     missionBoardHint = "",
   ): void {
     this.open = true;
     this.stationName = stationName;
-    this.quest = quest;
     this.missionBoardHint = missionBoardHint;
-    this.showQuestRow = quest.canOffer || quest.inProgress || quest.canClaim;
 
     const w = 280;
-    const rows = (this.showQuestRow ? 1 : 0) + 5; // repair, bay, market, missions, [quest], launch
+    const rows = 5; // repair, bay, market, missions, launch
     const h = 56 + rows * 38 + 16;
     this.panel = {
       x: Math.floor((viewW - w) / 2),
@@ -80,25 +57,13 @@ export class DockedMenu {
     this.missionsBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
     y += 38;
 
-    if (this.showQuestRow) {
-      this.questBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
-      y += 38;
-    } else {
-      this.questBtn = { x: 0, y: 0, w: 0, h: 0 };
-    }
-
     this.launchBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
   }
 
-  /** Refresh quest row without closing (e.g. after accepting). */
-  refreshQuest(
-    quest: DockedQuestUi,
-    viewW: number,
-    viewH: number,
-    missionBoardHint = this.missionBoardHint,
-  ): void {
+  /** Refresh label hint without closing. */
+  refreshHint(viewW: number, viewH: number, missionBoardHint: string): void {
     if (!this.open) return;
-    this.show(this.stationName, viewW, viewH, quest, missionBoardHint);
+    this.show(this.stationName, viewW, viewH, missionBoardHint);
   }
 
   hide(): void {
@@ -146,44 +111,10 @@ export class DockedMenu {
       hover: hit(this.missionsBtn, pointerX, pointerY),
     });
 
-    if (this.showQuestRow) {
-      const { label, enabled } = this.questButtonState();
-      drawButton(ctx, this.questBtn, label, {
-        enabled,
-        hover: enabled && hit(this.questBtn, pointerX, pointerY),
-      });
-    }
-
     drawButton(ctx, this.launchBtn, "Launch", {
       primary: true,
       hover: hit(this.launchBtn, pointerX, pointerY),
     });
-  }
-
-  private questButtonState(): { label: string; enabled: boolean } {
-    if (this.quest.canClaim) {
-      return {
-        label: `Claim pirate bounty (+${ECONOMY.pirateQuestReward} cr)`,
-        enabled: true,
-      };
-    }
-    if (this.quest.canOffer) {
-      return {
-        label: `Accept: clear pirates (+${ECONOMY.pirateQuestReward} cr)`,
-        enabled: true,
-      };
-    }
-    if (this.quest.inProgress) {
-      const n = this.quest.remaining;
-      return {
-        label:
-          n <= 0
-            ? "Quest: return with proof"
-            : `Quest: ${n} pirate${n === 1 ? "" : "s"} left`,
-        enabled: false,
-      };
-    }
-    return { label: "No contracts", enabled: false };
   }
 
   handleClick(px: number, py: number): DockedMenuAction {
@@ -192,11 +123,6 @@ export class DockedMenu {
     if (hit(this.bayBtn, px, py)) return "bay";
     if (hit(this.marketBtn, px, py)) return "market";
     if (hit(this.missionsBtn, px, py)) return "missions";
-    if (this.showQuestRow && hit(this.questBtn, px, py)) {
-      if (this.quest.canClaim) return "claimQuest";
-      if (this.quest.canOffer) return "acceptQuest";
-      return null;
-    }
     if (hit(this.launchBtn, px, py)) return "launch";
     return null;
   }

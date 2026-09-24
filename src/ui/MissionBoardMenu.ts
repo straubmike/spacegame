@@ -196,14 +196,28 @@ export class MissionBoardMenu {
 
     const needCu = mission.kind === "cargo" ? (mission.cu ?? 0) : 0;
     const cargoOk = needCu === 0 || this.freeCu >= needCu;
-    const enabled = this.canAcceptMore && cargoOk;
+    const clearanceBusy =
+      mission.kind === "clearance" &&
+      this.active.some((m) => m.kind === "clearance");
+    const slotOk =
+      mission.kind === "clearance"
+        ? !clearanceBusy
+        : this.canAcceptMore;
+    const enabled = slotOk && cargoOk;
     const acceptBtn: Rect = {
       x: panelX + panelW - 130,
       y: y + 18,
       w: 96,
       h: 32,
     };
-    drawButton(ctx, acceptBtn, enabled ? "Accept" : cargoOk ? "Full" : "Need CU", {
+    const label = !enabled
+      ? clearanceBusy
+        ? "Active"
+        : cargoOk
+          ? "Full"
+          : "Need CU"
+      : "Accept";
+    drawButton(ctx, acceptBtn, label, {
       enabled,
       primary: enabled,
       hover: enabled && hit(acceptBtn, pointerX, pointerY),
@@ -260,6 +274,15 @@ export class MissionBoardMenu {
   private activeStatusLine(mission: ActiveMission): string {
     if (mission.kind === "cargo") {
       return `Deliver to ${mission.destStationName ?? "destination"}`;
+    }
+    if (mission.kind === "clearance") {
+      if (mission.status === "readyToClaim") {
+        return `Clearance complete — claim at ${mission.originStationName}`;
+      }
+      const left = mission.pirateTargets?.length ?? 0;
+      return left <= 0
+        ? `Return to ${mission.originStationName} to claim`
+        : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
     }
     if (mission.scanned) {
       return `Scan complete — return to ${mission.originStationName}`;
