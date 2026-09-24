@@ -181,13 +181,14 @@ export function generateLocalView(
     const bid = bodyId ?? 0;
     const host =
       blueprint.bodies.find((b) => b.id === bid) ?? blueprint.bodies[0]!;
-    return buildHostLocalView(ref.id, ref.name, host, blueprint, rng);
+    return buildHostLocalView(galaxy, ref.id, ref.name, host, blueprint, rng);
   }
 
-  return buildExoticaView(ref.id, ref.name, ref.type, rng);
+  return buildExoticaView(galaxy, ref.id, ref.name, ref.type, rng);
 }
 
 function buildHostLocalView(
+  galaxy: Galaxy,
   poiId: number,
   poiName: string,
   host: SystemBodyRef,
@@ -212,7 +213,7 @@ function buildHostLocalView(
     focus,
     companions,
     systemBodies: blueprint.bodies,
-    pirate: pirateSpawnFor(poiId, host.id),
+    pirate: pirateSpawnFor(galaxy, poiId, host.id),
     beltRocks,
   };
 }
@@ -275,6 +276,7 @@ function makeStations(host: SystemBodyRef, rng: () => number): Landmark[] {
 }
 
 function buildExoticaView(
+  galaxy: Galaxy,
   poiId: number,
   name: string,
   type: PoiType,
@@ -313,7 +315,7 @@ function buildExoticaView(
     focus,
     companions,
     systemBodies: null,
-    pirate: pirateSpawnFor(poiId, null),
+    pirate: pirateSpawnFor(galaxy, poiId, null),
     beltRocks: null,
   };
 }

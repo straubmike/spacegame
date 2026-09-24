@@ -1,14 +1,20 @@
-import { COMBAT, SHIP } from "../game/config";
+import {
+  COMBAT,
+  PIRATE_TIERS,
+  SHIP,
+  type PirateTierId,
+} from "../game/config";
 import { spawnProjectile, type Projectile } from "./Projectile";
 
-export type PirateMode = "idle" | "comms" | "aggro" | "retreat";
+export type PirateMode = "idle" | "aggro" | "retreat";
 
 /**
- * Hostile ship: demands a fee (comms) before attacking.
- * Paid pirates stay peaceful unless attacked.
+ * Hostile hull in a local encounter.
+ * Fee / hail timing is owned by Game as one pack event — ships only fight
+ * when the encounter stance is hostile (or after being attacked).
  */
 export class Pirate {
-  health: number = COMBAT.maxHealth;
+  health: number;
   vx = 0;
   vy = 0;
   mode: PirateMode = "idle";
@@ -16,106 +22,94 @@ export class Pirate {
   /** Set when retreat finishes — Game removes on warp. */
   warpedAway = false;
 
-  /** Player has already been asked once this encounter. */
-  feeDemanded = false;
-  /** Player paid; leave them alone unless attacked. */
-  feePaid = false;
-  /** Seconds remaining while waiting for payment. */
-  commsTimer = 0;
+  readonly tier: PirateTierId;
+  /** Shared pack tribute (same value on every wingmate). */
+  readonly fee: number;
 
   constructor(
     public x: number,
     public y: number,
     public heading: number,
-    feePaid = false,
+    tier: PirateTierId = "raider",
+    fee = 10,
   ) {
-    this.feePaid = feePaid;
-    if (feePaid) this.feeDemanded = true;
+    this.tier = tier;
+    this.fee = fee;
+    this.health = PIRATE_TIERS[tier].maxHealth;
   }
 
   get alive(): boolean {
     return this.health > 0 && !this.warpedAway;
   }
 
-  get acceptingPayment(): boolean {
-    return this.alive && this.mode === "comms" && !this.feePaid;
+  get maxHealth(): number {
+    return PIRATE_TIERS[this.tier].maxHealth;
+  }
+
+  get size(): number {
+    return PIRATE_TIERS[this.tier].size;
+  }
+
+  get radius(): number {
+    return PIRATE_TIERS[this.tier].radius;
   }
 
   takeDamage(amount: number): void {
     this.health = Math.max(0, this.health - amount);
     if (this.health <= 1 && this.health > 0) {
       this.mode = "retreat";
-      this.commsTimer = 0;
       return;
     }
-    // Defend even after tribute — payment is not a free shooting gallery
     if (this.mode !== "retreat") {
       this.mode = "aggro";
-      this.commsTimer = 0;
     }
   }
 
-  /** Accept tribute; returns to idle and ignores the player until attacked. */
-  acceptPayment(): void {
-    this.feePaid = true;
-    this.feeDemanded = true;
-    this.commsTimer = 0;
+  /** Stand down after pack tribute (or while the fee window is open). */
+  setPeaceful(): void {
+    if (this.mode === "retreat") return;
     this.mode = "idle";
   }
 
+  goAggro(): void {
+    if (!this.alive || this.mode === "retreat") return;
+    this.mode = "aggro";
+  }
+
   /**
-   * Update AI + movement. Returns true the frame a fee demand begins.
+   * Movement + combat. `hostile` is the pack encounter stance from Game.
    */
   update(
     dt: number,
     playerX: number,
     playerY: number,
     outShots: Projectile[],
-  ): boolean {
-    if (!this.alive) return false;
+    hostile: boolean,
+  ): void {
+    if (!this.alive) return;
 
+    const stats = PIRATE_TIERS[this.tier];
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
 
     const dx = playerX - this.x;
     const dy = playerY - this.y;
     const dist = Math.hypot(dx, dy);
-    const inRange = dist <= COMBAT.pirateThreatRange;
     const towardPlayer = Math.atan2(dy, dx);
-    let justDemanded = false;
 
     if (this.health <= 1) {
       this.mode = "retreat";
     } else if (this.mode === "retreat") {
-      // stay in retreat
-    } else if (this.mode === "aggro") {
-      // stay aggro (including after a paid pirate was attacked)
-    } else if (this.feePaid) {
-      // Paid and not attacked — ignore the player
+      // stay fleeing
+    } else if (hostile || this.mode === "aggro") {
+      this.mode = "aggro";
+    } else {
       this.mode = "idle";
-    } else if (this.mode === "comms") {
-      this.commsTimer = Math.max(0, this.commsTimer - dt);
-      if (this.commsTimer <= 0) {
-        if (inRange) {
-          this.mode = "aggro";
-        } else {
-          this.mode = "idle";
-        }
-      }
-    } else if (inRange) {
-      if (!this.feeDemanded) {
-        this.feeDemanded = true;
-        this.mode = "comms";
-        this.commsTimer = COMBAT.pirateCommsTimeout;
-        justDemanded = true;
-      } else {
-        this.mode = "aggro";
-      }
     }
 
-    if (this.mode === "idle" || this.mode === "comms") {
+    if (this.mode === "idle") {
       this.applyDrag(dt);
       this.integrate(dt);
-      return justDemanded;
+      return;
     }
 
     if (this.mode === "retreat") {
@@ -126,7 +120,7 @@ export class Pirate {
       if (dist >= COMBAT.pirateRetreatRange) {
         this.warpedAway = true;
       }
-      return justDemanded;
+      return;
     }
 
     // aggro
@@ -147,24 +141,30 @@ export class Pirate {
       dist <= COMBAT.pirateThreatRange
     ) {
       outShots.push(
-        spawnProjectile(this.x, this.y, this.heading, COMBAT.pirateSize, true),
+        spawnProjectile(
+          this.x,
+          this.y,
+          this.heading,
+          stats.size,
+          true,
+          stats.damage,
+        ),
       );
-      this.fireCooldown = COMBAT.pirateFireCooldown;
+      this.fireCooldown = COMBAT.pirateFireCooldown * stats.fireCooldownMul;
     }
-
-    return justDemanded;
   }
 
   private turnToward(desired: number, dt: number): void {
     let delta = shortestAngle(this.heading, desired);
-    const maxStep = COMBAT.pirateTurnRate * dt;
+    const maxStep =
+      COMBAT.pirateTurnRate * PIRATE_TIERS[this.tier].turnRateMul * dt;
     if (delta > maxStep) delta = maxStep;
     if (delta < -maxStep) delta = -maxStep;
     this.heading += delta;
   }
 
   private thrust(dt: number): void {
-    const accel = SHIP.thrustAccel * COMBAT.pirateSpeedFactor;
+    const accel = SHIP.thrustAccel * PIRATE_TIERS[this.tier].speedFactor;
     this.vx += Math.cos(this.heading) * accel * dt;
     this.vy += Math.sin(this.heading) * accel * dt;
     this.clampSpeed();
@@ -177,7 +177,7 @@ export class Pirate {
   }
 
   private clampSpeed(): void {
-    const max = SHIP.maxSpeed * COMBAT.pirateSpeedFactor;
+    const max = SHIP.maxSpeed * PIRATE_TIERS[this.tier].speedFactor;
     const speed = Math.hypot(this.vx, this.vy);
     if (speed > max) {
       const s = max / speed;
