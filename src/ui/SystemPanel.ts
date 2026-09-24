@@ -112,7 +112,13 @@ export class SystemPanel {
         ? "rgba(230, 240, 255, 0.98)"
         : "rgba(190, 205, 225, 0.9)";
       ctx.textBaseline = "middle";
-      const suffix = here ? "  ·  here" : body.stationCount > 0 ? "  ·  station" : "";
+      const suffix = here
+        ? "  ·  here"
+        : body.kind === "asteroidBelt"
+          ? "  ·  belt"
+          : body.stationCount > 0
+            ? "  ·  station"
+            : "";
       ctx.fillText(body.name + suffix, row.x + 12, row.y + row.h / 2);
       y += rowH;
     });

@@ -1,8 +1,9 @@
-import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, QUEST } from "./config";
+import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, QUEST, SCOOP } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
+import { rockYieldLabel } from "../galaxy/beltRocks";
 import {
   listSystemPirateKeys,
   pickQuestGiverStation,
@@ -16,13 +17,18 @@ import {
   stationBayWealth,
   type StationStockContext,
 } from "../ship/stationStock";
-import { createStationMarket, type StationMarket } from "../ship/market";
+import {
+  commodityById,
+  createStationMarket,
+  type StationMarket,
+} from "../ship/market";
 import type { MarketContext } from "../ship/economy";
 import {
   generateStationMissions,
   makeClearanceOffer,
   missionCargoId,
   questChartPoiIds,
+  stolenCargoId,
   stationRefFromLocal,
   type ActiveMission,
   type MissionOffer,
@@ -124,6 +130,9 @@ export class Game {
   private projectiles: Projectile[] = [];
   private fireCooldown = 0;
   private dock: DockState = { kind: "free" };
+  /** Progress toward the next scooped CU while holding F. */
+  private scoopProgress = 0;
+  private scoopHintCooldown = 0;
 
   private chartOpen = false;
   private panelOpen = false;
@@ -177,6 +186,7 @@ export class Game {
     this.panel.selectedBodyId = this.local.bodyId;
     this.projectiles = [];
     this.fireCooldown = 0;
+    this.scoopProgress = 0;
     this.pirates = [];
     this.pack = null;
     this.clearDockClearance();
@@ -799,7 +809,71 @@ export class Game {
     }
     if (result.action === "claim") {
       this.claimBoardMission(result.missionId);
+      return;
     }
+    if (result.action === "cancel") {
+      this.cancelBoardMission(result.missionId, { fromBoard: true });
+    }
+  }
+
+  /**
+   * Drop an active contract.
+   * - Cancel via origin station's Missions board → return haul freight (no steal).
+   * - Cancel elsewhere (L menu, or board away from origin) → keep freight as stolen.
+   * Offer stays in acceptedMissionIds so it does not reappear on that station's board.
+   */
+  private cancelBoardMission(
+    missionId: string,
+    opts: { fromBoard?: boolean } = {},
+  ): void {
+    const idx = this.activeMissions.findIndex((m) => m.id === missionId);
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
+
+    const here =
+      this.dock.kind === "docked"
+        ? this.currentStationKey(this.dock.station)
+        : null;
+    const atOriginBoard =
+      !!opts.fromBoard &&
+      here !== null &&
+      here === mission.originStationKey;
+
+    let stoleCu = 0;
+    let returnedCu = 0;
+    if (mission.kind === "cargo") {
+      const lotId = missionCargoId(mission.id);
+      const held = this.ship.cargo.amountOf(lotId);
+      if (held > 0) {
+        this.ship.cargo.remove(lotId, held);
+        if (atOriginBoard) {
+          // Abort at giver: cargo returned — do not keep as stolen.
+          returnedCu = held;
+        } else {
+          const commodityId = mission.commodityId ?? "goods";
+          const name = mission.commodityName ?? "Freight";
+          this.ship.cargo.stow({
+            id: stolenCargoId(commodityId),
+            name,
+            cu: held,
+          });
+          stoleCu = held;
+        }
+      }
+    }
+
+    this.activeMissions.splice(idx, 1);
+    // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
+    let msg: string;
+    if (returnedCu > 0) {
+      msg = "Mission aborted, cargo returned.";
+    } else if (stoleCu > 0) {
+      msg = `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`;
+    } else {
+      msg = `Missions: Cancelled "${mission.title}".`;
+    }
+    this.messages.push(msg, "station");
+    this.refreshMissionBoardUi();
   }
 
   private stations(): Landmark[] {
@@ -952,6 +1026,7 @@ export class Game {
     } else {
       this.ship.update(dt, this.keyboard.state);
       this.updateCombat(dt);
+      this.updateScoop(dt);
     }
 
     if (
@@ -1229,6 +1304,107 @@ export class Game {
       angle,
     );
     this.messages.push(`Launched from ${station.name}.`);
+  }
+
+  /**
+   * Hold F near a scanned rich rock while Ore Scanner + Cargo Scoop are fitted
+   * (or a Prospecting Rig). Collects 1 CU at a time; rocks deplete.
+   */
+  private updateScoop(dt: number): void {
+    this.scoopHintCooldown = Math.max(0, this.scoopHintCooldown - dt);
+    if (this.dock.kind !== "free") {
+      this.scoopProgress = 0;
+      return;
+    }
+    if (!this.ship.alive || this.menuOpen()) {
+      this.scoopProgress = 0;
+      return;
+    }
+
+    const rocks = this.local.beltRocks;
+    if (!rocks || this.local.focus.kind !== "asteroidBelt") {
+      this.scoopProgress = 0;
+      return;
+    }
+
+    const holding = this.keyboard.state.scoop;
+    if (!holding) {
+      this.scoopProgress = 0;
+      return;
+    }
+
+    if (!this.ship.loadout.canProspectBelts) {
+      this.scoopProgress = 0;
+      if (this.scoopHintCooldown <= 0) {
+        const hasScan = this.ship.loadout.mineralScanRange > 0;
+        const hasScoop = this.ship.loadout.scoopRange > 0;
+        if (!hasScan && !hasScoop) {
+          this.messages.push(
+            "Scoop: Fit Ore Scanner + Cargo Scoop (or Prospecting Rig) to farm.",
+          );
+        } else if (!hasScan) {
+          this.messages.push("Scoop: Ore Scanner required to lock veins.");
+        } else {
+          this.messages.push("Scoop: Cargo Scoop required to collect ore.");
+        }
+        this.scoopHintCooldown = 4;
+      }
+      return;
+    }
+
+    const scanRange = this.ship.loadout.mineralScanRange;
+    const scoopRange = this.ship.loadout.scoopRange;
+    const reach = scoopRange + SCOOP.rangePad;
+
+    let best: (typeof rocks)[number] | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const rock of rocks) {
+      if (!rock.yieldId || rock.remaining <= 0) continue;
+      const dist = Math.hypot(rock.x - this.ship.x, rock.y - this.ship.y);
+      if (dist > scanRange) continue;
+      if (dist > rock.r + reach) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = rock;
+      }
+    }
+
+    if (!best || !best.yieldId) {
+      this.scoopProgress = 0;
+      if (this.scoopHintCooldown <= 0) {
+        this.messages.push(
+          "Scoop: No scanned vein in range — fly toward a highlighted rock.",
+        );
+        this.scoopHintCooldown = 3.5;
+      }
+      return;
+    }
+
+    if (this.ship.cargo.freeCu < 1) {
+      this.scoopProgress = 0;
+      if (this.scoopHintCooldown <= 0) {
+        this.messages.push("Scoop: Cargo full — dock and sell before more ore.");
+        this.scoopHintCooldown = 4;
+      }
+      return;
+    }
+
+    this.scoopProgress += dt;
+    if (this.scoopProgress < SCOOP.secondsPerCu) return;
+    this.scoopProgress = 0;
+
+    const commodity = commodityById(best.yieldId);
+    if (!commodity) return;
+    if (!this.ship.cargo.stow({ id: commodity.id, name: commodity.name, cu: 1 })) {
+      return;
+    }
+    best.remaining -= 1;
+    const label = rockYieldLabel(best.yieldId);
+    if (best.remaining <= 0) {
+      this.messages.push(`Scoop: +1 CU ${label} — vein depleted.`);
+    } else {
+      this.messages.push(`Scoop: +1 CU ${label} (${best.remaining} left).`);
+    }
   }
 
   private updateCombat(dt: number): void {
@@ -1586,7 +1762,12 @@ export class Game {
         this.messages.push("Market: Demand filled.", "station");
         return;
       }
-      const removed = this.ship.cargo.remove(listing.commodityId, result.cu);
+      // Fence stolen lots first, then ordinary hold of the same commodity.
+      const stolenId = stolenCargoId(listing.commodityId);
+      let left = result.cu;
+      left -= this.ship.cargo.remove(stolenId, left);
+      if (left > 0) left -= this.ship.cargo.remove(listing.commodityId, left);
+      const removed = result.cu - left;
       if (removed <= 0) {
         this.messages.push("Market: You are not carrying that.", "station");
         return;
@@ -1658,6 +1839,7 @@ export class Game {
       this.ship.loadout,
       this.pointer.x,
       this.pointer.y,
+      this.ship.cargo,
     );
     if (result === "close") {
       this.closeShipMenu();
@@ -1665,7 +1847,31 @@ export class Game {
     }
     if (result && typeof result === "object" && result.action === "install") {
       this.tryInstallModule(result.module);
+      return;
     }
+    if (result && typeof result === "object" && result.action === "eject") {
+      this.ejectCargo(result.commodityId, result.cu);
+      return;
+    }
+    if (
+      result &&
+      typeof result === "object" &&
+      result.action === "cancelMission"
+    ) {
+      this.cancelBoardMission(result.missionId);
+    }
+  }
+
+  /** Dump CU from a cargo lot (L-menu eject with chosen amount). */
+  private ejectCargo(commodityId: string, cu: number): void {
+    if (cu <= 0) return;
+    const held = this.ship.cargo.amountOf(commodityId);
+    if (held <= 0) return;
+    const lot = this.ship.cargo.list().find((l) => l.id === commodityId);
+    const name = lot?.name ?? commodityId;
+    const removed = this.ship.cargo.remove(commodityId, Math.min(cu, held));
+    if (removed <= 0) return;
+    this.messages.push(`Cargo: Ejected ${removed} CU ${name}.`);
   }
 
   private updateSystemMenu(): void {
@@ -1786,6 +1992,7 @@ export class Game {
       missionBoardOpen: this.missionBoardOpen,
       hangarMenuOpen: this.hangarMenuOpen,
       chartHints: this.chartHints(),
+      activeMissions: this.missionsForBoardUi(),
       panel: this.panel,
       galaxy: this.galaxy,
       chart: this.chart,

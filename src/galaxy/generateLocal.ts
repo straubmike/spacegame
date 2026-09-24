@@ -1,4 +1,5 @@
 import { BODY_COLORS, GALAXY, LOCAL, STARS, SYSTEM } from "../game/config";
+import { generateBeltRocks } from "./beltRocks";
 import { pirateSpawnFor } from "./pirates";
 import { hash2, mulberry32 } from "./rng";
 import type { Galaxy } from "./Galaxy";
@@ -73,18 +74,24 @@ export function generateSystemBlueprint(
     },
   ];
 
-  // Decide which mid slot (if any) is an asteroid belt
+  // Decide which mid slot (if any) is an asteroid belt.
+  // Starter system always gets a belt so scoop farming is discoverable.
+  const forceBelt = poiId === GALAXY.startPoiId;
+  let orbitCount = bodyCount;
+  if (forceBelt && orbitCount < 2) orbitCount = 2;
+
   let beltSlot: number | null = null;
-  if (bodyCount >= 3 && rng() < SYSTEM.asteroidBeltChance) {
-    beltSlot = 1 + ((rng() * (bodyCount - 2)) | 0);
+  if (orbitCount >= 2 && (forceBelt || rng() < SYSTEM.asteroidBeltChance)) {
+    beltSlot = 1 + ((rng() * (orbitCount - 1)) | 0);
+    if (beltSlot >= orbitCount) beltSlot = orbitCount - 1;
   }
 
   const canHabitable = (SYSTEM.habitableCapable as readonly string[]).includes(
     starClass,
   );
 
-  for (let i = 0; i < bodyCount; i += 1) {
-    const kind = classifyOrbit(i, bodyCount, beltSlot, canHabitable);
+  for (let i = 0; i < orbitCount; i += 1) {
+    const kind = classifyOrbit(i, orbitCount, beltSlot, canHabitable);
     const pname = PLANET_NAMES[(poiId * 3 + i) % PLANET_NAMES.length]!;
     const label = bodyLabel(pname, kind);
 
@@ -190,6 +197,11 @@ function buildHostLocalView(
 ): LocalView {
   const focus = makeFocusLandmark(host, blueprint.starClass, rng);
   const companions = makeStations(host, rng);
+  const beltSeed = hash2(GALAXY.seed, poiId * 7919 + host.id * 131 + 17);
+  const beltRocks =
+    host.kind === "asteroidBelt"
+      ? generateBeltRocks(focus.x, focus.y, focus.radius, beltSeed)
+      : null;
 
   return {
     poiId,
@@ -202,6 +214,7 @@ function buildHostLocalView(
     companions,
     systemBodies: blueprint.bodies,
     pirate: pirateSpawnFor(galaxy, poiId, host.id),
+    beltRocks,
   };
 }
 
@@ -303,6 +316,7 @@ function buildExoticaView(
     companions,
     systemBodies: null,
     pirate: pirateSpawnFor(galaxy, poiId, null),
+    beltRocks: null,
   };
 }
 

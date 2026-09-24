@@ -57,6 +57,16 @@ export interface UtilityModule extends ModuleBase {
   cargoCapacity: number;
   /** Passenger berths (not CU — people, not freight). */
   passengerCapacity: number;
+  /**
+   * World-unit range to reveal mineral-rich belt rocks (0 = no scan).
+   * Belt farming needs scan + scoop equipped together.
+   */
+  mineralScanRange: number;
+  /**
+   * World-unit scoop reach for collecting scanned ore (0 = no scoop).
+   * Belt farming needs scan + scoop equipped together.
+   */
+  scoopRange: number;
 }
 
 export type EquipModule = WeaponModule | DriveModule | UtilityModule;
@@ -345,6 +355,8 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   hullPlating: {
@@ -360,6 +372,8 @@ export const MODULES = {
     hullBonus: 3,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   cargoRack: {
@@ -375,6 +389,8 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 8,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   mediumShield: {
@@ -390,6 +406,8 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   reinforcedHull: {
@@ -405,6 +423,8 @@ export const MODULES = {
     hullBonus: 6,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   expandedHold: {
@@ -420,6 +440,8 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 14,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   heavyShield: {
@@ -435,6 +457,8 @@ export const MODULES = {
     hullBonus: 1,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   fortressPlating: {
@@ -450,6 +474,8 @@ export const MODULES = {
     hullBonus: 10,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 
   freighterBay: {
@@ -465,6 +491,81 @@ export const MODULES = {
     hullBonus: 0,
     cargoCapacity: 22,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+  } satisfies UtilityModule,
+
+
+  oreScanner: {
+    kind: "utility",
+    id: "ore_scanner",
+    name: "Ore Scanner",
+    blurb:
+      "Prospecting suite sensor. Lights up mineral veins in asteroid belts — pair with a Cargo Scoop to farm.",
+    price: 60,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 110,
+    scoopRange: 0,
+  } satisfies UtilityModule,
+
+  cargoScoop: {
+    kind: "utility",
+    id: "cargo_scoop",
+    name: "Cargo Scoop",
+    blurb:
+      "Magnetic intake for belt ore. Needs an Ore Scanner to find veins; includes a small hold for hauls.",
+    price: 70,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 6,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 48,
+  } satisfies UtilityModule,
+
+  passengerBerth: {
+    kind: "utility",
+    id: "passenger_berth",
+    name: "Passenger Berth",
+    blurb:
+      "Cabin space for paying travelers (berths, not CU). Required to accept passenger fare contracts.",
+    price: 90,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 4,
+    mineralScanRange: 0,
+    scoopRange: 0,
+  } satisfies UtilityModule,
+
+  prospectingRig: {
+    kind: "utility",
+    id: "prospecting_rig",
+    name: "Prospecting Rig",
+    blurb:
+      "Combined scanner and scoop in one bay — belt farming for single-utility hulls.",
+    price: 110,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 5,
+    passengerCapacity: 0,
+    mineralScanRange: 100,
+    scoopRange: 44,
   } satisfies UtilityModule,
 
   dualLattice: {
@@ -480,6 +581,8 @@ export const MODULES = {
     hullBonus: 4,
     cargoCapacity: 0,
     passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
   } satisfies UtilityModule,
 } as const;
 
@@ -515,6 +618,10 @@ export const CATALOG: EquipModule[] = [
   MODULES.fortressPlating,
   MODULES.freighterBay,
   MODULES.dualLattice,
+  MODULES.oreScanner,
+  MODULES.cargoScoop,
+  MODULES.passengerBerth,
+  MODULES.prospectingRig,
 ];
 
 export function createStarterSlots(): ShipSlot[] {
@@ -534,7 +641,13 @@ export function createStarterSlots(): ShipSlot[] {
     {
       id: "slot_utility_0",
       kind: "utility",
-      label: "Utility",
+      label: "Utility A",
+      equipped: null,
+    },
+    {
+      id: "slot_utility_1",
+      kind: "utility",
+      label: "Utility B",
       equipped: null,
     },
   ];

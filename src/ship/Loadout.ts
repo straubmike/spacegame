@@ -54,6 +54,27 @@ export class ShipLoadout {
     return list;
   }
 
+  get mineralScanRange(): number {
+    let best = 0;
+    for (const u of this.utilities()) {
+      if (u.mineralScanRange > best) best = u.mineralScanRange;
+    }
+    return best;
+  }
+
+  get scoopRange(): number {
+    let best = 0;
+    for (const u of this.utilities()) {
+      if (u.scoopRange > best) best = u.scoopRange;
+    }
+    return best;
+  }
+
+  /** Belt farming unlocks only when both scan and scoop capabilities are fitted. */
+  get canProspectBelts(): boolean {
+    return this.mineralScanRange > 0 && this.scoopRange > 0;
+  }
+
   slotByKind(kind: ShipSlot["kind"]): ShipSlot | undefined {
     return this.slots.find((s) => s.kind === kind);
   }

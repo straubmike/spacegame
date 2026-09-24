@@ -112,4 +112,19 @@ export interface LocalView {
   systemBodies: SystemBodyRef[] | null;
   /** Seeded pirate encounter for this local view (null = none) */
   pirate: PirateEncounter | null;
+  /**
+   * Mutable belt ore rocks when focus is an asteroid belt.
+   * Shared by render + scoop gameplay; remaining CU depletes in-session.
+   */
+  beltRocks: BeltRockRef[] | null;
+}
+
+/** Lightweight rock payload on LocalView (avoids circular imports). */
+export interface BeltRockRef {
+  id: number;
+  x: number;
+  y: number;
+  r: number;
+  yieldId: "minerals" | "alloys" | "precious_metals" | null;
+  remaining: number;
 }
