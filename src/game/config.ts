@@ -383,3 +383,53 @@ export const DOCK = {
   /** seconds before a comms line expires */
   messageTtl: 8,
 } as const;
+
+/**
+ * Reputation — stations + pirate faction (first slice).
+ * See docs/reputation-system.md in the project Context store.
+ */
+export const REPUTATION = {
+  min: -100,
+  max: 100,
+  /** Band thresholds (inclusive edges described in standingBand()). */
+  hostileAtOrBelow: -50,
+  unfriendlyAtOrBelow: -20,
+  friendlyAtOrAbove: 20,
+  alliedAtOrAbove: 50,
+  /** Station deltas */
+  missionComplete: 10,
+  stealCargo: -25,
+  cancelMissionMild: -5,
+  /** Pirate faction deltas */
+  pirateKill: -8,
+  pirateFeePaid: 5,
+  /** Bay net-install discount fractions by station band. */
+  bayDiscountFriendly: 0.08,
+  bayDiscountAllied: 0.15,
+  /** Patrol fine: max(min, abs(negativeStanding) * perPoint). */
+  patrolFineMin: 15,
+  patrolFinePerPoint: 2,
+} as const;
+
+/**
+ * Station patrol NPCs — local law tied to a host station.
+ * Distinct from pirate encounter template id "patrol".
+ */
+export const PATROL = {
+  /** Chance a given station gets a patrol when entering its local view. */
+  spawnChance: 0.62,
+  /** Orbit / loiter radius from the host station. */
+  loiterRadius: 55,
+  size: 12,
+  radius: 13,
+  maxHealth: 12,
+  speedFactor: 0.88,
+  fireCooldown: 0.55,
+  damage: 1,
+  turnRateMul: 1.05,
+  color: "#6a9ec8",
+  stroke: "#3a6a98",
+  /** Engage pirates within this range of the patrol. */
+  huntRange: 520,
+  engageRange: 190,
+} as const;

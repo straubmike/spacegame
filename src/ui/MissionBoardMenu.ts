@@ -5,6 +5,7 @@ export type MissionBoardClickResult =
   | "close"
   | { action: "accept"; missionId: string }
   | { action: "claim"; missionId: string }
+  | { action: "cancel"; missionId: string }
   | null;
 
 interface OfferRow {
@@ -12,6 +13,7 @@ interface OfferRow {
   kind: "offer" | "active";
   acceptBtn: Rect;
   claimBtn: Rect;
+  cancelBtn: Rect;
 }
 
 /**
@@ -227,6 +229,7 @@ export class MissionBoardMenu {
       kind: "offer",
       acceptBtn,
       claimBtn: { x: 0, y: 0, w: 0, h: 0 },
+      cancelBtn: { x: 0, y: 0, w: 0, h: 0 },
     });
   }
 
@@ -252,22 +255,34 @@ export class MissionBoardMenu {
     ctx.fillText(`+${mission.reward} cr`, panelX + 24, y + 48);
 
     const canClaim = mission.status === "readyToClaim";
-    const claimBtn: Rect = {
+    const primaryBtn: Rect = {
       x: panelX + panelW - 130,
       y: y + 18,
       w: 96,
       h: 32,
     };
-    drawButton(ctx, claimBtn, canClaim ? "Claim" : "Active", {
+    const cancelBtn: Rect = {
+      x: panelX + panelW - 238,
+      y: y + 18,
+      w: 96,
+      h: 32,
+    };
+
+    drawButton(ctx, cancelBtn, "Cancel", {
+      hover: hit(cancelBtn, pointerX, pointerY),
+    });
+
+    drawButton(ctx, primaryBtn, canClaim ? "Claim" : "Active", {
       enabled: canClaim,
       primary: canClaim,
-      hover: canClaim && hit(claimBtn, pointerX, pointerY),
+      hover: canClaim && hit(primaryBtn, pointerX, pointerY),
     });
     this.rows.push({
       missionId: mission.id,
       kind: "active",
       acceptBtn: { x: 0, y: 0, w: 0, h: 0 },
-      claimBtn,
+      claimBtn: primaryBtn,
+      cancelBtn,
     });
   }
 
@@ -297,8 +312,13 @@ export class MissionBoardMenu {
       if (row.kind === "offer" && hit(row.acceptBtn, px, py)) {
         return { action: "accept", missionId: row.missionId };
       }
-      if (row.kind === "active" && hit(row.claimBtn, px, py)) {
-        return { action: "claim", missionId: row.missionId };
+      if (row.kind === "active") {
+        if (hit(row.cancelBtn, px, py)) {
+          return { action: "cancel", missionId: row.missionId };
+        }
+        if (hit(row.claimBtn, px, py)) {
+          return { action: "claim", missionId: row.missionId };
+        }
       }
     }
     return null;

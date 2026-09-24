@@ -25,20 +25,25 @@ export class DockedMenu {
   private missionsBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private missionBoardHint = "";
+  /** e.g. "Rep Friendly (+24)" — empty when unknown. */
+  private standingLine = "";
 
   show(
     stationName: string,
     viewW: number,
     viewH: number,
     missionBoardHint = "",
+    standingLine = "",
   ): void {
     this.open = true;
     this.stationName = stationName;
     this.missionBoardHint = missionBoardHint;
+    this.standingLine = standingLine;
 
     const w = 280;
     const rows = 6; // repair, bay, hangar, market, missions, launch
-    const h = 56 + rows * 38 + 16;
+    const headerExtra = standingLine ? 16 : 0;
+    const h = 56 + headerExtra + rows * 38 + 16;
     this.panel = {
       x: Math.floor((viewW - w) / 2),
       y: Math.floor((viewH - h) / 2),
@@ -46,7 +51,7 @@ export class DockedMenu {
       h,
     };
 
-    let y = this.panel.y + 56;
+    let y = this.panel.y + 56 + headerExtra;
     this.repairBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
     y += 38;
 
@@ -66,9 +71,20 @@ export class DockedMenu {
   }
 
   /** Refresh label hint without closing. */
-  refreshHint(viewW: number, viewH: number, missionBoardHint: string): void {
+  refreshHint(
+    viewW: number,
+    viewH: number,
+    missionBoardHint: string,
+    standingLine = this.standingLine,
+  ): void {
     if (!this.open) return;
-    this.show(this.stationName, viewW, viewH, missionBoardHint);
+    this.show(
+      this.stationName,
+      viewW,
+      viewH,
+      missionBoardHint,
+      standingLine,
+    );
   }
 
   hide(): void {
@@ -91,6 +107,10 @@ export class DockedMenu {
     ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.fillStyle = "rgba(160, 180, 210, 0.85)";
     ctx.fillText(this.stationName, this.panel.x + 24, this.panel.y + 38);
+    if (this.standingLine) {
+      ctx.fillStyle = "rgba(190, 170, 140, 0.9)";
+      ctx.fillText(this.standingLine, this.panel.x + 24, this.panel.y + 52);
+    }
 
     const cost = missingHp * ECONOMY.repairCostPerHp;
     const canRepair = missingHp > 0 && credits >= ECONOMY.repairCostPerHp;

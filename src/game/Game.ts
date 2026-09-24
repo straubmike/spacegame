@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, QUEST } from "./config";
+import { COMBAT, DOCK, ECONOMY, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -27,11 +27,19 @@ import {
   type ActiveMission,
   type MissionOffer,
 } from "../ship/missions";
+import {
+  applyBayDiscount,
+  formatStanding,
+  PIRATE_FACTION_ID,
+  ReputationTracker,
+} from "../ship/reputation";
+import { hashStationKey } from "../ship/stationKey";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
 import { Pirate } from "../entities/Pirate";
+import { StationPatrol } from "../entities/StationPatrol";
 import { Projectile, spawnProjectile } from "../entities/Projectile";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
@@ -42,6 +50,7 @@ import { MessageSidebar } from "../ui/MessageSidebar";
 import { StationContextMenu } from "../ui/StationContextMenu";
 import { DockedMenu } from "../ui/DockedMenu";
 import { PirateFeeMenu } from "../ui/PirateFeeMenu";
+import { PatrolFineMenu } from "../ui/PatrolFineMenu";
 import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
 import { MissionBoardMenu } from "../ui/MissionBoardMenu";
@@ -90,6 +99,7 @@ export class Game {
   private readonly stationMenu = new StationContextMenu();
   private readonly dockedMenu = new DockedMenu();
   private readonly pirateMenu = new PirateFeeMenu();
+  private readonly patrolMenu = new PatrolFineMenu();
   private readonly shipMenu = new ShipMenu();
   private readonly marketMenu = new MarketMenu();
   private readonly missionBoard = new MissionBoardMenu();
@@ -114,11 +124,15 @@ export class Game {
   private readonly visitedPoiIds = new Set<number>();
   /** POIs scanned via exploration contracts. */
   private readonly scannedPoiIds = new Set<number>();
+  /** Per-station + pirate faction standing (session). */
+  private readonly reputation = new ReputationTracker();
 
   /** Stations that have granted docking clearance this local visit. */
   private readonly dockClearance = new Set<number>();
   private local: LocalView;
   private pirates: Pirate[] = [];
+  /** Local station patrols (host-station tied). */
+  private patrols: StationPatrol[] = [];
   /** Shared fee/combat event for the current local pirate group (null = none). */
   private pack: PackEncounter | null = null;
   private projectiles: Projectile[] = [];
@@ -178,6 +192,7 @@ export class Game {
     this.projectiles = [];
     this.fireCooldown = 0;
     this.pirates = [];
+    this.patrols = [];
     this.pack = null;
     this.clearDockClearance();
     this.clearDockState();
@@ -201,7 +216,35 @@ export class Game {
         for (const p of this.pirates) p.setPeaceful();
       }
     }
+    this.spawnStationPatrols();
     this.checkExploreScanProgress();
+  }
+
+  /** Seeded chance: some stations get one patrol loitering nearby. */
+  private spawnStationPatrols(): void {
+    for (const station of this.stations()) {
+      const key = this.currentStationKey(station);
+      if (!key) continue;
+      const roll =
+        (hash2(GALAXY.seed ^ 0x9a71, hashStationKey(key)) % 1000) / 1000;
+      if (roll > PATROL.spawnChance) continue;
+      const angle =
+        ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
+        180;
+      const dist = PATROL.loiterRadius;
+      this.patrols.push(
+        new StationPatrol(
+          station.x + Math.cos(angle) * dist,
+          station.y + Math.sin(angle) * dist,
+          angle + Math.PI,
+          station.id,
+          station.name,
+          key,
+          station.x,
+          station.y,
+        ),
+      );
+    }
   }
 
   private pirateKey(poiId = this.local.poiId, bodyId = this.local.bodyId): string {
@@ -219,6 +262,7 @@ export class Game {
     this.stationMenu.hide();
     this.dockedMenu.hide();
     this.pirateMenu.hide();
+    this.patrolMenu.hide();
     this.marketMenu.hide();
     this.marketMenuOpen = false;
     this.dockMarket = null;
@@ -290,6 +334,38 @@ export class Game {
 
     if (pack.phase === "idle") {
       if (inRange) {
+        const stance = this.reputation.pirateEncounterOverride();
+        if (stance === "skipFee") {
+          pack.phase = "paid";
+          pack.demanded = true;
+          pack.timer = 0;
+          this.paidPirateViews.add(this.pirateKey());
+          for (const p of this.pirates) {
+            if (p.alive) p.setPeaceful();
+          }
+          this.messages.push(
+            pack.shipCount > 1
+              ? "Pirate pack: Allies recognized — free passage."
+              : "Pirate: Ally recognized — free passage.",
+            "pirate",
+          );
+          return false;
+        }
+        if (stance === "instantAggro") {
+          pack.phase = "hostile";
+          pack.demanded = true;
+          pack.timer = 0;
+          for (const p of this.pirates) {
+            if (p.alive) p.goAggro();
+          }
+          this.messages.push(
+            pack.shipCount > 1
+              ? "Pirate pack: They know your face — weapons free!"
+              : "Pirate: They know your face — weapons free!",
+            "pirate",
+          );
+          return false;
+        }
         if (!pack.demanded) {
           pack.phase = "comms";
           pack.timer = COMBAT.pirateCommsTimeout;
@@ -356,6 +432,11 @@ export class Game {
       if (p.alive) p.setPeaceful();
     }
     this.pirateMenu.hide();
+    const next = this.reputation.adjust(
+      PIRATE_FACTION_ID,
+      REPUTATION.pirateFeePaid,
+    );
+    this.pushRepChange("Pirates", next, REPUTATION.pirateFeePaid);
     this.messages.push(
       this.pack.shipCount > 1
         ? `Pirate pack: Tribute received (${fee} cr). Safe passage granted.`
@@ -580,6 +661,11 @@ export class Game {
       this.ship.cargo.remove(lotId, need);
       this.ship.addCredits(mission.reward);
       delivered.push(mission);
+      this.adjustStationRep(
+        mission.destStationKey!,
+        mission.destStationName ?? station.name,
+        REPUTATION.missionComplete,
+      );
       this.messages.push(
         `${station.name}: Cargo delivered — ${mission.title} (+${mission.reward} cr).`,
         "station",
@@ -697,6 +783,11 @@ export class Game {
       }
       this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
+      this.adjustStationRep(
+        mission.originStationKey,
+        mission.originStationName,
+        REPUTATION.missionComplete,
+      );
       this.messages.push(
         `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
         "station",
@@ -726,6 +817,11 @@ export class Game {
       this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
       this.claimedClearanceSystems.add(mission.originPoiId);
+      this.adjustStationRep(
+        mission.originStationKey,
+        mission.originStationName,
+        REPUTATION.missionComplete,
+      );
       this.messages.push(
         `${station.name}: System clearance confirmed (+${mission.reward} cr).`,
         "station",
@@ -776,12 +872,7 @@ export class Game {
     this.missionBoardOpen = false;
     this.missionBoard.hide();
     if (this.dock.kind === "docked") {
-      this.dockedMenu.show(
-        this.dock.station.name,
-        window.innerWidth,
-        window.innerHeight,
-        this.missionBoardHint(),
-      );
+      this.showDockedUi(this.dock.station);
     }
   }
 
@@ -799,7 +890,125 @@ export class Game {
     }
     if (result.action === "claim") {
       this.claimBoardMission(result.missionId);
+      return;
     }
+    if (result.action === "cancel") {
+      this.cancelBoardMission(result.missionId);
+    }
+  }
+
+  /**
+   * Drop an active contract.
+   * Cargo cancel = steal: keep freight as ordinary goods, −station rep at origin.
+   * Offer id stays in acceptedMissionIds so it does not reappear on that board
+   * (same contract as scoop PR #7 cancel-consume).
+   */
+  private cancelBoardMission(missionId: string): void {
+    const idx = this.activeMissions.findIndex((m) => m.id === missionId);
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
+
+    if (mission.kind === "cargo") {
+      const kept = this.convertMissionFreightToStolen(mission);
+      this.adjustStationRep(
+        mission.originStationKey,
+        mission.originStationName,
+        REPUTATION.stealCargo,
+      );
+      this.activeMissions.splice(idx, 1);
+      this.acceptedMissionIds.add(mission.id);
+      this.messages.push(
+        kept > 0
+          ? `Missions: Stole ${kept} CU from "${mission.title}" — contract voided.`
+          : `Missions: Cancelled haul "${mission.title}" (no freight left).`,
+        "station",
+      );
+    } else {
+      this.adjustStationRep(
+        mission.originStationKey,
+        mission.originStationName,
+        REPUTATION.cancelMissionMild,
+      );
+      this.activeMissions.splice(idx, 1);
+      this.acceptedMissionIds.add(mission.id);
+      this.messages.push(
+        `Missions: Cancelled "${mission.title}".`,
+        "station",
+      );
+    }
+    this.refreshMissionBoardUi();
+  }
+
+  /**
+   * Re-tag mission freight as ordinary cargo (steal-on-cancel).
+   * Returns CU kept. Used by cancel; eject-as-steal should dump then void instead.
+   */
+  private convertMissionFreightToStolen(mission: ActiveMission): number {
+    if (mission.kind !== "cargo") return 0;
+    const lotId = missionCargoId(mission.id);
+    const held = this.ship.cargo.amountOf(lotId);
+    if (held <= 0) return 0;
+    this.ship.cargo.remove(lotId, held);
+    const id = mission.commodityId ?? "stolen-freight";
+    const name = mission.commodityName ?? "Stolen freight";
+    if (!this.ship.cargo.stow({ id, name, cu: held })) {
+      // Hold somehow full — put it back as mission lot so we don't delete goods.
+      this.ship.cargo.stow({
+        id: lotId,
+        name: `Contract: ${name}`,
+        cu: held,
+      });
+      return 0;
+    }
+    return held;
+  }
+
+  private adjustStationRep(
+    stationKeyStr: string,
+    stationLabel: string,
+    delta: number,
+  ): void {
+    const next = this.reputation.adjust(stationKeyStr, delta);
+    this.pushRepChange(stationLabel, next, delta);
+  }
+
+  private pushRepChange(label: string, next: number, delta: number): void {
+    const signed = delta > 0 ? `+${delta}` : `${delta}`;
+    this.messages.push(
+      `Standing — ${label}: ${formatStanding(next)} (${signed})`,
+      label === "Pirates" ? "pirate" : "station",
+    );
+  }
+
+  private dockStandingLine(station: Landmark): string {
+    const key = this.currentStationKey(station);
+    if (!key) return "";
+    return `Rep ${formatStanding(this.reputation.stationStanding(key))}`;
+  }
+
+  private reputationLinesForUi(station: Landmark | null): string[] {
+    const lines: string[] = [
+      `Pirates ${formatStanding(this.reputation.pirateRep())}`,
+    ];
+    if (station) {
+      const key = this.currentStationKey(station);
+      if (key) {
+        lines.unshift(
+          `Station ${formatStanding(this.reputation.stationStanding(key))}`,
+        );
+      }
+    }
+    return lines;
+  }
+
+  private showDockedUi(station: Landmark): void {
+    this.dockedMenu.show(
+      station.name,
+      window.innerWidth,
+      window.innerHeight,
+      this.missionBoardHint(),
+      this.dockStandingLine(station),
+    );
   }
 
   private stations(): Landmark[] {
@@ -876,6 +1085,8 @@ export class Game {
         this.stationMenu.hide();
       } else if (this.pirateMenu.open) {
         this.pirateMenu.hide();
+      } else if (this.patrolMenu.open) {
+        this.patrolMenu.hide();
       } else if (this.dock.kind === "approaching") {
         this.dock = { kind: "free" };
         this.messages.push("Docking approach cancelled.");
@@ -935,6 +1146,8 @@ export class Game {
       this.updateStationMenu();
     } else if (this.pirateMenu.open) {
       this.updatePirateMenu();
+    } else if (this.patrolMenu.open) {
+      this.updatePatrolMenu();
     } else {
       this.handleWorldClick();
     }
@@ -999,6 +1212,27 @@ export class Game {
       }
     }
 
+    // Negative station standing: click a host-station patrol to pay the fine.
+    for (const patrol of this.patrols) {
+      if (!patrol.alive) continue;
+      if (!this.reputation.hasOutstandingFine(patrol.stationKey)) continue;
+      const hitR = patrol.radius + DOCK.clickPad;
+      const dist = Math.hypot(world.x - patrol.x, world.y - patrol.y);
+      if (dist <= hitR) {
+        const fine = this.reputation.patrolFineCredits(patrol.stationKey);
+        this.patrolMenu.show(
+          patrol.stationName,
+          fine,
+          formatStanding(this.reputation.stationStanding(patrol.stationKey)),
+          this.pointer.x,
+          this.pointer.y,
+          viewW,
+          viewH,
+        );
+        return;
+      }
+    }
+
     for (const station of this.stations()) {
       const hitR = station.radius + DOCK.clickPad;
       const dist = Math.hypot(world.x - station.x, world.y - station.y);
@@ -1031,6 +1265,55 @@ export class Game {
     this.payPackTribute();
   }
 
+  private updatePatrolMenu(): void {
+    if (!this.pointer.consumeClick()) return;
+    const action = this.patrolMenu.handleClick(this.pointer.x, this.pointer.y);
+    if (action === "close") {
+      this.patrolMenu.hide();
+      return;
+    }
+    if (action !== "pay") return;
+    this.payPatrolFine();
+  }
+
+  /** Pay the open patrol fine — resets host station standing to Neutral 0. */
+  private payPatrolFine(): void {
+    if (!this.patrolMenu.open) return;
+    const stationName = this.patrolMenu.stationName;
+    const patrol = this.patrols.find(
+      (p) => p.alive && p.stationName === stationName,
+    );
+    if (!patrol) {
+      this.patrolMenu.hide();
+      return;
+    }
+    const key = patrol.stationKey;
+    if (!this.reputation.hasOutstandingFine(key)) {
+      this.patrolMenu.hide();
+      this.messages.push(
+        `${stationName} patrol: No outstanding fines.`,
+        "station",
+      );
+      return;
+    }
+    const fine = this.reputation.patrolFineCredits(key);
+    if (!this.ship.spendCredits(fine)) {
+      this.messages.push(
+        `${stationName} patrol: Need ${fine} cr to clear your record.`,
+        "station",
+      );
+      return;
+    }
+    const before = this.reputation.stationStanding(key);
+    const next = this.reputation.setStanding(key, 0);
+    this.patrolMenu.hide();
+    this.messages.push(
+      `${stationName} patrol: Fine paid (−${fine} cr). Record cleared.`,
+      "station",
+    );
+    this.pushRepChange(stationName, next, -before);
+  }
+
   private updateStationMenu(): void {
     if (!this.pointer.consumeClick()) return;
     const action = this.stationMenu.handleClick(this.pointer.x, this.pointer.y);
@@ -1053,11 +1336,12 @@ export class Game {
   }
 
   /**
-   * Future reputation gate — always clear for now.
-   * Hail / dock both consult this so a rep system can plug in later.
+   * Hostile station standing blocks hail clearance and approach.
    */
-  private stationReputationAllowsDock(_station: Landmark): boolean {
-    return true;
+  private stationReputationAllowsDock(station: Landmark): boolean {
+    const key = this.currentStationKey(station);
+    if (!key) return true;
+    return this.reputation.allowsDock(key);
   }
 
   private hasDockClearance(station: Landmark): boolean {
@@ -1148,12 +1432,7 @@ export class Game {
       `visit:${this.local.poiId}:${station.id}`;
     this.dockMarket = createStationMarket(key, this.marketContext());
     this.dockMissionOffers = this.buildDockMissionOffers(station);
-    this.dockedMenu.show(
-      station.name,
-      window.innerWidth,
-      window.innerHeight,
-      this.missionBoardHint(),
-    );
+    this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
   }
 
@@ -1287,6 +1566,14 @@ export class Game {
       this.projectiles.push(...pirateShots);
     }
 
+    const patrolShots: Projectile[] = [];
+    for (const patrol of this.patrols) {
+      patrol.update(dt, this.pirates, patrolShots);
+    }
+    if (patrolShots.length > 0) {
+      this.projectiles.push(...patrolShots);
+    }
+
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
 
@@ -1336,6 +1623,11 @@ export class Game {
         if (killed) {
           this.pendingPirateKills += 1;
           anyKill = true;
+          const next = this.reputation.adjust(
+            PIRATE_FACTION_ID,
+            REPUTATION.pirateKill,
+          );
+          this.pushRepChange("Pirates", next, REPUTATION.pirateKill);
         }
       }
       // One summary for the batch; clear the encounter only when empty.
@@ -1346,6 +1638,7 @@ export class Game {
       this.pack = null;
       this.pirateMenu.hide();
     }
+    this.patrols = this.patrols.filter((p) => p.alive);
   }
 
   private updateGalaxyMenu(): void {
@@ -1373,16 +1666,19 @@ export class Game {
     this.panelOpen = false;
     this.stationMenu.hide();
     this.pirateMenu.hide();
+    this.patrolMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
     this.missionBoardOpen = false;
     this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
-    if (this.dock.kind === "docked") {
+    const docked =
+      this.dock.kind === "docked" ? this.dock.station : null;
+    if (docked) {
       this.dockedMenu.hide();
     }
-    this.shipMenu.openView();
+    this.shipMenu.openView(this.reputationLinesForUi(docked));
     this.shipMenuOpen = true;
   }
 
@@ -1398,9 +1694,12 @@ export class Game {
     this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
+    const discount = this.reputation.bayDiscountFraction(key);
     this.shipMenu.openBay(
       stationBayStock(key, context),
       stationBayWealth(key, context),
+      discount,
+      this.reputationLinesForUi(station),
     );
     this.shipMenuOpen = true;
   }
@@ -1441,12 +1740,7 @@ export class Game {
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     if (this.dock.kind === "docked") {
-      this.dockedMenu.show(
-        this.dock.station.name,
-        window.innerWidth,
-        window.innerHeight,
-        this.missionBoardHint(),
-      );
+      this.showDockedUi(this.dock.station);
     }
   }
 
@@ -1520,12 +1814,7 @@ export class Game {
     this.marketMenuOpen = false;
     this.marketMenu.hide();
     if (this.dock.kind === "docked") {
-      this.dockedMenu.show(
-        this.dock.station.name,
-        window.innerWidth,
-        window.innerHeight,
-        this.missionBoardHint(),
-      );
+      this.showDockedUi(this.dock.station);
     }
   }
 
@@ -1612,12 +1901,7 @@ export class Game {
       this.dock.kind === "docked" ? this.dock.station : null;
     this.closeShipMenuUi();
     if (dockedStation) {
-      this.dockedMenu.show(
-        dockedStation.name,
-        window.innerWidth,
-        window.innerHeight,
-        this.missionBoardHint(),
-      );
+      this.showDockedUi(dockedStation);
     }
   }
 
@@ -1626,7 +1910,8 @@ export class Game {
     if (!slot || module.kind !== slot.kind) return;
     if (slot.equipped?.id === module.id) return;
 
-    const cost = swapCost(slot.equipped, module);
+    const baseCost = swapCost(slot.equipped, module);
+    const cost = applyBayDiscount(baseCost, this.shipMenu.bayDiscount);
     if (!this.ship.spendCredits(cost)) {
       this.messages.push(
         `Bay: Need ${cost} cr to install ${module.name}.`,
@@ -1644,9 +1929,13 @@ export class Game {
         previousMaxHull,
       });
     }
+    const discNote =
+      this.shipMenu.bayDiscount > 0 && cost < baseCost
+        ? ` (rep −${Math.round(this.shipMenu.bayDiscount * 100)}%)`
+        : "";
     this.messages.push(
       cost > 0
-        ? `Bay: Fitted ${module.name} (−${cost} cr). Replaced ${previous}.`
+        ? `Bay: Fitted ${module.name} (−${cost} cr${discNote}). Replaced ${previous}.`
         : `Bay: Fitted ${module.name}. Replaced ${previous}.`,
       "station",
     );
@@ -1772,6 +2061,7 @@ export class Game {
       starfield: this.starfield,
       local: this.local,
       pirates: this.pirates,
+      patrols: this.patrols,
       projectiles: this.projectiles,
       alpha,
       thrusting:
@@ -1797,6 +2087,7 @@ export class Game {
       stationMenu: this.stationMenu,
       dockedMenu: this.dockedMenu,
       pirateMenu: this.pirateMenu,
+      patrolMenu: this.patrolMenu,
       pointerX: this.pointer.x,
       pointerY: this.pointer.y,
       fadeAlpha: this.fadeAlpha,

@@ -8,6 +8,7 @@ import {
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
+import { applyBayDiscount } from "../ship/reputation";
 import type { ShipLoadout } from "../ship/Loadout";
 import {
   stockForSlot,
@@ -44,6 +45,10 @@ export class ShipMenu {
   stock: EquipModule[] = [];
   /** Bay wealth label (bay mode only). */
   wealth: StationWealth | null = null;
+  /** Bay net-cost discount fraction from station standing (0…1). */
+  bayDiscount = 0;
+  /** Light standing lines (L view / bay footer). */
+  reputationLines: string[] = [];
 
   private slotRects: Rect[] = [];
   private offerRects: Rect[] = [];
@@ -51,17 +56,26 @@ export class ShipMenu {
   private closeBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private offers: EquipModule[] = [];
 
-  openView(): void {
+  openView(reputationLines: string[] = []): void {
     this.mode = "view";
     this.stock = [];
     this.wealth = null;
+    this.bayDiscount = 0;
+    this.reputationLines = reputationLines;
     this.selectedOfferIndex = 0;
   }
 
-  openBay(stock: EquipModule[], wealth: StationWealth | null = null): void {
+  openBay(
+    stock: EquipModule[],
+    wealth: StationWealth | null = null,
+    bayDiscount = 0,
+    reputationLines: string[] = [],
+  ): void {
     this.mode = "bay";
     this.stock = stock;
     this.wealth = wealth;
+    this.bayDiscount = bayDiscount;
+    this.reputationLines = reputationLines;
     this.selectedOfferIndex = 0;
   }
 
@@ -101,11 +115,28 @@ export class ShipMenu {
     if (this.mode === "bay") {
       ctx.fillStyle = "rgba(180, 200, 230, 0.85)";
       const wealthBit = this.wealth ? ` · ${wealthLabel(this.wealth)}` : "";
-      ctx.fillText(`CR ${credits}${wealthBit}`, panel.x + 20, panel.y + 40);
+      const discBit =
+        this.bayDiscount > 0
+          ? ` · Rep −${Math.round(this.bayDiscount * 100)}% bay`
+          : "";
+      ctx.fillText(
+        `CR ${credits}${wealthBit}${discBit}`,
+        panel.x + 20,
+        panel.y + 40,
+      );
+    } else if (this.reputationLines.length > 0) {
+      ctx.fillStyle = "rgba(190, 170, 140, 0.9)";
+      ctx.fillText(
+        this.reputationLines.join("  ·  "),
+        panel.x + 20,
+        panel.y + 40,
+      );
     }
 
     const listX = panel.x + 16;
-    const listY = panel.y + (this.mode === "bay" ? 64 : 56);
+    const listY =
+      panel.y +
+      (this.mode === "bay" || this.reputationLines.length > 0 ? 64 : 56);
     const listW = 160;
     const rowH = 44;
     const footerY = panel.y + panel.h - 50;
@@ -368,7 +399,10 @@ export class ShipMenu {
 
     const offer = this.offers[this.selectedOfferIndex]!;
     const installed = slot.equipped?.id === offer.id;
-    const cost = swapCost(slot.equipped, offer);
+    const cost = applyBayDiscount(
+      swapCost(slot.equipped, offer),
+      this.bayDiscount,
+    );
     const canAfford = credits >= cost;
     const canInstall = !installed && canAfford;
 
@@ -380,7 +414,9 @@ export class ShipMenu {
       ? "Already fitted"
       : cost === 0
         ? "Free (trade-in)"
-        : `${cost} cr`;
+        : this.bayDiscount > 0
+          ? `${cost} cr (rep discount)`
+          : `${cost} cr`;
     ctx.fillText(costLine, x, costY);
 
     this.installBtn = {
