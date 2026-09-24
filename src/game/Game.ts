@@ -28,6 +28,7 @@ import {
   makeClearanceOffer,
   missionCargoId,
   questChartPoiIds,
+  stolenCargoId,
   stationRefFromLocal,
   type ActiveMission,
   type MissionOffer,
@@ -815,23 +816,37 @@ export class Game {
     }
   }
 
-  /** Drop an active contract; dumps any mission-tagged freight.
+  /** Drop an active contract. Haul freight stays in the hold as stolen (not dumped).
    * Offer stays in acceptedMissionIds so it does not reappear on that station's board. */
   private cancelBoardMission(missionId: string): void {
     const idx = this.activeMissions.findIndex((m) => m.id === missionId);
     if (idx < 0) return;
     const mission = this.activeMissions[idx]!;
 
+    let stoleCu = 0;
     if (mission.kind === "cargo") {
       const lotId = missionCargoId(mission.id);
       const held = this.ship.cargo.amountOf(lotId);
-      if (held > 0) this.ship.cargo.remove(lotId, held);
+      if (held > 0) {
+        this.ship.cargo.remove(lotId, held);
+        const commodityId = mission.commodityId ?? "goods";
+        const name = mission.commodityName ?? "Freight";
+        // Net CU unchanged: remove frees space, then stow as stolen.
+        this.ship.cargo.stow({
+          id: stolenCargoId(commodityId),
+          name,
+          cu: held,
+        });
+        stoleCu = held;
+      }
     }
 
     this.activeMissions.splice(idx, 1);
     // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
     this.messages.push(
-      `Missions: Cancelled "${mission.title}".`,
+      stoleCu > 0
+        ? `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`
+        : `Missions: Cancelled "${mission.title}".`,
       "station",
     );
     this.refreshMissionBoardUi();
@@ -1723,7 +1738,12 @@ export class Game {
         this.messages.push("Market: Demand filled.", "station");
         return;
       }
-      const removed = this.ship.cargo.remove(listing.commodityId, result.cu);
+      // Fence stolen lots first, then ordinary hold of the same commodity.
+      const stolenId = stolenCargoId(listing.commodityId);
+      let left = result.cu;
+      left -= this.ship.cargo.remove(stolenId, left);
+      if (left > 0) left -= this.ship.cargo.remove(listing.commodityId, left);
+      const removed = result.cu - left;
       if (removed <= 0) {
         this.messages.push("Market: You are not carrying that.", "station");
         return;

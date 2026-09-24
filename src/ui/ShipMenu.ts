@@ -12,6 +12,7 @@ import type { ShipLoadout } from "../ship/Loadout";
 import type { CargoHold } from "../ship/CargoHold";
 import {
   isMissionCargoId,
+  isStolenCargoId,
   missionStatusLine,
   type ActiveMission,
 } from "../ship/missions";
@@ -460,22 +461,27 @@ export class ShipMenu {
     for (const lot of lots) {
       if (ry + rowH > bottom) break;
       const mission = isMissionCargoId(lot.id);
+      const stolen = isStolenCargoId(lot.id);
       const qty = this.ejectQty.get(lot.id) ?? 1;
 
       ctx.fillStyle = mission
         ? "rgba(50, 36, 24, 0.7)"
-        : "rgba(24, 32, 44, 0.65)";
+        : stolen
+          ? "rgba(48, 28, 32, 0.7)"
+          : "rgba(24, 32, 44, 0.65)";
       ctx.fillRect(x, ry, w, rowH - 6);
       ctx.strokeStyle = mission
         ? "rgba(210, 150, 90, 0.5)"
-        : "rgba(90, 115, 145, 0.35)";
+        : stolen
+          ? "rgba(200, 110, 120, 0.45)"
+          : "rgba(90, 115, 145, 0.35)";
       ctx.strokeRect(x, ry, w, rowH - 6);
 
       ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
       ctx.textBaseline = "top";
       const nameBit =
         lot.name.length > 22 ? `${lot.name.slice(0, 21)}…` : lot.name;
-      const flag = mission ? "  [MISSION]" : "";
+      const flag = mission ? "  [MISSION]" : stolen ? "  [STOLEN]" : "";
       ctx.fillText(`${nameBit}${flag}`, x + 10, ry + 6);
       ctx.fillStyle = "rgba(150, 170, 200, 0.85)";
       ctx.fillText(`Hold ${lot.cu} CU`, x + 10, ry + 24);

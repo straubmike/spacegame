@@ -1,5 +1,6 @@
 import type { CargoHold } from "../ship/CargoHold";
 import type { MarketListing, StationMarket } from "../ship/market";
+import { stolenCargoId } from "../ship/missions";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type MarketClickResult =
@@ -201,7 +202,9 @@ export class MarketMenu {
     pointerX: number,
     pointerY: number,
   ): void {
-    const held = cargo.amountOf(listing.commodityId);
+    const held =
+      cargo.amountOf(listing.commodityId) +
+      cargo.amountOf(stolenCargoId(listing.commodityId));
     const buyQ = this.buyQty.get(listing.commodityId) ?? 0;
     const sellQ = this.sellQty.get(listing.commodityId) ?? 0;
 
@@ -376,10 +379,10 @@ function maxBuyCu(
 
 function maxSellCu(listing: MarketListing, cargo: CargoHold): number {
   if (listing.playerSellPrice === null) return 0;
-  return Math.max(
-    0,
-    Math.min(listing.demand, cargo.amountOf(listing.commodityId)),
-  );
+  const held =
+    cargo.amountOf(listing.commodityId) +
+    cargo.amountOf(stolenCargoId(listing.commodityId));
+  return Math.max(0, Math.min(listing.demand, held));
 }
 
 function emptyRect(): Rect {

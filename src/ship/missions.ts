@@ -3,6 +3,7 @@
  *
  * Archetypes:
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
+ *   (cancel keeps freight as stolen — does not dump CU; reputation later)
  * - explore: accept at A → visit/scan target POI → return to A → claim pay
  * - clearance: accept at giver → clear system pirates → return → claim pay
  *
@@ -71,6 +72,24 @@ export function missionCargoId(missionId: string): string {
 
 export function isMissionCargoId(id: string): boolean {
   return id.startsWith("mission:");
+}
+
+/**
+ * Cancelled haul freight — kept in hold as stolen (reputation hook later).
+ * Sellable as the base commodity on the market for now.
+ */
+export function stolenCargoId(commodityId: string): string {
+  return `stolen:${commodityId}`;
+}
+
+export function isStolenCargoId(id: string): boolean {
+  return id.startsWith("stolen:");
+}
+
+/** Base market commodity id for a stolen lot, or null if not stolen. */
+export function commodityIdFromStolen(id: string): string | null {
+  if (!isStolenCargoId(id)) return null;
+  return id.slice("stolen:".length);
 }
 
 /** Short status line for active contracts (board + ship L menu). */
