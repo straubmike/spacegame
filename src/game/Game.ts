@@ -17,6 +17,7 @@ import {
   type StationStockContext,
 } from "../ship/stationStock";
 import { createStationMarket, type StationMarket } from "../ship/market";
+import type { MarketContext } from "../ship/economy";
 import {
   generateStationMissions,
   makeClearanceOffer,
@@ -309,6 +310,14 @@ export class Game {
       if (clearance) offers.unshift(clearance);
     }
     return offers;
+  }
+
+  private marketContext(): MarketContext {
+    return {
+      galaxy: this.galaxy,
+      poiId: this.local.poiId,
+      bodyId: this.local.bodyId,
+    };
   }
 
   private questGiverForCurrentSystem(): SystemStationRef | null {
@@ -657,6 +666,12 @@ export class Game {
     this.messages.update(dt);
     this.ship.tickDefense(dt);
 
+    // Drain wheel every frame so deltas don't pile up while menus are closed.
+    const wheel = this.pointer.consumeWheel();
+    if (this.marketMenuOpen && wheel !== 0) {
+      this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+    }
+
     if (this.fadePhase !== "idle") {
       this.updateFade(dt);
       return;
@@ -990,7 +1005,7 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
-    this.dockMarket = createStationMarket(key);
+    this.dockMarket = createStationMarket(key, this.marketContext());
     this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.dockedMenu.show(
       station.name,
@@ -1325,7 +1340,7 @@ export class Game {
       const key =
         this.currentStationKey(station) ??
         `visit:${this.local.poiId}:${station.id}`;
-      this.dockMarket = createStationMarket(key);
+      this.dockMarket = createStationMarket(key, this.marketContext());
     }
     this.dockedMenu.hide();
     this.shipMenuOpen = false;

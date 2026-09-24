@@ -204,6 +204,35 @@ export const ECONOMY = {
 } as const;
 
 /**
+ * Dynamic cargo markets — POI flavor + neighbor supply/demand.
+ * Bias ∈ [-1,1]: +surplus (cheap buy) / −shortage (strong sell).
+ */
+export const MARKET = {
+  /** How hard local/neighbor bias moves mid-price vs base. */
+  biasStrength: 0.55,
+  /** Half-spread as a fraction of mid when a station runs a two-way book. */
+  spreadFraction: 0.12,
+  /** Extra spread when a station both buys and sells the same good. */
+  twoWaySpreadBump: 0.05,
+  localBiasWeight: 0.78,
+  neighborBiasWeight: 0.22,
+  /** Neighbors within jumpRange * this factor influence prices. */
+  neighborRangeFactor: 1.15,
+  neighborDistanceFloor: 6,
+  /** Seeded noise around the deterministic mid (± fraction). */
+  noiseAmplitude: 0.05,
+  surplusThreshold: 0.32,
+  shortageThreshold: 0.32,
+  specialtyThreshold: 0.55,
+  neighborSignalThreshold: 0.28,
+  /** Base CU stock/demand before bias scaling. */
+  baseStock: 20,
+  baseDemand: 18,
+  stockBiasScale: 28,
+  demandBiasScale: 28,
+} as const;
+
+/**
  * Station mission board (non-combat) — cargo transit + exploration scans.
  * Passenger fares stay design-only until a berth utility ships (Must-have 6).
  */
