@@ -651,22 +651,24 @@ export class Game {
       viewH,
     );
 
-    if (!this.packAcceptingPayment()) return;
-
-    for (const pirate of this.pirates) {
-      if (!pirate.alive) continue;
-      const hitR = pirate.radius + DOCK.clickPad;
-      const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
-      if (dist <= hitR) {
-        this.pirateMenu.show(
-          this.pack!.fee,
-          this.pack!.shipCount > 1,
-          this.pointer.x,
-          this.pointer.y,
-          viewW,
-          viewH,
-        );
-        return;
+    // Fee window only: click a pirate hull to open the shared pack pay UI.
+    // Must not early-return when the pack is idle — that ate station clicks.
+    if (this.packAcceptingPayment() && this.pack) {
+      for (const pirate of this.pirates) {
+        if (!pirate.alive) continue;
+        const hitR = pirate.radius + DOCK.clickPad;
+        const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
+        if (dist <= hitR) {
+          this.pirateMenu.show(
+            this.pack.fee,
+            this.pack.shipCount > 1,
+            this.pointer.x,
+            this.pointer.y,
+            viewW,
+            viewH,
+          );
+          return;
+        }
       }
     }
 
