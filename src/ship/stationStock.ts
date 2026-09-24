@@ -62,6 +62,16 @@ export function stationBayStock(
   pickInto(stock, drives, drivePicks, rng);
   pickInto(stock, utilities, utilPicks, rng);
 
+  // Bias: most stations stock prospecting gear so the belt loop is reachable.
+  if (maxTier >= 1 && rng() < 0.78) {
+    const prospecting = [
+      MODULES.oreScanner,
+      MODULES.cargoScoop,
+      MODULES.prospectingRig,
+    ].filter((m) => m.tier <= maxTier);
+    pickInto(stock, prospecting, 1 + (rng() < 0.55 ? 1 : 0), rng);
+  }
+
   // Prefer at least one module at the station's max tier so shelves read progressive.
   ensureTopTierPresence(stock, maxTier, rng);
 

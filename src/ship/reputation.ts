@@ -16,8 +16,28 @@ export type StandingBand =
 
 export const PIRATE_FACTION_ID = "pirates";
 
-export function clampStanding(value: number): number {
-  return Math.max(REPUTATION.min, Math.min(REPUTATION.max, Math.round(value)));
+export interface ReputationFactionRow {
+  id: string;
+  label: string;
+  score: number;
+}
+
+export interface ReputationStationRow {
+  key: string;
+  name: string;
+  score: number;
+}
+
+/** Payload for the L-menu Reputation band. */
+export interface ReputationListing {
+  /** Always shown (even at 0) — pirates now; guild stubs reserved. */
+  factions: ReputationFactionRow[];
+  /** Only stations with non-zero standing. */
+  stations: ReputationStationRow[];
+}
+
+export function clampStanding(score: number): number {
+  return Math.max(REPUTATION.min, Math.min(REPUTATION.max, Math.round(score)));
 }
 
 export function standingBand(score: number): StandingBand {
@@ -52,6 +72,7 @@ export function formatStanding(score: number): string {
 
 export class ReputationTracker {
   private readonly stations = new Map<string, number>();
+  private readonly stationLabels = new Map<string, string>();
   private pirateStanding = 0;
 
   stationStanding(stationKey: string): number {
@@ -62,11 +83,30 @@ export class ReputationTracker {
     return this.pirateStanding;
   }
 
+  /** Stations with non-zero standing (for L-menu listing). */
+  nonzeroStations(): ReputationStationRow[] {
+    const rows: ReputationStationRow[] = [];
+    for (const [key, score] of this.stations) {
+      if (score === 0) continue;
+      rows.push({
+        key,
+        name: this.stationLabels.get(key) ?? key,
+        score,
+      });
+    }
+    rows.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+    return rows;
+  }
+
   /**
    * Apply a delta. Returns the new score (clamped).
    * `target` is a station key, or {@link PIRATE_FACTION_ID}.
+   * Optional `label` stores a display name for station rows.
    */
-  adjust(target: string, delta: number): number {
+  adjust(target: string, delta: number, label?: string): number {
+    if (label && target !== PIRATE_FACTION_ID) {
+      this.stationLabels.set(target, label);
+    }
     if (delta === 0) {
       return target === PIRATE_FACTION_ID
         ? this.pirateStanding
@@ -82,7 +122,10 @@ export class ReputationTracker {
   }
 
   /** Absolute set (e.g. patrol fine clears standing to Neutral 0). */
-  setStanding(target: string, value: number): number {
+  setStanding(target: string, value: number, label?: string): number {
+    if (label && target !== PIRATE_FACTION_ID) {
+      this.stationLabels.set(target, label);
+    }
     const next = clampStanding(value);
     if (target === PIRATE_FACTION_ID) {
       this.pirateStanding = next;

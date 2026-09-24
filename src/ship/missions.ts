@@ -3,6 +3,8 @@
  *
  * Archetypes:
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
+ *   (cancel at A's Missions board → cargo returned; cancel elsewhere → stolen;
+ *    reputation hit on steal later)
  * - explore: accept at A → visit/scan target POI → return to A → claim pay
  * - clearance: accept at giver → clear system pirates → return → claim pay
  *
@@ -71,6 +73,44 @@ export function missionCargoId(missionId: string): string {
 
 export function isMissionCargoId(id: string): boolean {
   return id.startsWith("mission:");
+}
+
+/**
+ * Cancelled haul freight — kept in hold as stolen (reputation hook later).
+ * Sellable as the base commodity on the market for now.
+ */
+export function stolenCargoId(commodityId: string): string {
+  return `stolen:${commodityId}`;
+}
+
+export function isStolenCargoId(id: string): boolean {
+  return id.startsWith("stolen:");
+}
+
+/** Base market commodity id for a stolen lot, or null if not stolen. */
+export function commodityIdFromStolen(id: string): string | null {
+  if (!isStolenCargoId(id)) return null;
+  return id.slice("stolen:".length);
+}
+
+/** Short status line for active contracts (board + ship L menu). */
+export function missionStatusLine(mission: ActiveMission): string {
+  if (mission.kind === "cargo") {
+    return `Deliver to ${mission.destStationName ?? "destination"}`;
+  }
+  if (mission.kind === "clearance") {
+    if (mission.status === "readyToClaim") {
+      return `Clearance complete — claim at ${mission.originStationName}`;
+    }
+    const left = mission.pirateTargets?.length ?? 0;
+    return left <= 0
+      ? `Return to ${mission.originStationName} to claim`
+      : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
+  }
+  if (mission.scanned) {
+    return `Scan complete — return to ${mission.originStationName}`;
+  }
+  return `Travel to ${mission.targetPoiName ?? "target"} and scan`;
 }
 
 /**

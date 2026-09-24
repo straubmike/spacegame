@@ -5,6 +5,8 @@ export interface InputState {
   turnRight: boolean;
   /** held fire (Space) — autofire on cooldown */
   fire: boolean;
+  /** held scoop (F) — collect scanned belt ore when equipped */
+  scoop: boolean;
 }
 
 /**
@@ -18,6 +20,7 @@ export class Keyboard {
     turnLeft: false,
     turnRight: false,
     fire: false,
+    scoop: false,
   };
 
   private readonly pressed = new Set<string>();
@@ -78,5 +81,6 @@ export class Keyboard {
     this.state.turnLeft = p.has("KeyA") || p.has("ArrowLeft");
     this.state.turnRight = p.has("KeyD") || p.has("ArrowRight");
     this.state.fire = p.has("Space");
+    this.state.scoop = p.has("KeyF");
   }
 }

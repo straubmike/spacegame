@@ -24,6 +24,7 @@ export const COMMODITIES: Commodity[] = [
   { id: "luxuries", name: "Luxuries", basePrice: 40 },
   { id: "narcotics", name: "Narcotics", basePrice: 48 },
   { id: "alloys", name: "Alloys", basePrice: 26 },
+  { id: "precious_metals", name: "Precious Metals", basePrice: 58 },
   { id: "fuel_cells", name: "Fuel Cells", basePrice: 14 },
 ];
 
@@ -105,11 +106,21 @@ export function createStationMarket(
       buys = true;
       sells = false;
     } else {
-      sells = rng() < 0.55;
-      buys = rng() < 0.5;
-      if (!sells && !buys) {
-        if (rng() < 0.5) sells = true;
-        else buys = true;
+      // Belt ores: prefer a buy-side sink so scoop farming has somewhere to sell.
+      const isBeltOre =
+        c.id === "minerals" ||
+        c.id === "alloys" ||
+        c.id === "precious_metals";
+      if (isBeltOre) {
+        buys = true;
+        sells = rng() < 0.35;
+      } else {
+        sells = rng() < 0.55;
+        buys = rng() < 0.5;
+        if (!sells && !buys) {
+          if (rng() < 0.5) sells = true;
+          else buys = true;
+        }
       }
     }
 

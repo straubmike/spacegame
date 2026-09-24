@@ -345,7 +345,7 @@ export const MARKET = {
 
 /**
  * Station mission board (non-combat) — cargo transit + exploration scans.
- * Passenger fares stay design-only until a berth utility ships (Must-have 6).
+ * Passenger fares need Passenger Berth equipped (Must-have 5–6).
  */
 export const QUEST = {
   /** Max concurrent accepted board missions. */
@@ -367,6 +367,30 @@ export const QUEST = {
   passengerBaseReward: 70,
   passengerPerBerth: 20,
   passengerPerDistance: 2.4,
+} as const;
+
+/**
+ * Asteroid-belt prospecting (Must-have 6).
+ * Requires Ore Scanner + Cargo Scoop (or Prospecting Rig) equipped.
+ */
+export const SCOOP = {
+  /** Hold F while in range of a scanned rock to collect. */
+  collectKeyHint: "F",
+  /** Seconds of continuous scooping per 1 CU. */
+  secondsPerCu: 1.6,
+  /** How close (world units beyond rock radius) the scoop must be. */
+  rangePad: 6,
+  /** Max CU remaining on a rich rock when generated. */
+  rockYieldMin: 1,
+  rockYieldMax: 3,
+  /** Share of belt rocks that hold scoopable ore (rest are barren scenery). */
+  richRockChance: 0.28,
+  /** Among rich rocks: minerals / alloys / precious weights (sum ≈ 1). */
+  yieldWeights: {
+    minerals: 0.55,
+    alloys: 0.32,
+    precious_metals: 0.13,
+  },
 } as const;
 
 export const DOCK = {

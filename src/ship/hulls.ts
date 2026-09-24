@@ -44,12 +44,14 @@ export const HULLS = {
     id: "sparrow",
     name: "Sparrow",
     specialty: "Starter",
-    blurb: "Light multipurpose hull. One of each bay — learn the loop here.",
+    blurb:
+      "Light multipurpose hull. Twin utility bays so scanner + scoop (or berth) can ride together.",
     price: 0,
     slots: [
       { kind: "weapon", label: "Weapon" },
       { kind: "drive", label: "Drive" },
-      { kind: "utility", label: "Utility" },
+      { kind: "utility", label: "Utility A" },
+      { kind: "utility", label: "Utility B" },
     ],
     baseHull: 10,
     baseCargo: 0,
@@ -57,7 +59,7 @@ export const HULLS = {
     size: 14,
     fill: "#c8d6e8",
     stroke: "#6a8bb0",
-    defaultLoadout: ["energy_pulse", "basic_drive", null],
+    defaultLoadout: ["energy_pulse", "basic_drive", null, null],
   } satisfies HullDef,
 
   hauler: {
