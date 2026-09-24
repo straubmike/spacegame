@@ -232,6 +232,32 @@ export const MARKET = {
   demandBiasScale: 28,
 } as const;
 
+/**
+ * Station mission board (non-combat) — cargo transit + exploration scans.
+ * Passenger fares stay design-only until a berth utility ships (Must-have 6).
+ */
+export const QUEST = {
+  /** Max concurrent accepted board missions. */
+  maxActive: 2,
+  cargoCuMin: 2,
+  cargoCuMax: 5,
+  cargoBaseReward: 25,
+  cargoPerCu: 8,
+  cargoPerDistance: 1.2,
+  /** How far (in jump-range multiples) cargo destinations may sit. */
+  cargoMaxJumpRanges: 2.2,
+  exploreBaseReward: 45,
+  explorePerDistance: 1.6,
+  exploreMaxJumpRanges: 2.5,
+  /**
+   * Passenger fare design hooks (unused until berths equip):
+   * payouts should beat cargo of similar distance; require passengerCapacity.
+   */
+  passengerBaseReward: 70,
+  passengerPerBerth: 20,
+  passengerPerDistance: 2.4,
+} as const;
+
 export const DOCK = {
   /** world units — close enough to snap into dock */
   arriveDistance: 8,
