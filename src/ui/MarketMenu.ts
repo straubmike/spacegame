@@ -32,6 +32,10 @@ export class MarketMenu {
   private closeBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rows: RowWidgets[] = [];
   private scroll = 0;
+  /** Clip rect for the commodity list (set each draw). */
+  private listRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private maxScroll = 0;
+  private readonly rowH = 52;
 
   show(stationName: string, market: StationMarket): void {
     this.open = true;
@@ -100,16 +104,22 @@ export class MarketMenu {
 
     const listTop = headerY + 22;
     const footerY = panel.y + panel.h - 50;
-    const rowH = 52;
+    const rowH = this.rowH;
     const visibleH = footerY - listTop - 8;
     const listings = this.market.listings;
-    const maxScroll = Math.max(0, listings.length * rowH - visibleH);
-    this.scroll = Math.min(this.scroll, maxScroll);
+    this.listRect = {
+      x: panel.x + 8,
+      y: listTop,
+      w: panel.w - 16,
+      h: visibleH,
+    };
+    this.maxScroll = Math.max(0, listings.length * rowH - visibleH);
+    this.scroll = Math.min(Math.max(0, this.scroll), this.maxScroll);
 
     this.rows = [];
     ctx.save();
     ctx.beginPath();
-    ctx.rect(panel.x + 8, listTop, panel.w - 16, visibleH);
+    ctx.rect(this.listRect.x, this.listRect.y, this.listRect.w, this.listRect.h);
     ctx.clip();
 
     listings.forEach((listing, i) => {
@@ -129,6 +139,20 @@ export class MarketMenu {
     });
     ctx.restore();
 
+    if (this.maxScroll > 0) {
+      // Thin scrollbar so overflow is obvious.
+      const trackX = panel.x + panel.w - 14;
+      const trackY = listTop;
+      const trackH = visibleH;
+      ctx.fillStyle = "rgba(40, 52, 70, 0.7)";
+      ctx.fillRect(trackX, trackY, 4, trackH);
+      const thumbH = Math.max(18, (visibleH / (listings.length * rowH)) * trackH);
+      const thumbY =
+        trackY + (this.scroll / this.maxScroll) * (trackH - thumbH);
+      ctx.fillStyle = "rgba(150, 175, 210, 0.75)";
+      ctx.fillRect(trackX, thumbY, 4, thumbH);
+    }
+
     this.closeBtn = {
       x: panel.x + panel.w - 120,
       y: footerY,
@@ -138,6 +162,32 @@ export class MarketMenu {
     drawButton(ctx, this.closeBtn, "Close", {
       hover: hit(this.closeBtn, pointerX, pointerY),
     });
+  }
+
+  /**
+   * Apply mouse-wheel delta (pixels) when the pointer is over the list
+   * or the market panel. Returns true if scroll changed.
+   */
+  handleWheel(deltaY: number, px: number, py: number): boolean {
+    if (!this.open || !this.market || this.maxScroll <= 0 || deltaY === 0) {
+      return false;
+    }
+    // Accept wheel anywhere on the list or the wider panel so the catalog is easy to browse.
+    const overList = hit(this.listRect, px, py);
+    const overPanel =
+      px >= this.listRect.x - 8 &&
+      px <= this.listRect.x + this.listRect.w + 8 &&
+      py >= this.listRect.y - 40 &&
+      py <= this.listRect.y + this.listRect.h + 50;
+    if (!overList && !overPanel) return false;
+
+    const next = Math.min(
+      this.maxScroll,
+      Math.max(0, this.scroll + deltaY),
+    );
+    if (next === this.scroll) return false;
+    this.scroll = next;
+    return true;
   }
 
   private drawRow(
