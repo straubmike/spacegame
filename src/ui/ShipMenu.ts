@@ -339,7 +339,9 @@ export class ShipMenu {
     const contentH = contentBottom - contentTop;
     const gap = 10;
 
-    const missionH = Math.max(90, Math.min(120, Math.floor(contentH * 0.2)));
+    // Prefer title + 2×rowH(44) + frame pad ≈ 132 when the panel is tall;
+    // otherwise shrink and rely on wheel scroll so every Cancel stays reachable.
+    const missionH = Math.max(100, Math.min(132, Math.floor(contentH * 0.26)));
     const cargoH = Math.max(140, Math.min(190, Math.floor(contentH * 0.3)));
     // Reputation needs room for factions + non-zero stations (was clipping stations).
     const repH = Math.max(150, Math.min(220, Math.floor(contentH * 0.3)));
