@@ -21,10 +21,13 @@ interface RowWidgets {
 
 /**
  * Docked cargo exchange — buy/sell CU of station commodities.
+ * Reused for Black Market with title "Black Market".
  */
 export class MarketMenu {
   open = false;
   stationName = "";
+  /** Panel heading — "Market" or "Black Market". */
+  title = "Market";
   market: StationMarket | null = null;
   /** Pending purchase qty per commodity. */
   private buyQty = new Map<string, number>();
@@ -38,10 +41,15 @@ export class MarketMenu {
   private maxScroll = 0;
   private readonly rowH = 52;
 
-  show(stationName: string, market: StationMarket): void {
+  show(
+    stationName: string,
+    market: StationMarket,
+    title = "Market",
+  ): void {
     this.open = true;
     this.stationName = stationName;
     this.market = market;
+    this.title = title;
     this.buyQty.clear();
     this.sellQty.clear();
     this.scroll = 0;
@@ -82,9 +90,12 @@ export class MarketMenu {
     drawPanel(ctx, panel);
 
     ctx.font = FONT_TITLE;
-    ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
+    const isBlack = this.title === "Black Market";
+    ctx.fillStyle = isBlack
+      ? "rgba(230, 175, 140, 0.95)"
+      : "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
-    ctx.fillText("Market", panel.x + 20, panel.y + 16);
+    ctx.fillText(this.title, panel.x + 20, panel.y + 16);
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(150, 175, 210, 0.8)";

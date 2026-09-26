@@ -1,4 +1,4 @@
-import { MARKET, GALAXY } from "../game/config";
+import { BLACK_MARKET, MARKET, GALAXY } from "../game/config";
 import { hash2, mulberry32 } from "../galaxy/rng";
 import {
   effectiveCommodityBias,
@@ -14,6 +14,11 @@ export interface Commodity {
   name: string;
   /** Nominal credits per CU before station modifiers. */
   basePrice: number;
+  /**
+   * When true, only available on Black Market (Must-have 9).
+   * Shared flag for patrol illegal-cargo scan (Must-have 11).
+   */
+  illegal?: boolean;
 }
 
 export const COMMODITIES: Commodity[] = [
@@ -22,14 +27,31 @@ export const COMMODITIES: Commodity[] = [
   { id: "minerals", name: "Minerals", basePrice: 22 },
   { id: "machinery", name: "Machinery", basePrice: 28 },
   { id: "luxuries", name: "Luxuries", basePrice: 40 },
-  { id: "narcotics", name: "Narcotics", basePrice: 48 },
+  { id: "narcotics", name: "Narcotics", basePrice: 48, illegal: true },
+  { id: "illicit_stimulants", name: "Illicit Stimulants", basePrice: 52, illegal: true },
   { id: "alloys", name: "Alloys", basePrice: 26 },
   { id: "precious_metals", name: "Precious Metals", basePrice: 58 },
   { id: "fuel_cells", name: "Fuel Cells", basePrice: 14 },
 ];
 
+/** Legal goods shown on the main Market menu. */
+export const LEGAL_COMMODITIES: Commodity[] = COMMODITIES.filter((c) => !c.illegal);
+
+/** Illegal goods — Black Market only. */
+export const ILLEGAL_COMMODITIES: Commodity[] = COMMODITIES.filter((c) => c.illegal);
+
 export function commodityById(id: string): Commodity | undefined {
   return COMMODITIES.find((c) => c.id === id);
+}
+
+/** Strip `stolen:` prefix so scan / BM logic sees the base catalog id. */
+export function baseCommodityId(id: string): string {
+  return id.startsWith("stolen:") ? id.slice("stolen:".length) : id;
+}
+
+/** True for catalog illegals and their stolen lots (`stolen:narcotics`, …). */
+export function isIllegalCommodityId(id: string): boolean {
+  return commodityById(baseCommodityId(id))?.illegal === true;
 }
 
 /**
@@ -66,7 +88,22 @@ export class StationMarket {
 }
 
 /**
- * Seeded buy/sell book for a station.
+ * Seeded whether this station offers a Black Market dock menu.
+ * Until Must-have 10 menu variety, use spawnChance; starter-system docks always offer it.
+ */
+export function stationOffersBlackMarket(
+  stationKey: string,
+  poiId: number,
+): boolean {
+  if (poiId === GALAXY.startPoiId) return true;
+  const rng = mulberry32(
+    hash2(GALAXY.seed ^ 0xb1a07, hashStationKey(stationKey)),
+  );
+  return rng() < BLACK_MARKET.spawnChance;
+}
+
+/**
+ * Seeded buy/sell book for a station (legal goods only).
  * Prices follow local POI flavor blended with neighbor supply/demand.
  */
 export function createStationMarket(
@@ -77,17 +114,18 @@ export function createStationMarket(
     hash2(GALAXY.seed ^ 0xc2a700, hashStationKey(stationKey)),
   );
 
+  const catalog = LEGAL_COMMODITIES;
   const biases = ctx
     ? effectiveCommodityBias(ctx)
     : {
-        local: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
-        neighbor: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
-        effective: Object.fromEntries(COMMODITIES.map((c) => [c.id, 0])),
+        local: Object.fromEntries(catalog.map((c) => [c.id, 0])),
+        neighbor: Object.fromEntries(catalog.map((c) => [c.id, 0])),
+        effective: Object.fromEntries(catalog.map((c) => [c.id, 0])),
       };
 
   const listings: MarketListing[] = [];
 
-  for (const c of COMMODITIES) {
+  for (const c of catalog) {
     const bias = biases.effective[c.id] ?? 0;
     const local = biases.local[c.id] ?? 0;
     const reason = priceReasonFor(c.id, biases.local, biases.neighbor);
@@ -183,7 +221,7 @@ export function createStationMarket(
 
   // Guarantee at least a couple of lines so empty stations are rare
   if (listings.length < 2) {
-    for (const c of COMMODITIES) {
+    for (const c of catalog) {
       if (listings.some((l) => l.commodityId === c.id)) continue;
       const mid = c.basePrice;
       listings.push({
@@ -197,6 +235,78 @@ export function createStationMarket(
       });
       if (listings.length >= 3) break;
     }
+  }
+
+  listings.sort((a, b) => a.name.localeCompare(b.name));
+  return new StationMarket(listings);
+}
+
+/**
+ * Seeded black-market book — illegal commodities only, premium prices.
+ * Always stocks + buys every illegal line so testing / fence routes stay reliable.
+ */
+export function createBlackMarket(
+  stationKey: string,
+  ctx?: MarketContext,
+): StationMarket {
+  const rng = mulberry32(
+    hash2(GALAXY.seed ^ 0xb1ac07, hashStationKey(stationKey)),
+  );
+
+  const biases = ctx
+    ? effectiveCommodityBias(ctx)
+    : {
+        local: Object.fromEntries(ILLEGAL_COMMODITIES.map((c) => [c.id, 0])),
+        neighbor: Object.fromEntries(ILLEGAL_COMMODITIES.map((c) => [c.id, 0])),
+        effective: Object.fromEntries(ILLEGAL_COMMODITIES.map((c) => [c.id, 0])),
+      };
+
+  const listings: MarketListing[] = [];
+
+  for (const c of ILLEGAL_COMMODITIES) {
+    const bias = biases.effective[c.id] ?? 0;
+    const reason = priceReasonFor(c.id, biases.local, biases.neighbor);
+    const noise = 1 + (rng() * 2 - 1) * BLACK_MARKET.noiseAmplitude;
+    const mid = Math.max(
+      1,
+      Math.round(
+        c.basePrice *
+          (1 + BLACK_MARKET.pricePremium) *
+          (1 - bias * MARKET.biasStrength * 0.65) *
+          noise,
+      ),
+    );
+
+    const spread = Math.max(2, Math.round(mid * BLACK_MARKET.spreadFraction));
+    const playerBuyPrice = mid + spread;
+    const playerSellPrice = Math.max(1, mid - Math.max(1, Math.round(spread * 0.55)));
+
+    const stock = Math.max(
+      8,
+      Math.round(
+        BLACK_MARKET.baseStock +
+          Math.max(0, bias) * BLACK_MARKET.stockBiasScale +
+          rng() * 10,
+      ),
+    );
+    const demand = Math.max(
+      8,
+      Math.round(
+        BLACK_MARKET.baseDemand +
+          Math.max(0, -bias) * BLACK_MARKET.demandBiasScale +
+          rng() * 10,
+      ),
+    );
+
+    listings.push({
+      commodityId: c.id,
+      name: c.name,
+      playerBuyPrice,
+      playerSellPrice,
+      stock,
+      demand,
+      priceReason: reason === "quiet market" ? "local specialty" : reason,
+    });
   }
 
   listings.sort((a, b) => a.name.localeCompare(b.name));

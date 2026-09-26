@@ -2,11 +2,13 @@ import { FONT, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type PatrolFineMenuAction = "pay" | "close" | null;
 
-export type PatrolFineKind = "violation" | "unfriendly";
+export type PatrolFineKind = "violation" | "unfriendly" | "scanDebt";
 
 /**
  * Click / warning popup to pay a station fine via a local patrol.
- * Violation → Unfriendly; Unfriendly → Neutral. Hostile cannot pay.
+ * Violation standing fine → Unfriendly; Unfriendly → Neutral;
+ * scan-debt Violation → hand over remaining + fee → Unfriendly.
+ * Hostile cannot pay.
  */
 export class PatrolFineMenu {
   open = false;
@@ -14,6 +16,8 @@ export class PatrolFineMenu {
   fine = 0;
   standingLabel = "";
   kind: PatrolFineKind = "unfriendly";
+  /** Scan-debt hand-over CU (0 for standing fines). */
+  handOverCu = 0;
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private payBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -26,14 +30,16 @@ export class PatrolFineMenu {
     cursorY: number,
     viewW: number,
     viewH: number,
+    handOverCu = 0,
   ): void {
     this.open = true;
     this.stationName = stationName;
     this.fine = fine;
     this.standingLabel = standingLabel;
     this.kind = kind;
-    const w = 220;
-    const h = 128;
+    this.handOverCu = Math.max(0, Math.floor(handOverCu));
+    const w = 240;
+    const h = kind === "scanDebt" ? 148 : 128;
     let x = cursorX + 8;
     let y = cursorY + 8;
     if (x + w > viewW - 8) x = cursorX - w - 8;
@@ -41,7 +47,7 @@ export class PatrolFineMenu {
     x = Math.max(8, x);
     y = Math.max(8, y);
     this.panel = { x, y, w, h };
-    this.payBtn = { x: x + 12, y: y + 88, w: w - 24, h: 28 };
+    this.payBtn = { x: x + 12, y: y + h - 40, w: w - 24, h: 28 };
   }
 
   hide(): void {
@@ -63,20 +69,49 @@ export class PatrolFineMenu {
     ctx.fillStyle = "rgba(160, 185, 210, 0.9)";
     ctx.fillText(this.stationName, this.panel.x + 12, this.panel.y + 28);
     ctx.fillStyle = "rgba(190, 170, 140, 0.9)";
-    ctx.fillText(
-      `Fine: ${this.fine} cr · ${this.standingLabel}`,
-      this.panel.x + 12,
-      this.panel.y + 46,
-    );
-    ctx.fillStyle = "rgba(150, 170, 195, 0.85)";
-    const outcome =
-      this.kind === "violation"
-        ? "Pay → Unfriendly (not Neutral)"
-        : "Pay → Neutral";
-    ctx.fillText(outcome, this.panel.x + 12, this.panel.y + 64);
 
-    const canPay = credits >= this.fine && this.fine > 0;
-    drawButton(ctx, this.payBtn, `Pay ${this.fine} cr`, {
+    if (this.kind === "scanDebt") {
+      const cargoBit =
+        this.handOverCu > 0 ? `Hand over ${this.handOverCu} CU` : "Hold empty";
+      const feeBit =
+        this.fine > 0 ? ` + ${this.fine} cr fee` : " (cargo covers debt)";
+      ctx.fillText(
+        `${cargoBit}${feeBit}`,
+        this.panel.x + 12,
+        this.panel.y + 46,
+      );
+      ctx.fillStyle = "rgba(150, 170, 195, 0.85)";
+      ctx.fillText(this.standingLabel, this.panel.x + 12, this.panel.y + 64);
+      ctx.fillText(
+        "Settle → Unfriendly (not Neutral)",
+        this.panel.x + 12,
+        this.panel.y + 82,
+      );
+    } else {
+      ctx.fillText(
+        `Fine: ${this.fine} cr · ${this.standingLabel}`,
+        this.panel.x + 12,
+        this.panel.y + 46,
+      );
+      ctx.fillStyle = "rgba(150, 170, 195, 0.85)";
+      const outcome =
+        this.kind === "violation"
+          ? "Pay → Unfriendly (not Neutral)"
+          : "Pay → Neutral";
+      ctx.fillText(outcome, this.panel.x + 12, this.panel.y + 64);
+    }
+
+    const canPay =
+      this.kind === "scanDebt"
+        ? credits >= this.fine
+        : credits >= this.fine && this.fine > 0;
+    const label =
+      this.kind === "scanDebt"
+        ? this.fine > 0
+          ? `Settle (${this.fine} cr)`
+          : "Hand over & settle"
+        : `Pay ${this.fine} cr`;
+    drawButton(ctx, this.payBtn, label, {
       primary: true,
       enabled: canPay,
       hover: canPay && hit(this.payBtn, pointerX, pointerY),

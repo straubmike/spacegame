@@ -344,6 +344,27 @@ export const MARKET = {
 } as const;
 
 /**
+ * Black market (Must-have 9) — illegal cargo only; stripped from main Market.
+ * Risk pairs with Must-have 11 patrol scan (fee above these rates).
+ */
+export const BLACK_MARKET = {
+  /**
+   * Seeded chance a station offers Black Market (until Must-have 10 menu rolls).
+   * Starter-system stations always offer it so illegal cargo is testable early.
+   */
+  spawnChance: 0.55,
+  /** Mid-price markup vs commodity base (player pays more / risks more). */
+  pricePremium: 0.55,
+  /** Wider buy/sell spread than legal markets. */
+  spreadFraction: 0.18,
+  noiseAmplitude: 0.07,
+  baseStock: 14,
+  baseDemand: 16,
+  stockBiasScale: 18,
+  demandBiasScale: 20,
+} as const;
+
+/**
  * Station mission board (non-combat) — cargo transit + exploration scans.
  * Passenger fares need Passenger Berth equipped (Must-have 5–6).
  */
@@ -446,6 +467,11 @@ export const REPUTATION = {
   /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
+  /**
+   * Standing forced on a positive illegal-cargo scan (Violation band).
+   * Settle / timeout still follow the normal Violation ladder.
+   */
+  scanViolationStanding: -45,
 } as const;
 
 /**
@@ -490,4 +516,23 @@ export const PATROL = {
   spawnDistance: 120,
   /** Violation warning window before patrol goes aggro (seconds). */
   warningSeconds: 60,
+  /**
+   * Illegal-cargo scan (Must-have 11).
+   * Chance is intentionally a bit high so a playtest session can see a scan.
+   */
+  /** World range to start / continue an opportunistic scan. */
+  scanRange: 520,
+  /** Per-second chance to open scan comms while player is in range (Neutral+). */
+  scanChancePerSecond: 0.045,
+  /** Seconds until the scan completes once started. */
+  scanSeconds: 30,
+  /** Chance an eject of illegal cargo mid-scan is noticed. */
+  scanEjectCaughtChance: 0.5,
+  /** Cooldown after a completed scan (clean or positive) before another try. */
+  scanCooldownSeconds: 90,
+  /**
+   * Shortfall fee = basePrice * mul per missing CU.
+   * Must stay above typical black-market rates (BM markup is lower).
+   */
+  scanDebtFeeMul: 2.5,
 } as const;

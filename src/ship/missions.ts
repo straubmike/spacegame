@@ -18,7 +18,7 @@ import { listSystemStations, type SystemStationRef } from "../galaxy/pirates";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
 import { hash2, mulberry32 } from "../galaxy/rng";
-import { COMMODITIES } from "./market";
+import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
 export type MissionKind = "cargo" | "explore" | "clearance";
@@ -195,7 +195,8 @@ function makeCargoOffer(
   const dest = pickCargoDestination(galaxy, origin, rng);
   if (!dest) return null;
 
-  const commodity = COMMODITIES[(rng() * COMMODITIES.length) | 0]!;
+  // Legal freight only — illegals are Black Market (Must-have 9), not board hauls.
+  const commodity = LEGAL_COMMODITIES[(rng() * LEGAL_COMMODITIES.length) | 0]!;
   const cu = QUEST.cargoCuMin + ((rng() * (QUEST.cargoCuMax - QUEST.cargoCuMin + 1)) | 0);
   const originPoi = galaxy.get(origin.poiId);
   const destPoi = galaxy.get(dest.poiId);

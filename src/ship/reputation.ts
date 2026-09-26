@@ -143,7 +143,7 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Absolute set (fines, attack-patrol → Hostile). */
+  /** Absolute set (fines, attack-patrol / Violation-timeout → Hostile). */
   setStanding(target: string, value: number, label?: string): number {
     if (label && target !== PIRATE_FACTION_ID) {
       this.stationLabels.set(target, label);
@@ -157,7 +157,10 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Mark station Hostile (attacking a patrol). */
+  /**
+   * Mark station Hostile (unredeemable).
+   * Same outcome for attacking a patrol or letting a Violation window expire.
+   */
   markHostile(stationKey: string, label?: string): number {
     return this.setStanding(stationKey, REPUTATION.hostileAtOrBelow, label);
   }
@@ -199,8 +202,9 @@ export class ReputationTracker {
   }
 
   /**
-   * Apply patrol fine payoff.
+   * Apply standing fine payoff (patrol click or station-hail Settle).
    * Violation → Unfriendly floor; Unfriendly → Neutral 0. Hostile: no-op.
+   * Credits-only — no cargo required (stolen-haul / empty-hold path).
    */
   applyPatrolFine(stationKey: string, label?: string): number | null {
     const band = standingBand(this.stationStanding(stationKey));

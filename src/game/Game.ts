@@ -19,7 +19,10 @@ import {
 } from "../ship/stationStock";
 import {
   commodityById,
+  createBlackMarket,
   createStationMarket,
+  isIllegalCommodityId,
+  stationOffersBlackMarket,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -31,6 +34,14 @@ import {
   standingBand,
   type ReputationListing,
 } from "../ship/reputation";
+import {
+  addObservedIllegal,
+  confiscateIllegalCu,
+  illegalCargoByCommodity,
+  quoteScanSettle,
+  ScanDebtLedger,
+  type IllegalDebtLine,
+} from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
@@ -118,6 +129,10 @@ export class Game {
   private readonly hangarMenu = new HangarMenu();
   /** Active market for the current dock session (mutated by trades). */
   private dockMarket: StationMarket | null = null;
+  /** Illegal-goods book when this station offers Black Market. */
+  private dockBlackMarket: StationMarket | null = null;
+  /** Which exchange the market menu is showing. */
+  private marketMenuKind: "legal" | "black" = "legal";
   /** Offers posted at the current dock (seeded per station). */
   private dockMissionOffers: MissionOffer[] = [];
   /** Local views where the pirate fee has already been paid. */
@@ -138,6 +153,13 @@ export class Game {
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate faction standing (session). */
   private readonly reputation = new ReputationTracker();
+  /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
+  private readonly scanDebt = new ScanDebtLedger();
+  /**
+   * Mid-scan caught ejects, keyed by stationKey → commodity lines.
+   * Merged into debt when the scan completes.
+   */
+  private readonly scanCaught = new Map<string, Map<string, IllegalDebtLine>>();
   /** Last successfully docked station (for eject-stolen local blame). */
   private lastDockedStation: { key: string; name: string } | null = null;
 
@@ -284,6 +306,8 @@ export class Game {
     this.marketMenu.hide();
     this.marketMenuOpen = false;
     this.dockMarket = null;
+    this.dockBlackMarket = null;
+    this.marketMenuKind = "legal";
     this.missionBoard.hide();
     this.missionBoardOpen = false;
     this.dockMissionOffers = [];
@@ -1034,12 +1058,16 @@ export class Game {
   }
 
   private showDockedUi(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
       this.missionBoardHint(),
       this.dockStandingLine(station),
+      stationOffersBlackMarket(key, this.local.poiId),
     );
   }
 
@@ -1063,8 +1091,12 @@ export class Game {
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
-    if (this.marketMenuOpen && wheel !== 0) {
-      this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+    if (wheel !== 0) {
+      if (this.marketMenuOpen) {
+        this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      } else if (this.shipMenuOpen) {
+        this.shipMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      }
     }
 
     if (this.fadePhase !== "idle") {
@@ -1174,6 +1206,7 @@ export class Game {
     if (this.stationMenu.open) {
       if (this.stationMenu.station) {
         this.stationMenu.dockEnabled = this.canDockAt(this.stationMenu.station);
+        this.refreshStationSettleOffer(this.stationMenu.station);
       }
       this.updateStationMenu();
     } else if (this.pirateMenu.open) {
@@ -1270,6 +1303,7 @@ export class Game {
           viewH,
         );
         this.stationMenu.dockEnabled = this.canDockAt(station);
+        this.refreshStationSettleOffer(station);
         return;
       }
     }
@@ -1312,38 +1346,157 @@ export class Game {
       this.patrolMenu.hide();
       return;
     }
-    const key = patrol.stationKey;
+    this.settleViolationOrFine(patrol.stationKey, stationName, "patrol");
+    this.patrolMenu.hide();
+  }
+
+  /**
+   * Station-hail Violation settle — same path as patrol click.
+   * Offered even when a host patrol is present (dual path; patrol not required).
+   * Scan debt → hand over + fee; stolen-haul → credits-only standing fine.
+   * After pay → Unfriendly + clearance if safe.
+   */
+  private payStationHailFine(station: Landmark): void {
+    const key = this.currentStationKey(station);
+    if (!key) return;
+    const ok = this.settleViolationOrFine(key, station.name, "station");
+    if (!ok) return;
+    this.stationMenu.setSettleOffer(null);
+    // Standing is now Unfriendly — grant clearance so Dock works without re-hail.
+    if (!this.pirateAggroActive() && this.reputation.allowsDock(key)) {
+      this.dockClearance.add(station.id);
+      this.stationMenu.dockEnabled = true;
+    }
+  }
+
+  /**
+   * Dual-path redeem: scan debt if present, else standing fine.
+   */
+  private settleViolationOrFine(
+    key: string,
+    stationName: string,
+    via: "patrol" | "station",
+  ): boolean {
+    if (this.scanDebt.has(key)) {
+      return this.settleScanDebt(key, stationName, via);
+    }
+    return this.settleStandingFine(key, stationName, via);
+  }
+
+  /**
+   * Settle knownIllegalDebt: confiscate remaining matching CU + fee for shortfall.
+   * Empty hold → fee for full debt. → Unfriendly.
+   */
+  private settleScanDebt(
+    key: string,
+    stationName: string,
+    via: "patrol" | "station",
+  ): boolean {
+    const speaker = via === "patrol" ? `${stationName} patrol` : stationName;
+    const debt = this.scanDebt.get(key);
+    if (!debt) {
+      this.messages.push(`${speaker}: No scan debt on record.`, "station");
+      return false;
+    }
     const band = standingBand(this.reputation.stationStanding(key));
     if (band === "hostile") {
-      this.patrolMenu.hide();
       this.messages.push(
-        `${stationName} patrol: Your record is Hostile — no fine will clear it.`,
+        `${speaker}: Your record is Hostile — no settlement will clear it.`,
         "station",
       );
-      return;
+      return false;
+    }
+    if (via === "station" && band !== "violation") {
+      this.messages.push(
+        `${speaker}: No Violation on record — hail for clearance.`,
+        "station",
+      );
+      return false;
+    }
+    const quote = quoteScanSettle(debt, this.ship.cargo);
+    if (!this.ship.spendCredits(quote.feeCredits)) {
+      this.messages.push(
+        `${speaker}: Need ${quote.feeCredits} cr for the shortfall fee (above black-market rates).`,
+        "station",
+      );
+      return false;
+    }
+    for (const line of quote.lines) {
+      if (line.handOverCu > 0) {
+        confiscateIllegalCu(this.ship.cargo, line.commodityId, line.handOverCu);
+      }
+    }
+    const before = this.reputation.stationStanding(key);
+    const next = this.reputation.applyPatrolFine(key, stationName);
+    if (next === null) {
+      // Refund fee; cargo already taken — reverse confiscation is messy; restore fee only.
+      this.ship.addCredits(quote.feeCredits);
+      this.messages.push(`${speaker}: Unable to clear the record.`, "station");
+      return false;
+    }
+    this.scanDebt.clear(key);
+    this.scanCaught.delete(key);
+    this.clearPatrolWarnings(key);
+    const handBit =
+      quote.handOverCu > 0
+        ? `Confiscated ${quote.handOverCu} CU`
+        : "No matching cargo left";
+    const feeBit =
+      quote.feeCredits > 0
+        ? ` · shortfall fee −${quote.feeCredits} cr`
+        : "";
+    this.messages.push(
+      `${speaker}: Debt settled (${handBit}${feeBit}). Standing → Unfriendly.`,
+      "station",
+    );
+    this.pushRepChange(stationName, next, next - before);
+    return true;
+  }
+
+  /**
+   * Shared standing fine: credits + applyPatrolFine → Unfriendly / Neutral.
+   * Works with or without a live patrol (station hail fallback).
+   * @returns true when the fine was paid and standing changed.
+   */
+  private settleStandingFine(
+    key: string,
+    stationName: string,
+    via: "patrol" | "station",
+  ): boolean {
+    const speaker = via === "patrol" ? `${stationName} patrol` : stationName;
+    const band = standingBand(this.reputation.stationStanding(key));
+    if (band === "hostile") {
+      this.messages.push(
+        `${speaker}: Your record is Hostile — no fine will clear it.`,
+        "station",
+      );
+      return false;
     }
     if (!this.reputation.hasOutstandingFine(key)) {
-      this.patrolMenu.hide();
+      this.messages.push(`${speaker}: No outstanding fines.`, "station");
+      return false;
+    }
+    // Station hail settle is Violation-only; Unfriendly stays optional via patrol.
+    if (via === "station" && band !== "violation") {
       this.messages.push(
-        `${stationName} patrol: No outstanding fines.`,
+        `${speaker}: No Violation on record — hail for clearance.`,
         "station",
       );
-      return;
+      return false;
     }
     const fine = this.reputation.patrolFineCredits(key);
     if (!this.ship.spendCredits(fine)) {
       this.messages.push(
-        `${stationName} patrol: Need ${fine} cr to settle the fine.`,
+        `${speaker}: Need ${fine} cr to settle the fine.`,
         "station",
       );
-      return;
+      return false;
     }
     const before = this.reputation.stationStanding(key);
     const next = this.reputation.applyPatrolFine(key, stationName);
-    this.patrolMenu.hide();
     if (next === null) {
       this.ship.addCredits(fine);
-      return;
+      return false;
     }
     // Clear warning timers on host patrols after a successful Violation pay.
     this.clearPatrolWarnings(key);
@@ -1352,10 +1505,41 @@ export class Game {
         ? "Standing restored to Unfriendly (docking allowed)."
         : "Standing restored to Neutral.";
     this.messages.push(
-      `${stationName} patrol: Fine paid (−${fine} cr). ${outcome}`,
+      `${speaker}: Fine paid (−${fine} cr). ${outcome}`,
       "station",
     );
     this.pushRepChange(stationName, next, next - before);
+    return true;
+  }
+
+  /** Show Settle on the station popup while Violation (dual path with patrol click). */
+  private refreshStationSettleOffer(station: Landmark): void {
+    const key = this.currentStationKey(station);
+    if (!key) {
+      this.stationMenu.setSettleOffer(null);
+      return;
+    }
+    const band = standingBand(this.reputation.stationStanding(key));
+    // Always offer settle while Violation — even if a host patrol exists.
+    if (band !== "violation") {
+      this.stationMenu.setSettleOffer(null);
+      return;
+    }
+    const debt = this.scanDebt.get(key);
+    if (debt) {
+      const quote = quoteScanSettle(debt, this.ship.cargo);
+      this.stationMenu.setSettleOffer({
+        credits: quote.feeCredits,
+        handOverCu: quote.handOverCu,
+        scanDebt: true,
+      });
+      return;
+    }
+    this.stationMenu.setSettleOffer({
+      credits: this.reputation.patrolFineCredits(key),
+      handOverCu: 0,
+      scanDebt: false,
+    });
   }
 
   private clearPatrolWarnings(stationKey: string): void {
@@ -1374,6 +1558,24 @@ export class Game {
     const score = this.reputation.stationStanding(patrol.stationKey);
     const band = standingBand(score);
     if (band !== "unfriendly" && band !== "violation") return;
+
+    const debt = this.scanDebt.get(patrol.stationKey);
+    if (debt && band === "violation") {
+      const quote = quoteScanSettle(debt, this.ship.cargo);
+      this.patrolMenu.show(
+        patrol.stationName,
+        quote.feeCredits,
+        formatStanding(score),
+        "scanDebt",
+        cursorX,
+        cursorY,
+        viewW,
+        viewH,
+        quote.handOverCu,
+      );
+      return;
+    }
+
     const fine = this.reputation.patrolFineCredits(patrol.stationKey);
     this.patrolMenu.show(
       patrol.stationName,
@@ -1400,6 +1602,11 @@ export class Game {
 
     if (action === "hail") {
       this.hailStation(station);
+      return;
+    }
+
+    if (action === "settle") {
+      this.payStationHailFine(station);
       return;
     }
 
@@ -1448,16 +1655,28 @@ export class Game {
       const band = key
         ? standingBand(this.reputation.stationStanding(key))
         : "hostile";
-      const reason =
-        band === "violation"
-          ? "You are not exempt from outstanding violations — docking denied. Hail a patrol to settle the fine."
-          : "Your record is Hostile — docking permanently denied.";
-      this.messages.push(`${station.name}: ${reason}`, "station");
+      if (band === "violation" && key) {
+        this.refreshStationSettleOffer(station);
+        const debt = this.scanDebt.has(key);
+        this.messages.push(
+          debt
+            ? `${station.name}: Illegal cargo debt unpaid — docking denied. Settle here (hand over remaining + fee), or click a patrol — same outcome either way.`
+            : `${station.name}: Outstanding violations — docking denied. Settle the fine here, or click a patrol — same outcome either way.`,
+          "station",
+        );
+      } else {
+        this.stationMenu.setSettleOffer(null);
+        this.messages.push(
+          `${station.name}: Your record is Hostile — docking permanently denied.`,
+          "station",
+        );
+      }
       return;
     }
 
     this.dockClearance.add(station.id);
     this.stationMenu.dockEnabled = true;
+    this.stationMenu.setSettleOffer(null);
     this.messages.push(
       `${station.name}: Clearance granted. You are cleared to dock.`,
       "station",
@@ -1490,7 +1709,7 @@ export class Game {
         : "hostile";
       const reason =
         band === "violation"
-          ? "outstanding violations — hail a patrol to settle."
+          ? "outstanding violations — settle the fine from the station menu (or a patrol)."
           : "Hostile standing — approach denied.";
       this.messages.push(
         `${station.name}: Approach rejected — ${reason}`,
@@ -1518,6 +1737,9 @@ export class Game {
       `visit:${this.local.poiId}:${station.id}`;
     this.lastDockedStation = { key, name: station.name };
     this.dockMarket = createStationMarket(key, this.marketContext());
+    this.dockBlackMarket = stationOffersBlackMarket(key, this.local.poiId)
+      ? createBlackMarket(key, this.marketContext())
+      : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
@@ -1572,6 +1794,10 @@ export class Game {
       this.openMarket(station);
       return;
     }
+    if (action === "blackMarket") {
+      this.openBlackMarket(station);
+      return;
+    }
     if (action === "missions") {
       this.openMissionBoard(station);
       return;
@@ -1592,6 +1818,8 @@ export class Game {
     this.hangarMenu.hide();
     this.hangarMenuOpen = false;
     this.dockMarket = null;
+    this.dockBlackMarket = null;
+    this.marketMenuKind = "legal";
     this.dockMissionOffers = [];
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
@@ -1773,24 +2001,32 @@ export class Game {
         patrolShots,
         law,
       );
-      if (edge.justWarned) {
+      if (edge.justStartedScan) {
+        this.scanCaught.set(patrol.stationKey, new Map());
         this.messages.push(
-          `${patrol.stationName} patrol: You are not exempt from violations. Hail us and settle the fine — you have one minute.`,
+          `${patrol.stationName} patrol: Scanning your hold for illegal cargo — stand by (~${PATROL.scanSeconds}s).`,
           "station",
         );
-        // Auto-open fine UI near screen center (fee-window feel).
-        this.openPatrolFineUi(
-          patrol,
-          window.innerWidth * 0.5,
-          window.innerHeight * 0.35,
-          window.innerWidth,
-          window.innerHeight,
+      }
+      if (edge.justCompletedScan) {
+        this.resolvePatrolScan(patrol);
+      }
+      if (edge.justWarned) {
+        const hasDebt = this.scanDebt.has(patrol.stationKey);
+        // Comms only — Settle / fine UI opens on patrol click or station hail.
+        this.messages.push(
+          hasDebt
+            ? `${patrol.stationName} patrol: Illegal cargo confirmed. Click us or hail the station to settle (hand over remaining + fee) — you have one minute.`
+            : `${patrol.stationName} patrol: You are not exempt from violations. Click us or hail the station to settle — you have one minute.`,
+          "station",
         );
       }
       if (edge.justAggroed) {
-        this.messages.push(
-          `${patrol.stationName} patrol: Fine unpaid — weapons free.`,
-          "station",
+        // Ignoring the Violation window → same as attacking: force Hostile.
+        this.forceStationHostile(
+          patrol.stationKey,
+          patrol.stationName,
+          `${patrol.stationName} patrol: Window expired — you are now Hostile. Weapons free.`,
         );
         this.patrolMenu.hide();
       }
@@ -1843,22 +2079,11 @@ export class Game {
           if (dist <= patrol.radius + COMBAT.projectileRadius) {
             patrol.takeDamage(p.damage);
             // Attacking a station patrol → immediate Hostile + return fire.
-            const before = this.reputation.stationStanding(patrol.stationKey);
-            const next = this.reputation.markHostile(
+            this.forceStationHostile(
               patrol.stationKey,
               patrol.stationName,
+              `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
             );
-            if (before > REPUTATION.hostileAtOrBelow) {
-              this.messages.push(
-                `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
-                "station",
-              );
-              this.pushRepChange(
-                patrol.stationName,
-                next,
-                next - before,
-              );
-            }
             patrol.markDefending();
             this.patrolMenu.hide();
             hit = true;
@@ -1910,6 +2135,78 @@ export class Game {
     if (band === "hostile") return "aggro";
     if (band === "violation") return "warn";
     return "ignore";
+  }
+
+  /**
+   * Force Hostile (attack patrol or expire Violation window).
+   * Clears scan debt — unredeemable.
+   */
+  private forceStationHostile(
+    stationKey: string,
+    stationName: string,
+    message: string,
+  ): void {
+    const before = this.reputation.stationStanding(stationKey);
+    const next = this.reputation.markHostile(stationKey, stationName);
+    this.scanDebt.clear(stationKey);
+    this.scanCaught.delete(stationKey);
+    this.messages.push(message, "station");
+    if (before > REPUTATION.hostileAtOrBelow) {
+      this.pushRepChange(stationName, next, next - before);
+    }
+  }
+
+  /**
+   * Resolve a completed illegal-cargo scan.
+   * Clean / eject-all-uncaught → nothing. Positive → knownIllegalDebt + Violation.
+   */
+  private resolvePatrolScan(patrol: StationPatrol): void {
+    const observed = new Map<string, IllegalDebtLine>();
+    const aboard = illegalCargoByCommodity(this.ship.cargo);
+    for (const [id, row] of aboard) {
+      addObservedIllegal(observed, id, row.cu, row.name);
+    }
+    const caught = this.scanCaught.get(patrol.stationKey);
+    if (caught) {
+      for (const line of caught.values()) {
+        addObservedIllegal(observed, line.commodityId, line.cu, line.name);
+      }
+    }
+    this.scanCaught.delete(patrol.stationKey);
+
+    const lines = [...observed.values()].filter((l) => l.cu > 0);
+    if (lines.length === 0) {
+      this.messages.push(
+        `${patrol.stationName} patrol: Scan clear — no illegal cargo on record.`,
+        "station",
+      );
+      return;
+    }
+
+    const debt = this.scanDebt.record(
+      patrol.stationKey,
+      patrol.stationName,
+      lines,
+    );
+    if (!debt) return;
+
+    const totalCu = debt.lines.reduce((n, l) => n + l.cu, 0);
+    const before = this.reputation.stationStanding(patrol.stationKey);
+    const band = standingBand(before);
+    // Positive scan forces Violation (unless already Hostile).
+    if (band !== "hostile") {
+      const next = this.reputation.setStanding(
+        patrol.stationKey,
+        REPUTATION.scanViolationStanding,
+        patrol.stationName,
+      );
+      this.pushRepChange(patrol.stationName, next, next - before);
+    }
+
+    this.messages.push(
+      `${patrol.stationName} patrol: Illegal cargo found (${totalCu} CU). Settle the debt — turn in remaining + fee for any shortfall.`,
+      "station",
+    );
   }
 
   private updateGalaxyMenu(): void {
@@ -2077,13 +2374,38 @@ export class Game {
     this.missionBoard.hide();
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
-    this.marketMenu.show(station.name, this.dockMarket);
+    this.marketMenuKind = "legal";
+    this.marketMenu.show(station.name, this.dockMarket, "Market");
+    this.marketMenuOpen = true;
+  }
+
+  private openBlackMarket(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
+    if (!stationOffersBlackMarket(key, this.local.poiId)) {
+      this.messages.push("No black market contact at this dock.", "station");
+      return;
+    }
+    if (!this.dockBlackMarket) {
+      this.dockBlackMarket = createBlackMarket(key, this.marketContext());
+    }
+    this.dockedMenu.hide();
+    this.shipMenuOpen = false;
+    this.shipMenu.openView();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
+    this.marketMenuKind = "black";
+    this.marketMenu.show(station.name, this.dockBlackMarket, "Black Market");
     this.marketMenuOpen = true;
   }
 
   private closeMarketMenu(): void {
     this.marketMenuOpen = false;
     this.marketMenu.hide();
+    this.marketMenuKind = "legal";
     if (this.dock.kind === "docked") {
       this.showDockedUi(this.dock.station);
     }
@@ -2103,22 +2425,25 @@ export class Game {
     }
     if (!result || typeof result !== "object") return;
 
-    const listing = this.dockMarket?.listing(result.commodityId);
+    const book =
+      this.marketMenuKind === "black" ? this.dockBlackMarket : this.dockMarket;
+    const label = this.marketMenuKind === "black" ? "Black Market" : "Market";
+    const listing = book?.listing(result.commodityId);
     if (!listing) return;
 
     if (result.action === "buy") {
       if (listing.playerBuyPrice === null) return;
       const cost = listing.playerBuyPrice * result.cu;
       if (result.cu > listing.stock) {
-        this.messages.push("Market: Not enough stock.", "station");
+        this.messages.push(`${label}: Not enough stock.`, "station");
         return;
       }
       if (!this.ship.cargo.canStow(result.cu)) {
-        this.messages.push("Market: Not enough cargo space.", "station");
+        this.messages.push(`${label}: Not enough cargo space.`, "station");
         return;
       }
       if (!this.ship.spendCredits(cost)) {
-        this.messages.push("Market: Insufficient credits.", "station");
+        this.messages.push(`${label}: Insufficient credits.`, "station");
         return;
       }
       if (
@@ -2129,12 +2454,12 @@ export class Game {
         })
       ) {
         this.ship.addCredits(cost);
-        this.messages.push("Market: Cargo stow failed.", "station");
+        this.messages.push(`${label}: Cargo stow failed.`, "station");
         return;
       }
       listing.stock -= result.cu;
       this.messages.push(
-        `Market: Bought ${result.cu} CU ${listing.name} (−${cost} cr).`,
+        `${label}: Bought ${result.cu} CU ${listing.name} (−${cost} cr).`,
         "station",
       );
       return;
@@ -2143,7 +2468,7 @@ export class Game {
     if (result.action === "sell") {
       if (listing.playerSellPrice === null) return;
       if (result.cu > listing.demand) {
-        this.messages.push("Market: Demand filled.", "station");
+        this.messages.push(`${label}: Demand filled.`, "station");
         return;
       }
       // Fence stolen lots first, then ordinary hold of the same commodity.
@@ -2153,14 +2478,14 @@ export class Game {
       if (left > 0) left -= this.ship.cargo.remove(listing.commodityId, left);
       const removed = result.cu - left;
       if (removed <= 0) {
-        this.messages.push("Market: You are not carrying that.", "station");
+        this.messages.push(`${label}: You are not carrying that.`, "station");
         return;
       }
       const payout = listing.playerSellPrice * removed;
       this.ship.addCredits(payout);
       listing.demand -= removed;
       this.messages.push(
-        `Market: Sold ${removed} CU ${listing.name} (+${payout} cr).`,
+        `${label}: Sold ${removed} CU ${listing.name} (+${payout} cr).`,
         "station",
       );
     }
@@ -2256,6 +2581,31 @@ export class Game {
     const removed = this.ship.cargo.remove(commodityId, Math.min(cu, held));
     if (removed <= 0) return;
     this.messages.push(`Cargo: Ejected ${removed} CU ${name}.`);
+
+    // Mid-scan eject of illegal cargo — 50% chance the dump is noticed.
+    if (isIllegalCommodityId(commodityId)) {
+      const scanning = this.patrols.find((p) => p.alive && p.isScanning);
+      if (scanning) {
+        if (Math.random() < PATROL.scanEjectCaughtChance) {
+          let caught = this.scanCaught.get(scanning.stationKey);
+          if (!caught) {
+            caught = new Map();
+            this.scanCaught.set(scanning.stationKey, caught);
+          }
+          addObservedIllegal(caught, commodityId, removed, name);
+          this.messages.push(
+            `${scanning.stationName} patrol: Eject noted — that dump is on the record.`,
+            "station",
+          );
+        } else {
+          this.messages.push(
+            `${scanning.stationName} patrol: …hold still reading. (Dump slipped past.)`,
+            "station",
+          );
+        }
+      }
+    }
+
     // Dumping hot goods still looks bad locally when a station knows you.
     if (isStolenCargoId(commodityId) && this.lastDockedStation) {
       this.adjustStationRep(
