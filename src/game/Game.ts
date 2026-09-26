@@ -2009,19 +2009,12 @@ export class Game {
       }
       if (edge.justWarned) {
         const hasDebt = this.scanDebt.has(patrol.stationKey);
+        // Comms only — Settle / fine UI opens on patrol click or station hail.
         this.messages.push(
           hasDebt
-            ? `${patrol.stationName} patrol: Illegal cargo confirmed. Settle the debt (hand over remaining + fee) — you have one minute.`
-            : `${patrol.stationName} patrol: You are not exempt from violations. Hail us and settle the fine — you have one minute.`,
+            ? `${patrol.stationName} patrol: Illegal cargo confirmed. Click us or hail the station to settle (hand over remaining + fee) — you have one minute.`
+            : `${patrol.stationName} patrol: You are not exempt from violations. Click us or hail the station to settle — you have one minute.`,
           "station",
-        );
-        // Auto-open fine UI near screen center (fee-window feel).
-        this.openPatrolFineUi(
-          patrol,
-          window.innerWidth * 0.5,
-          window.innerHeight * 0.35,
-          window.innerWidth,
-          window.innerHeight,
         );
       }
       if (edge.justAggroed) {
