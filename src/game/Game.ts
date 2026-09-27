@@ -25,6 +25,10 @@ import {
   stationOffersBlackMarket,
   type StationMarket,
 } from "../ship/market";
+import {
+  rollStationMenus,
+  stationHasMenu,
+} from "../ship/stationMenus";
 import type { MarketContext } from "../ship/economy";
 import {
   applyBayDiscount,
@@ -996,6 +1000,13 @@ export class Game {
   }
 
   private openMissionBoard(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
+    if (!stationHasMenu(key, "missions")) {
+      this.messages.push("No mission board at this dock.", "station");
+      return;
+    }
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();
@@ -1174,9 +1185,9 @@ export class Game {
       station.name,
       window.innerWidth,
       window.innerHeight,
+      rollStationMenus(key),
       this.missionBoardHint(),
       this.dockStandingLine(station),
-      stationOffersBlackMarket(key, this.local.poiId),
     );
   }
 
@@ -1848,7 +1859,7 @@ export class Game {
       `visit:${this.local.poiId}:${station.id}`;
     this.lastDockedStation = { key, name: station.name };
     this.dockMarket = createStationMarket(key, this.marketContext());
-    this.dockBlackMarket = stationOffersBlackMarket(key, this.local.poiId)
+    this.dockBlackMarket = stationOffersBlackMarket(key)
       ? createBlackMarket(key, this.marketContext())
       : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
@@ -2366,6 +2377,10 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
+    if (!stationHasMenu(key, "bay")) {
+      this.messages.push("No outfit bay at this dock.", "station");
+      return;
+    }
     const context = this.stationStockContext();
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
@@ -2404,6 +2419,13 @@ export class Game {
 
 
   private openHangar(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
+    if (!stationHasMenu(key, "hangar")) {
+      this.messages.push("No hangar berths at this dock.", "station");
+      return;
+    }
     this.ship.stashActiveToFleet();
     this.dockedMenu.hide();
     this.shipMenuOpen = false;
@@ -2473,10 +2495,14 @@ export class Game {
   }
 
   private openMarket(station: Landmark): void {
+    const key =
+      this.currentStationKey(station) ??
+      `visit:${this.local.poiId}:${station.id}`;
+    if (!stationHasMenu(key, "market")) {
+      this.messages.push("No commodity market at this dock.", "station");
+      return;
+    }
     if (!this.dockMarket) {
-      const key =
-        this.currentStationKey(station) ??
-        `visit:${this.local.poiId}:${station.id}`;
       this.dockMarket = createStationMarket(key, this.marketContext());
     }
     this.dockedMenu.hide();
@@ -2495,7 +2521,7 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
-    if (!stationOffersBlackMarket(key, this.local.poiId)) {
+    if (!stationOffersBlackMarket(key)) {
       this.messages.push("No black market contact at this dock.", "station");
       return;
     }

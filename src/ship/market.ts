@@ -7,6 +7,7 @@ import {
   type PriceReason,
 } from "./economy";
 import { hashStationKey } from "./stationKey";
+import { stationHasMenu } from "./stationMenus";
 
 /** Catalog of trade goods — volume is always 1 CU per unit quantity. */
 export interface Commodity {
@@ -88,18 +89,11 @@ export class StationMarket {
 }
 
 /**
- * Seeded whether this station offers a Black Market dock menu.
- * Until Must-have 10 menu variety, use spawnChance; starter-system docks always offer it.
+ * Whether this station offers a Black Market dock menu (Must-have 10 variety).
+ * Seed-stable via rollStationMenus; starter no longer forced-on.
  */
-export function stationOffersBlackMarket(
-  stationKey: string,
-  poiId: number,
-): boolean {
-  if (poiId === GALAXY.startPoiId) return true;
-  const rng = mulberry32(
-    hash2(GALAXY.seed ^ 0xb1a07, hashStationKey(stationKey)),
-  );
-  return rng() < BLACK_MARKET.spawnChance;
+export function stationOffersBlackMarket(stationKey: string): boolean {
+  return stationHasMenu(stationKey, "blackMarket");
 }
 
 /**

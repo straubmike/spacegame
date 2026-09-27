@@ -346,13 +346,9 @@ export const MARKET = {
 /**
  * Black market (Must-have 9) — illegal cargo only; stripped from main Market.
  * Risk pairs with Must-have 11 patrol scan (fee above these rates).
+ * Availability is rolled with other dock menus (Must-have 10).
  */
 export const BLACK_MARKET = {
-  /**
-   * Seeded chance a station offers Black Market (until Must-have 10 menu rolls).
-   * Starter-system stations always offer it so illegal cargo is testable early.
-   */
-  spawnChance: 0.55,
   /** Mid-price markup vs commodity base (player pays more / risks more). */
   pricePremium: 0.55,
   /** Wider buy/sell spread than legal markets. */
@@ -362,6 +358,17 @@ export const BLACK_MARKET = {
   baseDemand: 16,
   stockBiasScale: 18,
   demandBiasScale: 20,
+} as const;
+
+/**
+ * Station dock menu variety (Must-have 10).
+ * Repair is always on. Optional menus (bay / hangar / market / black market /
+ * missions) roll a seed-stable subset — higher counts are rarer.
+ * `countWeights[k]` = relative weight for offering exactly k optional menus.
+ */
+export const STATION_MENU_VARIETY = {
+  /** Index = optional-menu count. Index 0 unused; length must cover all five. */
+  countWeights: [0, 40, 28, 18, 10, 4] as const,
 } as const;
 
 /**
