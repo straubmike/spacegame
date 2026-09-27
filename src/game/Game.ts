@@ -70,6 +70,7 @@ import { HangarMenu } from "../ui/HangarMenu";
 import { hullById } from "../ship/hulls";
 import {
   generateStationMissions,
+  generateStationReplenishmentOffer,
   isStolenCargoId,
   makeClearanceOffer,
   missionCargoId,
@@ -135,6 +136,11 @@ export class Game {
   private marketMenuKind: "legal" | "black" = "legal";
   /** Offers posted at the current dock (seeded per station). */
   private dockMissionOffers: MissionOffer[] = [];
+  /**
+   * Empty-board replenishment offers posted this session, keyed by station.
+   * Survives undock so a leftover refill reappears; accepted ids still hide them.
+   */
+  private readonly stationReplenishOffers = new Map<string, MissionOffer[]>();
   /** Local views where the pirate fee has already been paid. */
   private readonly paidPirateViews = new Set<string>();
   /** Pirate slots permanently cleared (killed or driven off). */
@@ -581,6 +587,45 @@ export class Game {
     return offers;
   }
 
+  /**
+   * Must-have 8: when the offer board is empty, post exactly one new quest.
+   * Does not top up while any visible offer remains. Cancelled / accepted
+   * contracts stay off the board via acceptedMissionIds.
+   */
+  private ensureMissionBoardReplenished(station: Landmark): void {
+    if (this.visibleMissionOffers().length > 0) return;
+
+    const ref = stationRefFromLocal(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      station.id,
+      station.name,
+    );
+    if (!ref) return;
+
+    const posted = this.stationReplenishOffers.get(ref.key) ?? [];
+    const stillOpen = posted.filter((o) => !this.acceptedMissionIds.has(o.id));
+    if (stillOpen.length > 0) {
+      for (const offer of stillOpen) {
+        if (!this.dockMissionOffers.some((o) => o.id === offer.id)) {
+          this.dockMissionOffers.push(offer);
+        }
+      }
+      return;
+    }
+
+    const offer = generateStationReplenishmentOffer(
+      this.galaxy,
+      ref,
+      posted.length,
+    );
+    if (!offer || this.acceptedMissionIds.has(offer.id)) return;
+
+    this.stationReplenishOffers.set(ref.key, [...posted, offer]);
+    this.dockMissionOffers.push(offer);
+  }
+
   private marketContext(): MarketContext {
     return {
       galaxy: this.galaxy,
@@ -880,6 +925,9 @@ export class Game {
   }
 
   private refreshMissionBoardUi(): void {
+    if (this.dock.kind === "docked") {
+      this.ensureMissionBoardReplenished(this.dock.station);
+    }
     if (!this.missionBoardOpen) return;
     this.missionBoard.refresh(
       this.visibleMissionOffers(),
@@ -899,6 +947,7 @@ export class Game {
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     this.syncExploreClaimableAtStation(station);
+    this.ensureMissionBoardReplenished(station);
     this.missionBoard.show(
       station.name,
       this.visibleMissionOffers(),
@@ -1741,6 +1790,7 @@ export class Game {
       ? createBlackMarket(key, this.marketContext())
       : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
+    this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
   }

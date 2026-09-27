@@ -163,6 +163,37 @@ export function generateStationMissions(
   return offers;
 }
 
+/**
+ * Exactly one new offer when a station's board is empty (Must-have 8).
+ * Same cargo / explore generators and station-seeded flavor as the initial board.
+ * `refillIndex` must be unique per station for the session so ids never collide.
+ */
+export function generateStationReplenishmentOffer(
+  galaxy: Galaxy,
+  station: SystemStationRef,
+  refillIndex: number,
+): MissionOffer | null {
+  const rng = mulberry32(
+    hash2(
+      (GALAXY.seed ^ 0xc1e4f) + (refillIndex + 1) * 0x9e3779b9,
+      hashStationKey(station.key),
+    ),
+  );
+  // Index band above the initial board's 0–1 slots so offer ids stay unique.
+  const index = 1000 + refillIndex;
+  const wantCargo = rng() < 0.55;
+  if (wantCargo) {
+    return (
+      makeCargoOffer(galaxy, station, rng, index) ??
+      makeExploreOffer(galaxy, station, rng, index)
+    );
+  }
+  return (
+    makeExploreOffer(galaxy, station, rng, index) ??
+    makeCargoOffer(galaxy, station, rng, index)
+  );
+}
+
 /** System pirate-clearance contract at the quest-giver station. */
 export function makeClearanceOffer(
   station: SystemStationRef,
