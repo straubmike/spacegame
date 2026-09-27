@@ -22,13 +22,11 @@ import {
   createBlackMarket,
   createStationMarket,
   isIllegalCommodityId,
+  rollStationMenus,
+  stationHasMenu,
   stationOffersBlackMarket,
   type StationMarket,
 } from "../ship/market";
-import {
-  rollStationMenus,
-  stationHasMenu,
-} from "../ship/stationMenus";
 import type { MarketContext } from "../ship/economy";
 import {
   applyBayDiscount,

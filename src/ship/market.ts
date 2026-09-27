@@ -1,4 +1,4 @@
-import { BLACK_MARKET, MARKET, GALAXY } from "../game/config";
+import { BLACK_MARKET, MARKET, GALAXY, STATION_MENU_VARIETY } from "../game/config";
 import { hash2, mulberry32 } from "../galaxy/rng";
 import {
   effectiveCommodityBias,
@@ -7,7 +7,6 @@ import {
   type PriceReason,
 } from "./economy";
 import { hashStationKey } from "./stationKey";
-import { stationHasMenu } from "./stationMenus";
 
 /** Catalog of trade goods — volume is always 1 CU per unit quantity. */
 export interface Commodity {
@@ -88,10 +87,86 @@ export class StationMarket {
   }
 }
 
+/** Service menus that may or may not appear at a station (Repair / Launch are fixed). */
+export type OptionalStationMenu =
+  | "bay"
+  | "hangar"
+  | "market"
+  | "blackMarket"
+  | "missions";
+
+/** Canonical order for dock UI layout. */
+export const OPTIONAL_STATION_MENUS: readonly OptionalStationMenu[] = [
+  "bay",
+  "hangar",
+  "market",
+  "blackMarket",
+  "missions",
+];
+
+export type StationMenuSet = ReadonlySet<OptionalStationMenu>;
+
+const menuCache = new Map<string, StationMenuSet>();
+
 /**
- * Whether this station offers a Black Market dock menu (Must-have 10 variety).
- * Seed-stable via rollStationMenus; starter no longer forced-on.
+ * Seed-stable optional menus for a station (Must-have 10).
+ * Always returns at least one menu; full set is the rarest outcome.
+ * Lives in market.ts (already on the boot import path) — no extra module.
  */
+export function rollStationMenus(stationKey: string): StationMenuSet {
+  const cached = menuCache.get(stationKey);
+  if (cached) return cached;
+
+  const rng = mulberry32(
+    hash2(GALAXY.seed ^ 0x10e7, hashStationKey(stationKey)),
+  );
+
+  const weights = STATION_MENU_VARIETY.countWeights;
+  const maxCount = OPTIONAL_STATION_MENUS.length;
+  let total = 0;
+  for (let k = 1; k <= maxCount; k += 1) {
+    total += weights[k] ?? 0;
+  }
+  if (total <= 0) {
+    const idx = Math.floor(rng() * maxCount) % maxCount;
+    const alone: StationMenuSet = new Set([OPTIONAL_STATION_MENUS[idx]!]);
+    menuCache.set(stationKey, alone);
+    return alone;
+  }
+
+  let pick = rng() * total;
+  let count = 1;
+  for (let k = 1; k <= maxCount; k += 1) {
+    pick -= weights[k] ?? 0;
+    if (pick < 0) {
+      count = k;
+      break;
+    }
+  }
+  if (pick >= 0) count = maxCount;
+  count = Math.max(1, Math.min(maxCount, count));
+
+  const pool = OPTIONAL_STATION_MENUS.slice();
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = pool[i]!;
+    pool[i] = pool[j]!;
+    pool[j] = tmp;
+  }
+
+  const result: StationMenuSet = new Set(pool.slice(0, count));
+  menuCache.set(stationKey, result);
+  return result;
+}
+
+export function stationHasMenu(
+  stationKey: string,
+  menu: OptionalStationMenu,
+): boolean {
+  return rollStationMenus(stationKey).has(menu);
+}
+
+/** Whether this station offers a Black Market dock menu (Must-have 10 variety). */
 export function stationOffersBlackMarket(stationKey: string): boolean {
   return stationHasMenu(stationKey, "blackMarket");
 }

@@ -1,5 +1,4 @@
 import { ECONOMY } from "../game/config";
-import type { OptionalStationMenu } from "../ship/stationMenus";
 import { FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type DockedMenuAction =
@@ -12,7 +11,9 @@ export type DockedMenuAction =
   | "launch"
   | null;
 
-const MENU_LABEL: Record<OptionalStationMenu, string> = {
+type ServiceMenu = Exclude<DockedMenuAction, "repair" | "launch" | null>;
+
+const MENU_LABEL: Record<ServiceMenu, string> = {
   bay: "Bay",
   hangar: "Hangar",
   market: "Market",
@@ -21,7 +22,7 @@ const MENU_LABEL: Record<OptionalStationMenu, string> = {
 };
 
 /** Display order for optional service buttons. */
-const MENU_ORDER: readonly OptionalStationMenu[] = [
+const MENU_ORDER: readonly ServiceMenu[] = [
   "bay",
   "hangar",
   "market",
@@ -40,8 +41,8 @@ export class DockedMenu {
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private repairBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private serviceBtns = new Map<OptionalStationMenu, Rect>();
-  private availableMenus: ReadonlySet<OptionalStationMenu> = new Set();
+  private serviceBtns = new Map<ServiceMenu, Rect>();
+  private availableMenus: ReadonlySet<string> = new Set();
   private missionBoardHint = "";
   /** e.g. "Rep Friendly (+24)" — empty when unknown. */
   private standingLine = "";
@@ -50,16 +51,15 @@ export class DockedMenu {
     stationName: string,
     viewW: number,
     viewH: number,
-    availableMenus: ReadonlySet<OptionalStationMenu> | Iterable<OptionalStationMenu>,
+    availableMenus: ReadonlySet<string> | Iterable<string>,
     missionBoardHint = "",
     standingLine = "",
   ): void {
     this.open = true;
     this.stationName = stationName;
-    this.availableMenus =
-      availableMenus instanceof Set
-        ? availableMenus
-        : new Set(availableMenus);
+    const set = new Set<string>();
+    for (const m of availableMenus) set.add(m);
+    this.availableMenus = set;
     this.missionBoardHint = missionBoardHint;
     this.standingLine = standingLine;
 
