@@ -154,4 +154,18 @@ export class ShipLoadout {
     this.refillConsumables();
     return true;
   }
+
+  /** Independent copy — used so fleet hulls never share slot state. */
+  clone(): ShipLoadout {
+    const slots = this.slots.map((s) => ({
+      id: s.id,
+      kind: s.kind,
+      label: s.label,
+      equipped: s.equipped ? { ...s.equipped } : null,
+    }));
+    const copy = new ShipLoadout(slots);
+    copy.ammo = this.ammo;
+    copy.warpCharges = this.warpCharges;
+    return copy;
+  }
 }

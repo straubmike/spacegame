@@ -85,4 +85,14 @@ export class CargoHold {
     }
     return taken;
   }
+
+  /** Independent copy — used so fleet hulls never share hold state. */
+  clone(): CargoHold {
+    const copy = new CargoHold();
+    copy.capacityCu = this.capacityCu;
+    for (const lot of this.lots) {
+      copy.lots.push({ ...lot });
+    }
+    return copy;
+  }
 }

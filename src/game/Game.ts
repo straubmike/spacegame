@@ -772,20 +772,26 @@ export class Game {
     const here = this.currentStationKey(station);
     if (!here) return;
 
+    // Docked fleet is all in the hangar — pull mission freight from any owned hull.
+    this.ship.stashActiveToFleet();
+
     const delivered: ActiveMission[] = [];
     for (const mission of this.activeMissions) {
       if (mission.kind !== "cargo") continue;
       if (mission.destStationKey !== here) continue;
       const lotId = missionCargoId(mission.id);
       const need = mission.cu ?? 0;
-      if (this.ship.cargo.amountOf(lotId) < need) {
+      const fleetHeld = this.ship.fleet.amountOfCargo(lotId);
+      if (fleetHeld < need) {
         this.messages.push(
           `${station.name}: Missing ${need} CU mission freight for "${mission.title}".`,
           "station",
         );
         continue;
       }
-      this.ship.cargo.remove(lotId, need);
+      const onActive = this.ship.cargo.amountOf(lotId);
+      const hits = this.ship.fleet.findCargo(lotId);
+      this.ship.fleet.removeCargo(lotId, need);
       this.ship.addCredits(mission.reward);
       delivered.push(mission);
       this.adjustStationRep(
@@ -793,6 +799,17 @@ export class Game {
         mission.destStationName ?? station.name,
         REPUTATION.missionComplete,
       );
+      if (onActive < need) {
+        const parked = hits
+          .filter((h) => h.instanceId !== this.ship.fleet.activeInstanceId)
+          .map((h) => hullById(h.hullId)?.name ?? h.hullId);
+        const from =
+          parked.length > 0 ? parked.join(", ") : "a parked hangar ship";
+        this.messages.push(
+          `${station.name}: Retrieved mission freight from ${from}.`,
+          "station",
+        );
+      }
       this.messages.push(
         `${station.name}: Cargo delivered — ${mission.title} (+${mission.reward} cr).`,
         "station",
@@ -1055,15 +1072,18 @@ export class Game {
     let returnedCu = 0;
     if (mission.kind === "cargo") {
       const lotId = missionCargoId(mission.id);
-      const held = this.ship.cargo.amountOf(lotId);
+      // Mission freight may sit on a parked hangar hull — search the whole fleet.
+      this.ship.stashActiveToFleet();
+      const held = this.ship.fleet.amountOfCargo(lotId);
       if (held > 0) {
-        this.ship.cargo.remove(lotId, held);
+        this.ship.fleet.removeCargo(lotId, held);
         if (atOriginBoard) {
           // Abort at giver: cargo returned — do not keep as stolen.
           returnedCu = held;
         } else {
           const commodityId = mission.commodityId ?? "goods";
           const name = mission.commodityName ?? "Freight";
+          // Stolen freight lands on the active ship (player is flying it).
           this.ship.cargo.stow({
             id: stolenCargoId(commodityId),
             name,
@@ -1181,7 +1201,9 @@ export class Game {
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
     if (wheel !== 0) {
-      if (this.marketMenuOpen) {
+      if (this.hangarMenuOpen) {
+        this.hangarMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      } else if (this.marketMenuOpen) {
         this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
       } else if (this.shipMenuOpen) {
         this.shipMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
