@@ -50,17 +50,22 @@ export class DockedMenu {
     stationName: string,
     viewW: number,
     viewH: number,
-    availableMenus: ReadonlySet<OptionalStationMenu>,
+    availableMenus: ReadonlySet<OptionalStationMenu> | Iterable<OptionalStationMenu>,
     missionBoardHint = "",
     standingLine = "",
   ): void {
     this.open = true;
     this.stationName = stationName;
-    this.availableMenus = availableMenus;
+    this.availableMenus =
+      availableMenus instanceof Set
+        ? availableMenus
+        : new Set(availableMenus);
     this.missionBoardHint = missionBoardHint;
     this.standingLine = standingLine;
 
-    const visibleServices = MENU_ORDER.filter((m) => availableMenus.has(m));
+    const visibleServices = MENU_ORDER.filter((m) =>
+      this.availableMenus.has(m),
+    );
     const w = 280;
     const rows = 1 + visibleServices.length + 1; // repair + services + launch
     const headerExtra = standingLine ? 16 : 0;

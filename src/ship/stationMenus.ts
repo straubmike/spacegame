@@ -28,11 +28,17 @@ export const OPTIONAL_STATION_MENUS: readonly OptionalStationMenu[] = [
 
 export type StationMenuSet = ReadonlySet<OptionalStationMenu>;
 
+/** Session cache — same key always returns the same Set instance. */
+const menuCache = new Map<string, StationMenuSet>();
+
 /**
  * Seed-stable optional menus for a station.
  * Always returns at least one menu; full set is the rarest outcome.
  */
 export function rollStationMenus(stationKey: string): StationMenuSet {
+  const cached = menuCache.get(stationKey);
+  if (cached) return cached;
+
   const rng = mulberry32(
     hash2(GALAXY.seed ^ 0x10e7, hashStationKey(stationKey)),
   );
@@ -46,7 +52,9 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
   // Fallback: if misconfigured, always offer exactly one menu.
   if (total <= 0) {
     const idx = Math.floor(rng() * maxCount) % maxCount;
-    return new Set([OPTIONAL_STATION_MENUS[idx]!]);
+    const alone: StationMenuSet = new Set([OPTIONAL_STATION_MENUS[idx]!]);
+    menuCache.set(stationKey, alone);
+    return alone;
   }
 
   let pick = rng() * total;
@@ -58,6 +66,8 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
       break;
     }
   }
+  // If float residue never went negative, treat as full set (last bucket).
+  if (pick >= 0) count = maxCount;
   count = Math.max(1, Math.min(maxCount, count));
 
   // Fisher–Yates shuffle a copy, then take the first `count`.
@@ -69,7 +79,9 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     pool[j] = tmp;
   }
 
-  return new Set(pool.slice(0, count));
+  const result: StationMenuSet = new Set(pool.slice(0, count));
+  menuCache.set(stationKey, result);
+  return result;
 }
 
 export function stationHasMenu(

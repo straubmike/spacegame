@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Then open the URL Vite prints (usually `http://localhost:5173`).
+Vite prints `http://127.0.0.1:5173` — open **that** URL in your browser (not a vague `localhost` bookmark). The dev server does not auto-open a tab.
 
 | Script | What it does |
 | --- | --- |
