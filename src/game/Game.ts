@@ -70,6 +70,7 @@ import { HangarMenu } from "../ui/HangarMenu";
 import { hullById } from "../ship/hulls";
 import {
   generateStationMissions,
+  generateStationReplenishmentOffer,
   isStolenCargoId,
   makeClearanceOffer,
   missionCargoId,
@@ -135,6 +136,20 @@ export class Game {
   private marketMenuKind: "legal" | "black" = "legal";
   /** Offers posted at the current dock (seeded per station). */
   private dockMissionOffers: MissionOffer[] = [];
+  /**
+   * Empty-board replenishment offers posted this session, keyed by station.
+   * Survives undock so a leftover refill reappears; accepted ids still hide them.
+   */
+  private readonly stationReplenishOffers = new Map<string, MissionOffer[]>();
+  /**
+   * Must-have 8 cadence: empty boards wait until the player leaves this local
+   * view and returns before one new offer is posted.
+   */
+  private readonly stationRefillState = new Map<
+    string,
+    | { phase: "awaitingDeparture"; viewKey: string }
+    | { phase: "ready" }
+  >();
   /** Local views where the pirate fee has already been paid. */
   private readonly paidPirateViews = new Set<string>();
   /** Pirate slots permanently cleared (killed or driven off). */
@@ -581,6 +596,76 @@ export class Game {
     return offers;
   }
 
+  private localViewKey(): string {
+    return `${this.local.poiId}:${this.local.bodyId ?? "none"}`;
+  }
+
+  /**
+   * When leaving a local view (jump / in-system travel), arm empty boards that
+   * were waiting so the next dock can post exactly one refill offer.
+   */
+  private armMissionRefillsOnLeavingView(): void {
+    const view = this.localViewKey();
+    for (const [key, state] of this.stationRefillState) {
+      if (state.phase === "awaitingDeparture" && state.viewKey === view) {
+        this.stationRefillState.set(key, { phase: "ready" });
+      }
+    }
+  }
+
+  /**
+   * Must-have 8: empty offer boards refill with exactly one quest — but only
+   * after the player leaves this local view and returns. Do not top up while
+   * any offer remains; cancelled / accepted ids stay removed.
+   */
+  private ensureMissionBoardReplenished(station: Landmark): void {
+    if (this.visibleMissionOffers().length > 0) return;
+
+    const ref = stationRefFromLocal(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      station.id,
+      station.name,
+    );
+    if (!ref) return;
+
+    const posted = this.stationReplenishOffers.get(ref.key) ?? [];
+    const stillOpen = posted.filter((o) => !this.acceptedMissionIds.has(o.id));
+    if (stillOpen.length > 0) {
+      for (const offer of stillOpen) {
+        if (!this.dockMissionOffers.some((o) => o.id === offer.id)) {
+          this.dockMissionOffers.push(offer);
+        }
+      }
+      this.stationRefillState.delete(ref.key);
+      return;
+    }
+
+    const state = this.stationRefillState.get(ref.key);
+    if (state?.phase !== "ready") {
+      // Stay empty until leave + return; remember which local view to leave.
+      if (!state) {
+        this.stationRefillState.set(ref.key, {
+          phase: "awaitingDeparture",
+          viewKey: this.localViewKey(),
+        });
+      }
+      return;
+    }
+
+    const offer = generateStationReplenishmentOffer(
+      this.galaxy,
+      ref,
+      posted.length,
+    );
+    if (!offer || this.acceptedMissionIds.has(offer.id)) return;
+
+    this.stationReplenishOffers.set(ref.key, [...posted, offer]);
+    this.dockMissionOffers.push(offer);
+    this.stationRefillState.delete(ref.key);
+  }
+
   private marketContext(): MarketContext {
     return {
       galaxy: this.galaxy,
@@ -880,6 +965,9 @@ export class Game {
   }
 
   private refreshMissionBoardUi(): void {
+    if (this.dock.kind === "docked") {
+      this.ensureMissionBoardReplenished(this.dock.station);
+    }
     if (!this.missionBoardOpen) return;
     this.missionBoard.refresh(
       this.visibleMissionOffers(),
@@ -899,6 +987,7 @@ export class Game {
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     this.syncExploreClaimableAtStation(station);
+    this.ensureMissionBoardReplenished(station);
     this.missionBoard.show(
       station.name,
       this.visibleMissionOffers(),
@@ -1741,6 +1830,7 @@ export class Game {
       ? createBlackMarket(key, this.marketContext())
       : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
+    this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
   }
@@ -2655,6 +2745,7 @@ export class Game {
     this.closeShipMenuUi();
     this.chart.selectedId = null;
     this.rememberPaidPirates();
+    this.armMissionRefillsOnLeavingView();
     this.clearDockState();
   }
 

@@ -123,7 +123,7 @@ export class MissionBoardMenu {
     }
     items.push({ kind: "section", title: "Available contracts" });
     if (this.offers.length === 0) {
-      items.push({ kind: "section", title: "  (none posted this visit)" });
+      items.push({ kind: "section", title: "  (none available)" });
     } else {
       for (const m of this.offers) items.push({ kind: "offer", mission: m });
     }
