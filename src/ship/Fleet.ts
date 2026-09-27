@@ -16,6 +16,12 @@ export interface OwnedShipSnapshot {
   shield: number;
 }
 
+export interface FleetCargoHit {
+  instanceId: string;
+  hullId: string;
+  cu: number;
+}
+
 let nextInstanceSeq = 1;
 
 function newInstanceId(hullId: string): string {
@@ -81,6 +87,12 @@ export class Fleet {
     if (hull.price <= 0) return null;
     if (this.ownsHullType(hull.id)) return null;
     const ship = freshOwned(hull);
+    // Guard: new hulls must never share loadout/cargo refs with existing owned ships.
+    for (const other of this.owned) {
+      if (other.loadout === ship.loadout || other.cargo === ship.cargo) {
+        throw new Error("Fleet buy produced shared ship state");
+      }
+    }
     this.owned.push(ship);
     return ship;
   }
@@ -90,5 +102,42 @@ export class Fleet {
     if (!this.get(instanceId)) return false;
     this.activeInstanceId = instanceId;
     return true;
+  }
+
+  /** Total CU of a commodity across every owned hold (parked + active). */
+  amountOfCargo(id: string): number {
+    let n = 0;
+    for (const ship of this.owned) n += ship.cargo.amountOf(id);
+    return n;
+  }
+
+  /** Which owned hulls currently hold this commodity. */
+  findCargo(id: string): FleetCargoHit[] {
+    const hits: FleetCargoHit[] = [];
+    for (const ship of this.owned) {
+      const cu = ship.cargo.amountOf(id);
+      if (cu > 0) {
+        hits.push({ instanceId: ship.instanceId, hullId: ship.hullId, cu });
+      }
+    }
+    return hits;
+  }
+
+  /**
+   * Remove up to `cu` of a commodity across the fleet.
+   * Active ship first, then parked hulls. Returns amount removed.
+   */
+  removeCargo(id: string, cu: number): number {
+    if (cu <= 0) return 0;
+    let left = cu;
+    const order: OwnedShipSnapshot[] = [
+      this.active,
+      ...this.owned.filter((o) => o.instanceId !== this.activeInstanceId),
+    ];
+    for (const ship of order) {
+      if (left <= 0) break;
+      left -= ship.cargo.remove(id, left);
+    }
+    return cu - left;
   }
 }

@@ -80,7 +80,9 @@ export const HULLS = {
     size: 18,
     fill: "#d4c4a8",
     stroke: "#8a7a58",
-    defaultLoadout: ["energy_pulse", "basic_drive", "cargo_rack", null],
+    // Empty utilities — baseCargo covers the built-in hold; racks are player-fitted
+    // so a newly bought Hauler never looks like it inherited Sparrow's modules.
+    defaultLoadout: ["energy_pulse", "basic_drive", null, null],
   } satisfies HullDef,
 
   interceptor: {

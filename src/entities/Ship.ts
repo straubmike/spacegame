@@ -76,10 +76,21 @@ export class Ship {
 
   /**
    * Write current flight state into the fleet's active snapshot
-   * (call before buying/swapping).
+   * (call before buying/swapping). Flight ship and active snapshot share
+   * the same loadout/cargo objects while that hull is boarded — parked
+   * hulls keep their own.
    */
   stashActiveToFleet(): void {
     const snap = this.fleet.active;
+    // Never point another owned hull at the flight loadout/cargo.
+    for (const other of this.fleet.owned) {
+      if (other.instanceId === snap.instanceId) continue;
+      if (other.loadout === this.loadout || other.cargo === this.cargo) {
+        // Recover: parked hull accidentally shared — give it a private copy.
+        if (other.loadout === this.loadout) other.loadout = this.loadout.clone();
+        if (other.cargo === this.cargo) other.cargo = this.cargo.clone();
+      }
+    }
     snap.hullId = this.hullId;
     snap.loadout = this.loadout;
     snap.cargo = this.cargo;
@@ -102,6 +113,8 @@ export class Ship {
 
   /**
    * Purchase hull (if affordable and not already owned) and optionally board it.
+   * New hulls always start from factory default loadout + empty cargo — never
+   * copy the active ship's modules or freight.
    */
   buyHull(hull: HullDef, boardAfter = true): "ok" | "owned" | "credits" | "unknown" {
     if (hull.price <= 0) return "unknown";
