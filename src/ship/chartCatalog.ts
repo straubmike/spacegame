@@ -18,6 +18,7 @@ const LETTER_ORDER = ["B", "H", "M", "K"] as const;
 /**
  * Per-player galactic chart catalog (multiplayer-ready).
  * World POIs all exist; only visited / identified ids appear on G.
+ * `visitedIds` is the single discovery track for Cartographer visit banking.
  */
 export class ChartCatalog {
   private readonly visited = new Set<number>();
