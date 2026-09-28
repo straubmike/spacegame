@@ -1496,6 +1496,8 @@ export class Game {
     if (wheel !== 0) {
       if (this.hangarMenuOpen) {
         this.hangarMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      } else if (this.missionBoardOpen) {
+        this.missionBoard.handleWheel(wheel, this.pointer.x, this.pointer.y);
       } else if (this.marketMenuOpen) {
         this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
       } else if (this.shipMenuOpen) {
