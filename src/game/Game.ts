@@ -2050,20 +2050,6 @@ export class Game {
 
     if (!this.ship.loadout.canProspectBelts) {
       this.scoopProgress = 0;
-      if (this.scoopHintCooldown <= 0) {
-        const hasScan = this.ship.loadout.mineralScanRange > 0;
-        const hasScoop = this.ship.loadout.scoopRange > 0;
-        if (!hasScan && !hasScoop) {
-          this.messages.push(
-            "Scoop: Fit Ore Scanner + Cargo Scoop (or Prospecting Rig) to farm.",
-          );
-        } else if (!hasScan) {
-          this.messages.push("Scoop: Ore Scanner required to lock veins.");
-        } else {
-          this.messages.push("Scoop: Cargo Scoop required to collect ore.");
-        }
-        this.scoopHintCooldown = 4;
-      }
       return;
     }
 
@@ -2126,6 +2112,10 @@ export class Game {
    * Hold F near a main-sequence star with Fuel Scoop fitted — skim tank fuel.
    */
   private updateFuelScoop(dt: number): void {
+    if (!this.ship.loadout.hasFuelScoop) {
+      this.fuelScoopProgress = 0;
+      return;
+    }
     if (this.dock.kind !== "free" || !this.ship.alive || this.menuOpen()) {
       this.fuelScoopProgress = 0;
       return;
@@ -2142,22 +2132,6 @@ export class Game {
     }
     if (this.local.focus.kind !== "star" || !this.local.starClass) {
       this.fuelScoopProgress = 0;
-      if (this.scoopHintCooldown <= 0) {
-        this.messages.push(
-          "Fuel Scoop: Travel to the system star (M) to skim fuel.",
-        );
-        this.scoopHintCooldown = 4;
-      }
-      return;
-    }
-    if (!this.ship.loadout.hasFuelScoop) {
-      this.fuelScoopProgress = 0;
-      if (this.scoopHintCooldown <= 0) {
-        this.messages.push(
-          "Fuel Scoop: Fit a Fuel Scoop utility to skim stars.",
-        );
-        this.scoopHintCooldown = 4;
-      }
       return;
     }
     const star = this.local.focus;
@@ -2165,18 +2139,10 @@ export class Game {
     const reach = star.radius + FUEL.scoopRangePad;
     if (dist > reach) {
       this.fuelScoopProgress = 0;
-      if (this.scoopHintCooldown <= 0) {
-        this.messages.push("Fuel Scoop: Close on the star to skim.");
-        this.scoopHintCooldown = 3.5;
-      }
       return;
     }
     if (this.ship.missingFuel <= 0) {
       this.fuelScoopProgress = 0;
-      if (this.scoopHintCooldown <= 0) {
-        this.messages.push("Fuel Scoop: Tank already full.");
-        this.scoopHintCooldown = 4;
-      }
       return;
     }
     this.fuelScoopProgress += dt;

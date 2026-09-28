@@ -237,10 +237,6 @@ export class Renderer {
         menuOpen: false,
         inBelt: args.local.focus.kind === "asteroidBelt",
         canProspect: args.ship.loadout.canProspectBelts,
-        hasScanner: args.ship.loadout.mineralScanRange > 0,
-        hasScoop: args.ship.loadout.scoopRange > 0,
-        atStar: args.local.focus.kind === "star",
-        hasFuelScoop: args.ship.loadout.hasFuelScoop,
       });
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(

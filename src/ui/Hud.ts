@@ -18,10 +18,6 @@ export class Hud {
       menuOpen: boolean;
       inBelt?: boolean;
       canProspect?: boolean;
-      hasScanner?: boolean;
-      hasScoop?: boolean;
-      atStar?: boolean;
-      hasFuelScoop?: boolean;
     },
   ): void {
     if (info.menuOpen) return;
@@ -66,26 +62,10 @@ export class Hud {
       y += 17;
     }
 
-    if (info.inBelt) {
+    if (info.inBelt && info.canProspect) {
       y += 8;
       ctx.fillStyle = "rgba(200, 210, 170, 0.8)";
-      if (info.canProspect) {
-        ctx.fillText("Belt · hold F to scoop ore", pad, y);
-      } else if (info.hasScanner && !info.hasScoop) {
-        ctx.fillText("Belt · fit Cargo Scoop to farm", pad, y);
-      } else if (info.hasScoop && !info.hasScanner) {
-        ctx.fillText("Belt · fit Ore Scanner to find veins", pad, y);
-      } else {
-        ctx.fillText("Belt · need Ore Scanner + Cargo Scoop", pad, y);
-      }
-    } else if (info.atStar) {
-      y += 8;
-      ctx.fillStyle = "rgba(200, 210, 170, 0.8)";
-      if (info.hasFuelScoop) {
-        ctx.fillText("Star · hold F to scoop fuel", pad, y);
-      } else {
-        ctx.fillText("Star · fit Fuel Scoop to skim fuel", pad, y);
-      }
+      ctx.fillText("Belt · hold F to scoop ore", pad, y);
     }
 
     ctx.fillStyle = "rgba(150, 170, 200, 0.55)";
