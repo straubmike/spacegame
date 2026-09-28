@@ -1,7 +1,7 @@
 import { DOCK } from "../game/config";
-import { FONT, drawPanel, type Rect } from "./menu";
+import { FONT, drawPanel, hit, type Rect } from "./menu";
 
-export type CommsTone = "neutral" | "pirate" | "station";
+export type CommsTone = "neutral" | "pirate" | "station" | "fuelRat";
 
 interface CommsLine {
   text: string;
@@ -10,49 +10,104 @@ interface CommsLine {
 }
 
 /**
- * Right-side log for station/comms messages. Full text wraps; lines expire.
+ * Right-side log for station/comms messages.
+ * Fixed-size panel; live lines fade after TTL; hover reveals scrollable history.
  */
 export class MessageSidebar {
   private readonly lines: CommsLine[] = [];
+  /** Pixels scrolled down from the oldest (top) edge — history hover mode. */
+  private scroll = 0;
+  private maxScroll = 0;
+  private hoverActive = false;
+  /** Hit target — always the fixed panel rect, even when hidden. */
+  private hitArea: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
   push(text: string, tone: CommsTone = "neutral"): void {
     this.lines.push({ text, age: 0, tone });
     while (this.lines.length > DOCK.messageMax) {
       this.lines.shift();
     }
+    // New traffic pins history view to the newest end.
+    this.scroll = Number.POSITIVE_INFINITY;
   }
 
   update(dt: number): void {
     for (const line of this.lines) {
       line.age += dt;
     }
-    while (this.lines.length > 0 && this.lines[0]!.age >= DOCK.messageTtl) {
-      this.lines.shift();
-    }
+    // History is retained until messageMax FIFO; fade is visual only.
   }
 
-  draw(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  /**
+   * Wheel over the comms area scrolls older messages.
+   * Returns true if the event was consumed.
+   */
+  handleWheel(deltaY: number, px: number, py: number): boolean {
+    if (this.lines.length === 0 || deltaY === 0) return false;
+    if (!hit(this.hitArea, px, py)) return false;
+    const next = Math.min(
+      this.maxScroll,
+      Math.max(0, this.scroll + deltaY * 0.5),
+    );
+    this.scroll = next;
+    return true;
+  }
+
+  draw(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const w = DOCK.messageSidebarWidth;
+    const h = Math.min(DOCK.messageSidebarHeight, height - 24);
+    const panel: Rect = {
+      x: width - w - 12,
+      y: 12,
+      w,
+      h,
+    };
+    this.hitArea = panel;
+
     if (this.lines.length === 0) return;
 
-    const w = DOCK.messageSidebarWidth;
+    const hovering = hit(panel, pointerX, pointerY);
+    const hasFresh = this.lines.some((l) => l.age < DOCK.messageTtl);
+    // Live view only while something is still fading in; hover always shows history.
+    if (!hovering && !hasFresh) {
+      this.hoverActive = false;
+      return;
+    }
+
     const pad = 12;
     const lineH = 16;
     const headerH = 28;
     const gap = 6;
     const textW = w - pad * 2;
-    const maxBottom = height - 24;
+    const bodyTop = panel.y + headerH;
+    const bodyH = panel.h - headerH - pad;
 
     ctx.font = FONT;
 
-    // Layout oldest→newest; drop oldest wrapped blocks if they won't fit
     const blocks: { wrapped: string[]; alpha: number; tone: CommsTone }[] = [];
     for (const line of this.lines) {
-      const fade = Math.min(1, (DOCK.messageTtl - line.age) / 1.2);
+      let alpha: number;
+      if (hovering) {
+        alpha = 1;
+      } else {
+        alpha = Math.min(1, Math.max(0, (DOCK.messageTtl - line.age) / 1.8));
+        if (alpha <= 0) continue;
+      }
       blocks.push({
         wrapped: wrapText(ctx, line.text, textW),
-        alpha: fade,
+        alpha,
         tone: line.tone,
       });
+    }
+    if (blocks.length === 0) {
+      this.hoverActive = false;
+      return;
     }
 
     let contentH = 0;
@@ -61,44 +116,59 @@ export class MessageSidebar {
       if (i < blocks.length - 1) contentH += gap;
     }
 
-    const maxContentH = maxBottom - 12 - headerH - pad;
-    while (blocks.length > 1 && contentH > maxContentH) {
-      const removed = blocks.shift()!;
-      contentH -= removed.wrapped.length * lineH + gap;
-    }
-    // If still too tall, trim top lines of the first block
-    if (blocks.length === 1 && contentH > maxContentH) {
-      const b = blocks[0]!;
-      while (b.wrapped.length > 1 && b.wrapped.length * lineH > maxContentH) {
-        b.wrapped.shift();
+    this.maxScroll = Math.max(0, contentH - bodyH);
+    if (hovering) {
+      if (!this.hoverActive || !Number.isFinite(this.scroll)) {
+        this.scroll = this.maxScroll;
+      } else {
+        this.scroll = Math.min(Math.max(0, this.scroll), this.maxScroll);
       }
-      contentH = b.wrapped.length * lineH;
+      this.hoverActive = true;
+    } else {
+      this.hoverActive = false;
     }
-
-    const h = headerH + contentH + pad;
-    const panel: Rect = {
-      x: width - w - 12,
-      y: 12,
-      w,
-      h: Math.min(h, maxBottom - 12),
-    };
+    const viewScroll = hovering ? this.scroll : this.maxScroll;
 
     drawPanel(ctx, panel);
 
-    ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
+    ctx.fillStyle = hovering
+      ? "rgba(180, 200, 230, 0.95)"
+      : "rgba(180, 200, 230, 0.9)";
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
-    ctx.fillText("Comms", panel.x + pad, panel.y + 8);
+    ctx.fillText(
+      hovering ? "Comms — history" : "Comms",
+      panel.x + pad,
+      panel.y + 8,
+    );
 
-    let y = panel.y + headerH;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panel.x + 1, bodyTop, panel.w - 2, bodyH);
+    ctx.clip();
+
+    let y = bodyTop - viewScroll;
     for (let bi = 0; bi < blocks.length; bi += 1) {
       const block = blocks[bi]!;
       ctx.fillStyle = toneFill(block.tone, block.alpha);
       for (const row of block.wrapped) {
-        ctx.fillText(row, panel.x + pad, y);
+        if (y + lineH >= bodyTop && y <= bodyTop + bodyH) {
+          ctx.fillText(row, panel.x + pad, y);
+        }
         y += lineH;
       }
       if (bi < blocks.length - 1) y += gap;
+    }
+
+    ctx.restore();
+
+    if (hovering && this.maxScroll > 0) {
+      const trackH = bodyH;
+      const thumbH = Math.max(18, (bodyH / contentH) * trackH);
+      const thumbY =
+        bodyTop + (this.scroll / this.maxScroll) * (trackH - thumbH);
+      ctx.fillStyle = "rgba(140, 170, 210, 0.35)";
+      ctx.fillRect(panel.x + panel.w - 5, thumbY, 3, thumbH);
     }
   }
 }
@@ -110,6 +180,8 @@ function toneFill(tone: CommsTone, alpha: number): string {
       return `rgba(230, 90, 90, ${a})`;
     case "station":
       return `rgba(140, 200, 245, ${a})`;
+    case "fuelRat":
+      return `rgba(150, 210, 160, ${a})`;
     default:
       return `rgba(200, 215, 235, ${a})`;
   }

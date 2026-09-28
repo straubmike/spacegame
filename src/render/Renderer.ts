@@ -264,7 +264,7 @@ export class Renderer {
           (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
         ),
       });
-      args.messages.draw(ctx, w, h);
+      args.messages.draw(ctx, w, h, args.pointerX, args.pointerY);
       args.stationMenu.draw(
         ctx,
         args.pointerX,
