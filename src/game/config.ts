@@ -299,6 +299,19 @@ export const ENCOUNTERS = {
   ambushSpawnMax: 240,
   /** Formation offset radius for multi-ship packs (world units). */
   formationRadius: 48,
+  /**
+   * Rare mid-stay pirate intrusion into the player's current local view.
+   * One roll per enter: delay in [delayMin, delayMax], then `chance` to spawn.
+   * After the window (~60s) with no spawn, the player can AFK safely.
+   */
+  intrusion: {
+    delayMin: 30,
+    delayMax: 60,
+    /** Extra-rare — far below heat-band arrival spawn rates. */
+    chance: 0.035,
+    /** Usually a lone scout; small chance of a two-ship pair. */
+    dualChance: 0.22,
+  },
 } as const;
 
 export type EncounterTemplateId = keyof typeof ENCOUNTERS.templateWeights;
