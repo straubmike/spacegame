@@ -21,6 +21,7 @@ const COMMODITY_IDS = [
   "alloys",
   "precious_metals",
   "organs",
+  "sensitive_derelict_cargo",
 ] as const;
 
 /** Per-commodity surplus (+) / shortage (−), roughly in [-1, 1]. */

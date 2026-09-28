@@ -65,8 +65,9 @@ const EMPTY_REP: ReputationListing = { factions: [], stations: [] };
 /**
  * Ship loadout inspector (L) and station Bay.
  * View mode: Loadout / Missions / Cargo / Reputation bands (no overlap).
- * Missions + Cargo lists scroll with the mouse wheel when the pointer is over
- * that section. Cargo rows use market-style − / qty / + / Eject (mission freight confirms).
+ * Missions + Cargo + Reputation lists scroll with the mouse wheel when the
+ * pointer is over that section. Cargo rows use market-style − / qty / + / Eject
+ * (mission freight confirms).
  */
 export class ShipMenu {
   mode: ShipMenuMode = "view";
@@ -93,13 +94,16 @@ export class ShipMenu {
   private confirmNoBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private distressBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
-  /** L-menu Missions / Cargo list scroll (wheel when pointer over section). */
+  /** L-menu Missions / Cargo / Reputation list scroll (wheel over section). */
   private missionsScroll = 0;
   private cargoScroll = 0;
+  private repScroll = 0;
   private missionsMaxScroll = 0;
   private cargoMaxScroll = 0;
+  private repMaxScroll = 0;
   private missionsListRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private cargoListRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private repListRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
   openView(reputation: ReputationListing = EMPTY_REP): void {
     this.mode = "view";
@@ -111,6 +115,7 @@ export class ShipMenu {
     this.missionConfirm = null;
     this.missionsScroll = 0;
     this.cargoScroll = 0;
+    this.repScroll = 0;
   }
 
   openBay(
@@ -665,64 +670,68 @@ export class ShipMenu {
   }
 
   /**
-   * Apply mouse-wheel delta when the pointer is over the Missions or Cargo
-   * list. Returns true if scroll changed.
+   * Apply mouse-wheel delta when the pointer is over the Missions, Cargo, or
+   * Reputation list. Returns true if scroll changed.
    */
   handleWheel(deltaY: number, px: number, py: number): boolean {
     if (this.mode !== "view" || this.missionConfirm || deltaY === 0) {
       return false;
     }
 
-    if (this.missionsMaxScroll > 0 && hit(this.missionsListRect, px, py)) {
-      const next = Math.min(
+    const tryScroll = (
+      max: number,
+      current: number,
+      set: (n: number) => void,
+      rect: Rect,
+    ): boolean => {
+      if (max <= 0) return false;
+      const overList = hit(rect, px, py);
+      const overTitle =
+        px >= rect.x &&
+        px <= rect.x + rect.w &&
+        py >= rect.y - 28 &&
+        py < rect.y;
+      if (!overList && !overTitle) return false;
+      const next = Math.min(max, Math.max(0, current + deltaY));
+      if (next === current) return false;
+      set(next);
+      return true;
+    };
+
+    if (
+      tryScroll(
         this.missionsMaxScroll,
-        Math.max(0, this.missionsScroll + deltaY),
-      );
-      if (next === this.missionsScroll) return false;
-      this.missionsScroll = next;
+        this.missionsScroll,
+        (n) => {
+          this.missionsScroll = n;
+        },
+        this.missionsListRect,
+      )
+    ) {
       return true;
     }
-
-    if (this.cargoMaxScroll > 0 && hit(this.cargoListRect, px, py)) {
-      const next = Math.min(
+    if (
+      tryScroll(
         this.cargoMaxScroll,
-        Math.max(0, this.cargoScroll + deltaY),
-      );
-      if (next === this.cargoScroll) return false;
-      this.cargoScroll = next;
+        this.cargoScroll,
+        (n) => {
+          this.cargoScroll = n;
+        },
+        this.cargoListRect,
+      )
+    ) {
       return true;
     }
-
-    // Also accept wheel over the section title / frame (just above the list).
-    const overMissions =
-      this.missionsMaxScroll > 0 &&
-      px >= this.missionsListRect.x &&
-      px <= this.missionsListRect.x + this.missionsListRect.w &&
-      py >= this.missionsListRect.y - 28 &&
-      py < this.missionsListRect.y;
-    if (overMissions) {
-      const next = Math.min(
-        this.missionsMaxScroll,
-        Math.max(0, this.missionsScroll + deltaY),
-      );
-      if (next === this.missionsScroll) return false;
-      this.missionsScroll = next;
-      return true;
-    }
-
-    const overCargo =
-      this.cargoMaxScroll > 0 &&
-      px >= this.cargoListRect.x &&
-      px <= this.cargoListRect.x + this.cargoListRect.w &&
-      py >= this.cargoListRect.y - 28 &&
-      py < this.cargoListRect.y;
-    if (overCargo) {
-      const next = Math.min(
-        this.cargoMaxScroll,
-        Math.max(0, this.cargoScroll + deltaY),
-      );
-      if (next === this.cargoScroll) return false;
-      this.cargoScroll = next;
+    if (
+      tryScroll(
+        this.repMaxScroll,
+        this.repScroll,
+        (n) => {
+          this.repScroll = n;
+        },
+        this.repListRect,
+      )
+    ) {
       return true;
     }
 
@@ -730,8 +739,8 @@ export class ShipMenu {
   }
 
   /**
-   * Stations (non-zero) first so they never get clipped by faction stubs.
-   * Factions always listed (even Neutral 0), compact after stations.
+   * Stations (non-zero) first, then factions (Pirates/Fuel Rats always;
+   * Rebels when revealed). Wheel-scrolls when the list overflows.
    */
   private drawReputationBand(
     ctx: CanvasRenderingContext2D,
@@ -740,18 +749,37 @@ export class ShipMenu {
     w: number,
     h: number,
   ): void {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
+    const titleH = 28;
+    const listTop = y + titleH;
+    const listH = Math.max(0, h - titleH);
+    this.repListRect = { x, y: listTop, w, h: listH };
 
     ctx.font = FONT_TITLE;
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
     ctx.fillText("Reputation", x, y);
 
+    // Measure content height (stations + factions + section headers).
+    const stationLines =
+      this.reputation.stations.length === 0
+        ? 1
+        : this.reputation.stations.length;
+    const contentH =
+      16 + // Stations header
+      stationLines * 15 +
+      8 + // gap
+      16 + // Factions header
+      this.reputation.factions.length * 15;
+    this.repMaxScroll = Math.max(0, contentH - listH);
+    this.repScroll = Math.min(Math.max(0, this.repScroll), this.repMaxScroll);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, listTop, w, listH);
+    ctx.clip();
+
     ctx.font = FONT;
-    let ry = y + 24;
+    let ry = listTop - this.repScroll;
 
     // --- Stations first (non-zero only) ---
     ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
@@ -761,10 +789,9 @@ export class ShipMenu {
     if (this.reputation.stations.length === 0) {
       ctx.fillStyle = "rgba(120, 140, 165, 0.75)";
       ctx.fillText("None above Neutral yet.", x + 8, ry);
-      ry += 16;
+      ry += 15;
     } else {
       for (const s of this.reputation.stations) {
-        if (ry + 15 > y + h) break;
         const name =
           s.name.length > 22 ? `${s.name.slice(0, 21)}…` : s.name;
         ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
@@ -778,18 +805,13 @@ export class ShipMenu {
     }
 
     ry += 8;
-    if (ry + 14 > y + h) {
-      ctx.restore();
-      return;
-    }
 
-    // --- Factions always (even at 0) ---
+    // --- Factions (always-visible + revealed) ---
     ctx.fillStyle = "rgba(140, 165, 195, 0.8)";
     ctx.fillText("Factions", x, ry);
     ry += 16;
 
     for (const f of this.reputation.factions) {
-      if (ry + 15 > y + h) break;
       ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
       ctx.fillText(f.label, x + 8, ry);
       ctx.fillStyle = pirateStandingColor(f.score);
@@ -800,6 +822,17 @@ export class ShipMenu {
     }
 
     ctx.restore();
+
+    this.drawBandScrollbar(
+      ctx,
+      x,
+      listTop,
+      w,
+      listH,
+      this.repScroll,
+      this.repMaxScroll,
+      contentH,
+    );
   }
 
   private drawMissionConfirm(

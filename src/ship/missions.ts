@@ -8,8 +8,9 @@
  * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim
  * - derelictCargo: accept at A (needs Cargo Scoop + ≥1 free CU) → scoop Sensitive
  *   Derelict Cargo at a derelict debris field → return to A → claim
- *   Abandon: mild rep drop at offering station; cargo is NOT stolen and does NOT
- *   create patrol/station fine/debt. (Mike may later chain this into a follow-up.)
+ *   Abandon/cancel: mild rep; cargo is NOT stolen (no steal floor / patrol debt from
+ *   the abandon itself). Kept lot can be fenced on the Black Market → Rebels +rep.
+ *   Eject: force-abandon, cargo discarded (no fence / no Rebels reveal).
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
@@ -25,7 +26,7 @@ import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
 import { hash2, mulberry32 } from "../galaxy/rng";
-import { FUEL_RAT_FACTION_ID } from "./reputation";
+import { FUEL_RATS_FACTION_ID } from "./reputation";
 import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
@@ -88,8 +89,9 @@ export interface ActiveMission extends MissionOffer {
 export const DERELICT_CARGO_NAME = "Sensitive Derelict Cargo";
 
 /**
- * Abandoned derelict-cargo lot kept as ordinary freight (not stolen / not illegal).
- * Future: Mike may chain this into a follow-up quest — do not auto-convert to stolen.
+ * Abandoned derelict-cargo lot kept as ordinary freight — not stolen.
+ * Catalog id is illegal (Black Market fence); selling reveals Rebels standing.
+ * Do not auto-convert to stolen on cancel.
  */
 export const ABANDONED_DERELICT_CARGO_ID = "sensitive_derelict_cargo";
 
@@ -373,7 +375,7 @@ function makeDistressAnswerOffer(
     originStationKey: origin.key,
     originStationName: origin.name,
     originPoiId: origin.poiId,
-    factionId: FUEL_RAT_FACTION_ID,
+    factionId: FUEL_RATS_FACTION_ID,
     factionLabel: "Fuel Rats",
     targetPoiId: dest.poiId,
     targetPoiName: destPoi.name,

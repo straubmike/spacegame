@@ -32,6 +32,16 @@ export const COMMODITIES: Commodity[] = [
   { id: "alloys", name: "Alloys", basePrice: 26 },
   { id: "precious_metals", name: "Precious Metals", basePrice: 58 },
   { id: "organs", name: "Organs", basePrice: 62, illegal: true },
+  /**
+   * Abandoned Retrieve Derelict Cargo lot — not stolen; Black Market fence only.
+   * Selling reveals / boosts Rebels faction standing.
+   */
+  {
+    id: "sensitive_derelict_cargo",
+    name: "Sensitive Derelict Cargo",
+    basePrice: 70,
+    illegal: true,
+  },
 ];
 
 /** Legal goods shown on the main Market menu. */

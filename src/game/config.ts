@@ -507,7 +507,7 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate faction (first slice).
+ * Reputation — stations + pirate / Fuel Rats / Rebels factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
@@ -542,6 +542,11 @@ export const REPUTATION = {
   fuelRatAbuse: -10,
   fuelRatGenuineRescue: 5,
   fuelRatMissionComplete: 12,
+  /**
+   * Rebels — revealed by fencing Sensitive Derelict Cargo on the Black Market.
+   * Applied per CU sold (`rebelsSellDerelictCargo` × CU).
+   */
+  rebelsSellDerelictCargo: 10,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,

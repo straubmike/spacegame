@@ -30,10 +30,12 @@ import {
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
 import {
+  ALWAYS_VISIBLE_FACTIONS,
   applyBayDiscount,
   formatStanding,
-  FUEL_RAT_FACTION_ID,
+  FUEL_RATS_FACTION_ID,
   PIRATE_FACTION_ID,
+  REBELS_FACTION_ID,
   ReputationTracker,
   standingBand,
   type ReputationListing,
@@ -1248,9 +1250,9 @@ export class Game {
    * - Cancel via origin station's Missions board → return haul freight (no steal).
    * - Cancel elsewhere (L menu, or board away from origin) → keep freight as stolen.
    * - Derelict cargo Cancel: mild rep; keep lot as ordinary (non-stolen) freight —
-   *   Mike may later chain this (do not convert to stolen / patrol debt).
+   *   fenceable on Black Market for Rebels +rep (not stolen / no steal floor).
    * - Derelict cargo eject (`discardCargo`): force-abandon — cargo discarded, no
-   *   chain retention / hint; same mild rep, not stolen, no patrol fee.
+   *   BM fence / Rebels reveal; same mild rep, not stolen, no patrol fee.
    * Offer stays in acceptedMissionIds so it does not reappear on that station's board.
    */
   private cancelBoardMission(
@@ -1373,7 +1375,9 @@ export class Game {
     const signed = delta > 0 ? `+${delta}` : `${delta}`;
     this.messages.push(
       `Standing — ${label}: ${formatStanding(next)} (${signed})`,
-      label === "Pirates" ? "pirate" : "station",
+      label === "Pirates" || label === "Rebels" || label === "Fuel Rats"
+        ? "pirate"
+        : "station",
     );
   }
 
@@ -1384,21 +1388,32 @@ export class Game {
   }
 
   private reputationListingForUi(): ReputationListing {
+    const factions: ReputationListing["factions"] = ALWAYS_VISIBLE_FACTIONS.map(
+      (f) => ({
+        id: f.id,
+        label: f.label,
+        score:
+          f.id === PIRATE_FACTION_ID
+            ? this.reputation.pirateRep()
+            : f.id === FUEL_RATS_FACTION_ID
+              ? this.reputation.fuelRatsRep()
+              : 0,
+      }),
+    );
+    // Rebels stay hidden until revealed (e.g. fence Sensitive Derelict Cargo).
+    if (this.reputation.rebelsKnown()) {
+      factions.push({
+        id: REBELS_FACTION_ID,
+        label: "Rebels",
+        score: this.reputation.rebelsRep(),
+      });
+    }
+    factions.push(
+      { id: "merchants", label: "Merchants guild", score: 0 },
+      { id: "cartographers", label: "Cartographers", score: 0 },
+    );
     return {
-      factions: [
-        {
-          id: PIRATE_FACTION_ID,
-          label: "Pirates",
-          score: this.reputation.pirateRep(),
-        },
-        {
-          id: FUEL_RAT_FACTION_ID,
-          label: "Fuel Rats",
-          score: this.reputation.fuelRatRep(),
-        },
-        { id: "merchants", label: "Merchants guild", score: 0 },
-        { id: "cartographers", label: "Cartographers", score: 0 },
-      ],
+      factions,
       stations: this.reputation.nonzeroStations(),
     };
   }
@@ -1410,7 +1425,7 @@ export class Game {
   }
 
   private adjustFuelRatRep(delta: number): number {
-    const next = this.reputation.adjust(FUEL_RAT_FACTION_ID, delta);
+    const next = this.reputation.adjust(FUEL_RATS_FACTION_ID, delta);
     this.pushRepChange("Fuel Rats", next, delta);
     return next;
   }
@@ -3381,6 +3396,16 @@ export class Game {
         `${label}: Sold ${removed} CU ${listing.name} (+${payout} cr).`,
         "station",
       );
+
+      // Sensitive Derelict Cargo fence → reveal Rebels + tunable standing.
+      if (
+        this.marketMenuKind === "black" &&
+        listing.commodityId === ABANDONED_DERELICT_CARGO_ID
+      ) {
+        const delta = REPUTATION.rebelsSellDerelictCargo * removed;
+        const next = this.reputation.adjust(REBELS_FACTION_ID, delta);
+        this.pushRepChange("Rebels", next, delta);
+      }
     }
   }
 
