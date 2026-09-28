@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, PLAYTEST, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -12,7 +12,7 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import { swapCost, type EquipModule } from "../ship/equipment";
+import { swapCost, cloneModule, MODULES, type EquipModule } from "../ship/equipment";
 import {
   stationBayStock,
   stationBayWealth,
@@ -319,6 +319,7 @@ export class Game {
     );
     this.claimedCartographerVisits.add(GALAXY.startPoiId);
     this.enterLocal();
+    this.applyPlaytestAffordances();
 
     this.loop = new Loop(
       (dt) => this.update(dt),
@@ -1652,14 +1653,52 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
+    const menus = new Set(rollStationMenus(key));
+    // TEMP: every dock shows Black Market so fence playtest is one dock away.
+    if (PLAYTEST.forceBlackMarket) menus.add("blackMarket");
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
-      rollStationMenus(key),
+      menus,
       this.missionBoardHint(),
       this.dockStandingLine(station),
     );
+  }
+
+  /**
+   * TEMP draft-PR helpers — Mike hits new features without farming.
+   * See PLAYTEST in config.ts / workflows/pr-playtest-affordances.md.
+   */
+  private applyPlaytestAffordances(): void {
+    if (PLAYTEST.seedDerelictCargo) {
+      const emptyUtil = this.ship.loadout.slots.find(
+        (s) => s.kind === "utility" && !s.equipped,
+      );
+      if (emptyUtil) {
+        this.ship.loadout.equip(emptyUtil.id, cloneModule(MODULES.cargoScoop));
+        this.ship.syncDerivedStats();
+      }
+      if (this.ship.cargo.freeCu >= 1) {
+        this.ship.cargo.stow({
+          id: ABANDONED_DERELICT_CARGO_ID,
+          name: DERELICT_CARGO_NAME,
+          cu: 1,
+        });
+      }
+    }
+    if (PLAYTEST.spawnStrandedAtStart) {
+      // Near the arrival point — click to donate fuel and watch scoot→hyperspace.
+      this.strandedPilot = new StrandedPilot(
+        this.ship.x + 100,
+        this.ship.y - 30,
+        Math.PI,
+      );
+      this.messages.push(
+        "Stranded: Mayday — tanks dry. Click me if you can spare fuel.",
+        "station",
+      );
+    }
   }
 
   private stations(): Landmark[] {
@@ -2798,7 +2837,10 @@ export class Game {
     }
 
     if (this.strandedPilot?.alive) {
-      this.strandedPilot.update(dt);
+      this.strandedPilot.update(dt, this.ship.x, this.ship.y);
+      if (this.strandedPilot.warpedAway) {
+        this.strandedPilot = null;
+      }
     }
 
     if (this.fuelRat && this.fuelRat.alive) {
@@ -2901,7 +2943,7 @@ export class Game {
   /** Left-click stranded pilot → donate fuel for nearest-station reach. */
   private tryHelpStrandedPilot(worldX: number, worldY: number): boolean {
     const pilot = this.strandedPilot;
-    if (!pilot?.alive) return false;
+    if (!pilot?.canHelp) return false;
     const hitR = pilot.radius + DOCK.clickPad;
     if (Math.hypot(worldX - pilot.x, worldY - pilot.y) > hitR) return false;
 
@@ -2921,8 +2963,8 @@ export class Game {
     }
     if (!this.ship.consumeFuel(needed)) return true;
 
-    pilot.helped = true;
-    this.strandedPilot = null;
+    // Scoot off then hyperspace (pirate escape pathing) — don't vanish instantly.
+    pilot.beginDepart();
     this.messages.push(
       `Stranded: Bless you — ${needed} fuel should get me to ${reach.target.poiName}.`,
       "station",
@@ -3696,6 +3738,11 @@ export class Game {
 
     if (result.action === "buy") {
       if (listing.playerBuyPrice === null) return;
+      // Sensitive Derelict Cargo is sell-only (Rebels fence kickoff).
+      if (listing.commodityId === ABANDONED_DERELICT_CARGO_ID) {
+        this.messages.push(`${label}: That lot is fence-only — not for sale.`, "station");
+        return;
+      }
       const cost = listing.playerBuyPrice * result.cu;
       if (result.cu > listing.stock) {
         this.messages.push(`${label}: Not enough stock.`, "station");

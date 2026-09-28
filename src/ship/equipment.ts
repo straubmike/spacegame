@@ -709,14 +709,15 @@ export const MODULES = {
 
   /**
    * Single survey utility — no Mk ladder. Gates exploration missions and
-   * completes a lightweight hold-F scan at exotic (non-derelict) POIs.
+   * completes a lightweight hold-F scan at exotic (non-derelict) POIs
+   * (HUD tip when at the survey target — not in this blurb).
    */
   surveyScanner: {
     kind: "utility",
     id: "survey_scanner",
     name: "Survey Scanner",
     blurb:
-      "Exploration suite. Required to accept scan contracts; hold F at the target POI to survey.",
+      "Exploration suite. Required to accept scan contracts and survey exotic POIs.",
     price: 70,
     tier: 1,
     shieldMax: 0,

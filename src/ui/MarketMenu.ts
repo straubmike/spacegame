@@ -1,6 +1,9 @@
 import type { CargoHold } from "../ship/CargoHold";
 import type { MarketListing, StationMarket } from "../ship/market";
-import { stolenCargoId } from "../ship/missions";
+import {
+  ABANDONED_DERELICT_CARGO_ID,
+  stolenCargoId,
+} from "../ship/missions";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type MarketClickResult =
@@ -118,7 +121,10 @@ export class MarketMenu {
     const footerY = panel.y + panel.h - 50;
     const rowH = this.rowH;
     const visibleH = footerY - listTop - 8;
-    const listings = this.market.listings;
+    // Sensitive Derelict Cargo is sell-only and only listed when carried.
+    const listings = this.market.listings.filter((l) =>
+      visibleBlackMarketListing(l, cargo),
+    );
     this.listRect = {
       x: panel.x + 8,
       y: listTop,
@@ -226,8 +232,15 @@ export class MarketMenu {
     ctx.textBaseline = "top";
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.fillText(listing.name, panelX + 20, y + 8);
-    ctx.fillStyle = reasonColor(listing.priceReason);
-    ctx.fillText(`${listing.priceReason} · hold ${held}`, panelX + 20, y + 26);
+    const isDerelictFence = listing.commodityId === ABANDONED_DERELICT_CARGO_ID;
+    if (isDerelictFence) {
+      // No shortage / surplus / specialty — fence kickoff only.
+      ctx.fillStyle = "rgba(130, 145, 165, 0.75)";
+      ctx.fillText(`fence · hold ${held}`, panelX + 20, y + 26);
+    } else {
+      ctx.fillStyle = reasonColor(listing.priceReason);
+      ctx.fillText(`${listing.priceReason} · hold ${held}`, panelX + 20, y + 26);
+    }
 
     // Buy side (from station)
     const buyX = panelX + 200;
@@ -394,6 +407,18 @@ function maxSellCu(listing: MarketListing, cargo: CargoHold): number {
     cargo.amountOf(listing.commodityId) +
     cargo.amountOf(stolenCargoId(listing.commodityId));
   return Math.max(0, Math.min(listing.demand, held));
+}
+
+/** Sensitive Derelict Cargo is hull-gated; other BM lines always show. */
+function visibleBlackMarketListing(
+  listing: MarketListing,
+  cargo: CargoHold,
+): boolean {
+  if (listing.commodityId !== ABANDONED_DERELICT_CARGO_ID) return true;
+  const held =
+    cargo.amountOf(listing.commodityId) +
+    cargo.amountOf(stolenCargoId(listing.commodityId));
+  return held > 0;
 }
 
 function emptyRect(): Rect {
