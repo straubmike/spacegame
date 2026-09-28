@@ -11,11 +11,11 @@ export type GalaxyClickResult = "jump" | "close" | null;
  * Hidden POIs are never drawn; fuel still gates Jump separately.
  */
 export interface ChartPoiHints {
-  /** Visited POIs — Station + letters + name + distance + fuel on select. */
+  /** Visited POIs — colored icons; Station + letters + name + distance + fuel on select. */
   visitedPoiIds: ReadonlySet<number>;
   /**
    * Identified (in-range neighbors of visited + mission grants).
-   * Icon visible; name on select. May include visited ids.
+   * Grey icon; name on select. May include visited ids.
    */
   identifiedPoiIds: ReadonlySet<number>;
   /** Active mission destinations — amber ring when visible. */
@@ -32,11 +32,14 @@ const EMPTY_HINTS: ChartPoiHints = {
 };
 
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
+/** Unvisited identified neighbors / mission grants — shape only, no type color. */
+const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
  * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade,
  * no jump-range circle. Mission targets may be granted identified visibility.
+ * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
   selectedId: number | null = null;
@@ -115,7 +118,8 @@ export class GalaxyChart {
       const isQuest = hints.questPoiIds.has(poi.id);
       const selected = poi.id === this.selectedId;
       const hovered = poi.id === hoverId;
-      const color = poiFill(poi);
+      // Visited (incl. current): designed type/star colors. Identified fog edge: grey.
+      const color = reveal === "visited" ? poiFill(poi) : IDENTIFIED_GREY;
       const scale =
         selected || hovered || poi.id === currentId || isQuest ? 1.4 : 1;
       this.drawMarker(ctx, poi, p.x, p.y, color, scale);
