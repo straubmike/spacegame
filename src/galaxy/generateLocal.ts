@@ -1,5 +1,5 @@
 import { BODY_COLORS, GALAXY, LOCAL, STARS, SYSTEM } from "../game/config";
-import { generateBeltRocks } from "./beltRocks";
+import { generateBeltRocks, generateDerelictDebris } from "./beltRocks";
 import { pirateSpawnFor } from "./pirates";
 import { hash2, mulberry32 } from "./rng";
 import type { Galaxy } from "./Galaxy";
@@ -285,10 +285,6 @@ function buildExoticaView(
   const focus = exoticaFocus(name, type, rng);
   const companions: Landmark[] = [];
 
-  if (type === "derelict") {
-    // Visual debris field is drawn around the hulk; no separate landmarks needed
-  }
-
   if (type === "nebula") {
     // Sparse wisps as companions
     for (let i = 0; i < 5; i += 1) {
@@ -305,6 +301,17 @@ function buildExoticaView(
     }
   }
 
+  // Derelict: interactive debris cloud (survey/scoop) around the hulk.
+  const beltRocks =
+    type === "derelict"
+      ? generateDerelictDebris(
+          focus.x,
+          focus.y,
+          focus.radius,
+          hash2(GALAXY.seed, poiId * 9001 + 41),
+        )
+      : null;
+
   return {
     poiId,
     poiName: name,
@@ -316,7 +323,7 @@ function buildExoticaView(
     companions,
     systemBodies: null,
     pirate: pirateSpawnFor(galaxy, poiId, null),
-    beltRocks: null,
+    beltRocks,
   };
 }
 

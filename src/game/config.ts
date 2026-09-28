@@ -425,7 +425,8 @@ export const STATION_MENU_VARIETY = {
 } as const;
 
 /**
- * Station mission board (non-combat) — cargo transit + exploration scans.
+ * Station mission board (non-combat) — cargo transit, exploration scans,
+ * and Retrieve Derelict Cargo (scoop at derelict POI).
  * Passenger fares need Passenger Berth equipped (Must-have 5–6).
  */
 export const QUEST = {
@@ -441,6 +442,11 @@ export const QUEST = {
   exploreBaseReward: 45,
   explorePerDistance: 1.6,
   exploreMaxJumpRanges: 2.5,
+  /** Retrieve Derelict Cargo — scoop 1 CU at a derelict, return to claim. */
+  derelictCargoCu: 1,
+  derelictCargoBaseReward: 55,
+  derelictCargoPerDistance: 1.8,
+  derelictCargoMaxJumpRanges: 2.5,
   /**
    * Passenger fare design hooks (unused until berths equip):
    * payouts should beat cargo of similar distance; require passengerCapacity.
@@ -461,6 +467,7 @@ export const QUEST = {
 /**
  * Asteroid-belt prospecting (Must-have 6).
  * Requires Ore Scanner + Cargo Scoop (or Prospecting Rig) equipped.
+ * Derelict debris scoop (Retrieve Derelict Cargo) needs Cargo Scoop only.
  */
 export const SCOOP = {
   /** Hold F while in range of a scanned rock to collect. */
@@ -480,6 +487,8 @@ export const SCOOP = {
     alloys: 0.32,
     precious_metals: 0.13,
   },
+  /** Interactive debris pieces around a derelict hulk. */
+  derelictDebrisCount: 18,
 } as const;
 
 export const DOCK = {
@@ -498,7 +507,7 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate faction (first slice).
+ * Reputation — stations + pirate / Fuel Rats / Rebels factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
@@ -533,6 +542,11 @@ export const REPUTATION = {
   fuelRatAbuse: -10,
   fuelRatGenuineRescue: 5,
   fuelRatMissionComplete: 12,
+  /**
+   * Rebels — revealed by fencing Sensitive Derelict Cargo on the Black Market.
+   * Applied per CU sold (`rebelsSellDerelictCargo` × CU).
+   */
+  rebelsSellDerelictCargo: 10,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,

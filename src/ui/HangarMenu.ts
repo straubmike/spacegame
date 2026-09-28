@@ -312,10 +312,17 @@ export class HangarMenu {
             : isStolenCargoId(lot.id)
               ? "stolen"
               : "goods";
+          const name = lot.name.replace(/^Contract:\s*/i, "");
+          const flag =
+            tag === "mission"
+              ? " [MISSION]"
+              : tag === "stolen"
+                ? " [STOLEN]"
+                : "";
           lines.push({
             kind: "cargo",
-            text: lot.name,
-            value: `${lot.cu} CU`,
+            text: name,
+            value: `${lot.cu} CU${flag}`,
             tag,
           });
         }

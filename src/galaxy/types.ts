@@ -113,7 +113,7 @@ export interface LocalView {
   /** Seeded pirate encounter for this local view (null = none) */
   pirate: PirateEncounter | null;
   /**
-   * Mutable belt ore rocks when focus is an asteroid belt.
+   * Mutable scoop rocks when focus is an asteroid belt or derelict debris field.
    * Shared by render + scoop gameplay; remaining CU depletes in-session.
    */
   beltRocks: BeltRockRef[] | null;
@@ -125,6 +125,11 @@ export interface BeltRockRef {
   x: number;
   y: number;
   r: number;
-  yieldId: "minerals" | "alloys" | "precious_metals" | null;
+  yieldId:
+    | "minerals"
+    | "alloys"
+    | "precious_metals"
+    | "derelict_cargo"
+    | null;
   remaining: number;
 }

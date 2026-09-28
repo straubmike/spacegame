@@ -30,6 +30,7 @@ export class MissionBoardMenu {
   private scroll = 0;
   private freeCu = 0;
   private canAcceptMore = true;
+  private hasScoop = false;
   /** Expanded Fuel Tank fitted — required for Fuel Rat distress contracts. */
   private hasExpandedFuelTank = false;
 
@@ -39,6 +40,7 @@ export class MissionBoardMenu {
     active: ActiveMission[],
     freeCu: number,
     canAcceptMore: boolean,
+    hasScoop = false,
     hasExpandedFuelTank = false,
   ): void {
     this.open = true;
@@ -47,6 +49,7 @@ export class MissionBoardMenu {
     this.active = active;
     this.freeCu = freeCu;
     this.canAcceptMore = canAcceptMore;
+    this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
     this.scroll = 0;
   }
@@ -57,6 +60,7 @@ export class MissionBoardMenu {
     active: ActiveMission[],
     freeCu: number,
     canAcceptMore: boolean,
+    hasScoop = false,
     hasExpandedFuelTank = false,
   ): void {
     if (!this.open) return;
@@ -64,6 +68,7 @@ export class MissionBoardMenu {
     this.active = active;
     this.freeCu = freeCu;
     this.canAcceptMore = canAcceptMore;
+    this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
   }
 
@@ -236,8 +241,13 @@ export class MissionBoardMenu {
       y + 48,
     );
 
-    const needCu = mission.kind === "cargo" ? (mission.cu ?? 0) : 0;
+    const needCu =
+      mission.kind === "cargo" || mission.kind === "derelictCargo"
+        ? (mission.cu ?? 0)
+        : 0;
     const cargoOk = needCu === 0 || this.freeCu >= needCu;
+    const scoopOk =
+      mission.kind !== "derelictCargo" || this.hasScoop;
     const tankOk =
       mission.kind !== "distressAnswer" || this.hasExpandedFuelTank;
     const clearanceBusy =
@@ -247,15 +257,17 @@ export class MissionBoardMenu {
       mission.kind === "clearance"
         ? !clearanceBusy
         : this.canAcceptMore;
-    const enabled = slotOk && cargoOk && tankOk;
+    const enabled = slotOk && cargoOk && scoopOk && tankOk;
     const label = !enabled
       ? clearanceBusy
         ? "Active"
         : !tankOk
           ? "Need tank"
-          : cargoOk
-            ? "Full"
-            : "Need CU"
+          : !scoopOk
+            ? "Need Scoop"
+            : cargoOk
+              ? "Full"
+              : "Need CU"
       : "Accept";
     drawButton(ctx, acceptBtn, label, {
       enabled,

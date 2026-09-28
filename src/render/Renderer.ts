@@ -98,6 +98,9 @@ export class Renderer {
     ctx.fillRect(0, 0, w, h);
 
     args.starfield.draw(ctx, w, h);
+    // Belts: Ore Scanner range + scan+scoop prospecting.
+    // Derelict debris: Cargo Scoop range only (mission scoop; nearby ring like belts).
+    const atDerelict = args.local.focus.kind === "derelict";
     this.drawLocal(
       args.local,
       args.camera,
@@ -105,8 +108,12 @@ export class Renderer {
       h,
       args.ship.x,
       args.ship.y,
-      args.ship.loadout.mineralScanRange,
-      args.ship.loadout.canProspectBelts,
+      atDerelict
+        ? args.ship.loadout.scoopRange
+        : args.ship.loadout.mineralScanRange,
+      atDerelict
+        ? args.ship.loadout.scoopRange > 0
+        : args.ship.loadout.canProspectBelts,
     );
 
     const pose = args.ship.sample(args.alpha);
@@ -251,6 +258,11 @@ export class Renderer {
         menuOpen: false,
         inBelt: args.local.focus.kind === "asteroidBelt",
         canProspect: args.ship.loadout.canProspectBelts,
+        inDerelict: args.local.focus.kind === "derelict",
+        hasScoop: args.ship.loadout.scoopRange > 0,
+        derelictScoopHint: args.local.beltRocks?.some(
+          (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
+        ),
       });
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(
@@ -638,7 +650,20 @@ export class Renderer {
         this.drawBlackHole(p.x, p.y, body.radius);
         break;
       case "derelict":
-        this.drawDerelict(p.x, p.y, body.radius, body.id + local.poiId * 23);
+        this.drawDerelict(
+          p.x,
+          p.y,
+          body.radius,
+          body.id + local.poiId * 23,
+          local,
+          camera,
+          width,
+          height,
+          shipX,
+          shipY,
+          scanRange,
+          prospecting,
+        );
         break;
       case "neutronStar":
         this.drawNeutronStar(p.x, p.y, body.radius);
@@ -915,6 +940,8 @@ export class Renderer {
       }
 
       const dist = Math.hypot(rock.x - shipX, rock.y - shipY);
+      const isDerelictCargo = rock.yieldId === "derelict_cargo";
+      // Same nearby rule as belt veins: ring only within scan/scoop range.
       const scanned =
         canScan &&
         rock.yieldId !== null &&
@@ -929,8 +956,9 @@ export class Renderer {
       ctx.fill();
 
       if (scoopable) {
-        const ring =
-          rock.yieldId === "precious_metals"
+        const ring = isDerelictCargo
+          ? "rgba(220, 170, 90, 0.9)"
+          : rock.yieldId === "precious_metals"
             ? "rgba(230, 190, 80, 0.85)"
             : rock.yieldId === "alloys"
               ? "rgba(140, 200, 230, 0.8)"
@@ -940,8 +968,8 @@ export class Renderer {
         ctx.strokeStyle = ring;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-      } else if (scanned) {
-        // Scanner alone: dim ping, no scoop ring.
+      } else if (scanned && !isDerelictCargo) {
+        // Scanner alone (belts): dim ping, no scoop ring.
         ctx.beginPath();
         ctx.arc(sp.x, sp.y, rock.r + 2.5, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(180, 200, 220, 0.35)";
@@ -1127,10 +1155,36 @@ export class Renderer {
     ctx.fill();
   }
 
-  private drawDerelict(x: number, y: number, radius: number, seed: number): void {
+  private drawDerelict(
+    x: number,
+    y: number,
+    radius: number,
+    seed: number,
+    local: LocalView,
+    camera: Camera,
+    width: number,
+    height: number,
+    shipX: number,
+    shipY: number,
+    scanRange: number,
+    prospecting: boolean,
+  ): void {
     const ctx = this.ctx;
-    // Spiral / annular debris cloud around the hulk
-    this.drawAnnularDebris(x, y, radius * 2.5, radius * 9.5, 55, seed);
+    // Interactive debris (beltRocks) replaces the old draw-only annular cloud.
+    if (!local.beltRocks || local.beltRocks.length === 0) {
+      this.drawAnnularDebris(x, y, radius * 2.5, radius * 9.5, 55, seed);
+    } else {
+      this.drawBeltRocks(
+        local,
+        camera,
+        width,
+        height,
+        shipX,
+        shipY,
+        scanRange,
+        prospecting,
+      );
+    }
 
     ctx.save();
     ctx.translate(x, y);
