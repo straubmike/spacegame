@@ -2640,7 +2640,7 @@ export class Game {
       this.scoopProgress = 0;
       if (this.scoopHintCooldown <= 0) {
         this.messages.push(
-          "Scoop: Fly to the marked debris (circle) and hold F.",
+          "Scoop: Fly to the marked debris (circle).",
         );
         this.scoopHintCooldown = 3.5;
       }
