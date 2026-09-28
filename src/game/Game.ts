@@ -1471,6 +1471,8 @@ export class Game {
         this.marketMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
       } else if (this.shipMenuOpen) {
         this.shipMenu.handleWheel(wheel, this.pointer.x, this.pointer.y);
+      } else {
+        this.messages.handleWheel(wheel, this.pointer.x, this.pointer.y);
       }
     }
 
@@ -2534,7 +2536,7 @@ export class Game {
           const place = reach.target.poiName;
           this.messages.push(
             `Fuel Rat: Looks like you can make it to ${place}, don't abuse the distress signal.`,
-            "station",
+            "fuelRat",
           );
           this.adjustFuelRatRep(REPUTATION.fuelRatAbuse);
           rat.beginDepart();
@@ -2542,7 +2544,7 @@ export class Game {
         } else {
           this.messages.push(
             "Fuel Rat: Copy distress — holding position, running a hose.",
-            "station",
+            "fuelRat",
           );
         }
       }
@@ -2558,7 +2560,7 @@ export class Game {
         this.adjustFuelRatRep(REPUTATION.fuelRatGenuineRescue);
         this.messages.push(
           `Fuel Rat: Topped you to ${Math.floor(this.ship.fuel)} fuel. ${target.detail}`,
-          "station",
+          "fuelRat",
         );
         this.distressPending = false;
       }
@@ -2566,7 +2568,7 @@ export class Game {
         this.fuelRat = null;
         this.distressPending = false;
         if (!rat.refuseAssist) {
-          this.messages.push("Fuel Rat: Clear skies — we're out.", "station");
+          this.messages.push("Fuel Rat: Clear skies — we're out.", "fuelRat");
         }
       }
     }
@@ -2935,12 +2937,14 @@ export class Game {
           const dist = Math.hypot(p.x - patrol.x, p.y - patrol.y);
           if (dist <= patrol.radius + COMBAT.projectileRadius) {
             patrol.takeDamage(p.damage);
-            // Attacking a station patrol → immediate Hostile + return fire.
-            this.forceStationHostile(
-              patrol.stationKey,
-              patrol.stationName,
-              `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
-            );
+            // First hit only — under-attack / Hostile comms once per combat.
+            if (!patrol.defending) {
+              this.forceStationHostile(
+                patrol.stationKey,
+                patrol.stationName,
+                `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
+              );
+            }
             patrol.markDefending();
             this.patrolMenu.hide();
             hit = true;

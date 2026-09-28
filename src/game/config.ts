@@ -501,9 +501,12 @@ export const DOCK = {
   /** click hit pad beyond station radius */
   clickPad: 10,
   messageSidebarWidth: 300,
-  messageMax: 14,
-  /** seconds before a comms line expires */
-  messageTtl: 8,
+  /** Fixed panel height (header + scrollable body). */
+  messageSidebarHeight: 220,
+  /** Retained history lines (FIFO once full). */
+  messageMax: 40,
+  /** seconds before a fresh line fades from the live view */
+  messageTtl: 18,
 } as const;
 
 /**
