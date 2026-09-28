@@ -349,6 +349,9 @@ export const FUEL = {
   distressPirateMax: 3,
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
+  /** Downtime after broadcast before a responder appears (inclusive range). */
+  distressResponseDelayMin: 15,
+  distressResponseDelayMax: 30,
   /** Fuel rat visual + arrival tuning. */
   ratFill: "#9fd9a8",
   ratStroke: "#4a9a5c",

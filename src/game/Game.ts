@@ -201,8 +201,15 @@ export class Game {
   private fuelRat: FuelRat | null = null;
   /** After defeating distress pirates, next broadcast is fuel-rat only. */
   private distressNextFuelRatOnly = false;
-  /** True while a distress responder is active in this view. */
+  /** True while a distress responder is inbound or active in this view. */
   private distressPending = false;
+  /**
+   * Armed on broadcast: wait delay seconds, then spawn pirates or a fuel rat.
+   * Arrival comms fire from the spawn helpers / approach phases.
+   */
+  private distressInbound:
+    | { kind: "pirates" | "rat"; delay: number; elapsed: number }
+    | null = null;
   /** Confirm dialog when a jump would leave too little fuel to return. */
   private fuelWarnTravel: PendingTravel | null = null;
   private fuelWarnYes: { x: number; y: number; w: number; h: number } = {
@@ -288,6 +295,7 @@ export class Game {
     this.distressPack = null;
     this.fuelRat = null;
     this.distressPending = false;
+    this.distressInbound = null;
     this.fuelScoopProgress = 0;
     this.fuelWarnTravel = null;
     this.intrusion = null;
@@ -2182,8 +2190,22 @@ export class Game {
     }
   }
 
-  /** Distress pirate taunt timer + fuel rat arrival / refuel. */
+  /** Distress inbound delay, pirate taunt timer, and fuel rat arrival / refuel. */
   private updateDistress(dt: number): void {
+    if (this.distressInbound) {
+      // Docked / menu time still counts — the beacon is already out.
+      this.distressInbound.elapsed += dt;
+      if (this.distressInbound.elapsed >= this.distressInbound.delay) {
+        const kind = this.distressInbound.kind;
+        this.distressInbound = null;
+        if (kind === "pirates") {
+          this.spawnDistressPirates();
+        } else {
+          this.spawnFuelRat();
+        }
+      }
+    }
+
     if (this.distressPack && this.distressPirates.some((p) => p.alive)) {
       if (this.distressPack.phase === "comms") {
         this.distressPack.timer = Math.max(0, this.distressPack.timer - dt);
@@ -3018,7 +3040,12 @@ export class Game {
       this.messages.push("Distress: Undock before broadcasting.");
       return;
     }
-    if (this.distressPending || this.fuelRat || this.distressPirates.some((p) => p.alive)) {
+    if (
+      this.distressPending ||
+      this.distressInbound ||
+      this.fuelRat ||
+      this.distressPirates.some((p) => p.alive)
+    ) {
       this.messages.push("Distress: Responder already inbound.");
       return;
     }
@@ -3026,15 +3053,24 @@ export class Game {
     const forceRat = this.distressNextFuelRatOnly;
     const wantPirates =
       !forceRat && Math.random() < FUEL.distressPirateChance;
-    this.distressPending = true;
-    if (wantPirates) {
-      this.spawnDistressPirates();
-      this.messages.push("Distress: Signal broadcast — unknown contacts inbound…");
-    } else {
+    if (!wantPirates) {
       this.distressNextFuelRatOnly = false;
-      this.spawnFuelRat();
-      this.messages.push("Distress: Signal broadcast — rescue craft inbound…");
     }
+    const span =
+      FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
+    const delay =
+      FUEL.distressResponseDelayMin + Math.random() * span;
+    this.distressPending = true;
+    this.distressInbound = {
+      kind: wantPirates ? "pirates" : "rat",
+      delay,
+      elapsed: 0,
+    };
+    this.messages.push(
+      wantPirates
+        ? "Distress: Signal broadcast — unknown contacts inbound…"
+        : "Distress: Signal broadcast — rescue craft inbound…",
+    );
   }
 
   private spawnDistressPirates(): void {
