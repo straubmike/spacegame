@@ -58,6 +58,12 @@ import {
   nearestStationRefuel,
   supercruiseFuelCost,
 } from "../ship/fuel";
+import {
+  distressPiratePlan,
+  rollDistressPirateCount,
+  rollDistressPirateTier,
+  rollDistressWantsPirates,
+} from "../ship/distressOdds";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
@@ -480,6 +486,17 @@ export class Game {
       this.distressPack?.phase === "hostile" ||
       this.baitPack?.phase === "hostile"
     );
+  }
+
+  /**
+   * Every pirate hull in the current local view — seeded pack, distress
+   * responders, and mission bait. Patrols hunt this full list so station
+   * law still answers distress-spawned (and intrusion) pirates.
+   */
+  private localPirateThreats(): Pirate[] {
+    const list: Pirate[] = [...this.pirates, ...this.distressPirates];
+    if (this.baitPirate) list.push(this.baitPirate);
+    return list;
   }
 
   private packThreatInRange(): boolean {
@@ -2992,11 +3009,12 @@ export class Game {
     }
 
     const patrolShots: Projectile[] = [];
+    const pirateThreats = this.localPirateThreats();
     for (const patrol of this.patrols) {
       const law = this.patrolLawFor(patrol.stationKey);
       const edge = patrol.update(
         dt,
-        this.pirates,
+        pirateThreats,
         this.ship.x,
         this.ship.y,
         patrolShots,
@@ -3712,8 +3730,10 @@ export class Game {
     }
     this.closeShipMenuUi();
     const forceRat = this.distressNextFuelRatOnly;
-    const wantPirates =
-      !forceRat && Math.random() < FUEL.distressPirateChance;
+    const wantPirates = rollDistressWantsPirates(
+      this.reputation.fuelRatsRep(),
+      forceRat,
+    );
     if (!wantPirates) {
       this.distressNextFuelRatOnly = false;
     }
@@ -3735,12 +3755,9 @@ export class Game {
   }
 
   private spawnDistressPirates(): void {
-    const n =
-      FUEL.distressPirateMin +
-      Math.floor(
-        Math.random() *
-          (FUEL.distressPirateMax - FUEL.distressPirateMin + 1),
-      );
+    const plan = distressPiratePlan(this.reputation.fuelRatsRep());
+    const n = rollDistressPirateCount(plan);
+    const fee = plan.fee;
     const angle0 = Math.random() * Math.PI * 2;
     this.distressPirates = [];
     for (let i = 0; i < n; i += 1) {
@@ -3748,20 +3765,20 @@ export class Game {
       const dist =
         FUEL.distressSpawnMin +
         Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
-      const tier = Math.random() < 0.55 ? "scout" : "raider";
+      const tier = rollDistressPirateTier(plan);
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
           tier,
-          12,
+          fee,
         ),
       );
     }
     this.distressPack = {
       phase: "comms",
-      fee: 12,
+      fee,
       timer: FUEL.distressTauntSeconds,
       demanded: true,
       shipCount: n,
