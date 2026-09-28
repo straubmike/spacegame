@@ -3,7 +3,7 @@ import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
-import { rockYieldLabel } from "../galaxy/beltRocks";
+import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
   listSystemPirateKeys,
   pickQuestGiverStation,
@@ -81,6 +81,8 @@ import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
 import { hullById } from "../ship/hulls";
 import {
+  ABANDONED_DERELICT_CARGO_ID,
+  DERELICT_CARGO_NAME,
   distressAnswerMatchesView,
   generateStationMissions,
   generateStationReplenishmentOffer,
@@ -345,6 +347,26 @@ export class Game {
     this.armPirateIntrusion();
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
+    this.ensureDerelictMissionDebris();
+  }
+
+  /**
+   * When a Retrieve Derelict Cargo contract targets this POI and the lot is
+   * not yet scooped, mark one debris piece as scoopable.
+   */
+  private ensureDerelictMissionDebris(): void {
+    if (this.local.focus.kind !== "derelict" || !this.local.beltRocks) return;
+    const pending = this.activeMissions.find(
+      (m) =>
+        m.kind === "derelictCargo" &&
+        m.targetPoiId === this.local.poiId &&
+        !m.scanned,
+    );
+    if (!pending) return;
+    markDerelictMissionDebris(
+      this.local.beltRocks,
+      GALAXY.seed ^ (this.local.poiId * 9973 + 19),
+    );
   }
 
   /**
@@ -620,6 +642,16 @@ export class Game {
         : null;
     return this.activeMissions.map((m) => {
       if (m.kind === "explore") {
+        if (
+          m.scanned &&
+          here === m.originStationKey &&
+          m.status !== "readyToClaim"
+        ) {
+          return { ...m, status: "readyToClaim" as const };
+        }
+        return m;
+      }
+      if (m.kind === "derelictCargo") {
         if (
           m.scanned &&
           here === m.originStationKey &&
@@ -909,7 +941,7 @@ export class Game {
     const here = this.currentStationKey(station);
     if (!here) return;
     for (const mission of this.activeMissions) {
-      if (mission.kind === "explore") {
+      if (mission.kind === "explore" || mission.kind === "derelictCargo") {
         if (!mission.scanned) continue;
         if (mission.originStationKey !== here) continue;
         mission.status = "readyToClaim";
@@ -986,6 +1018,24 @@ export class Game {
       }
     }
 
+    if (offer.kind === "derelictCargo") {
+      const need = offer.cu ?? QUEST.derelictCargoCu;
+      if (this.ship.loadout.scoopRange <= 0) {
+        this.messages.push(
+          "Missions: Equip a Cargo Scoop (Bay) to accept this contract.",
+          "station",
+        );
+        return;
+      }
+      if (this.ship.cargo.freeCu < need) {
+        this.messages.push(
+          `Missions: Need ${need} free CU for the recovered lot.`,
+          "station",
+        );
+        return;
+      }
+    }
+
     const active: ActiveMission = {
       ...offer,
       pirateTargets: offer.pirateTargets
@@ -1003,6 +1053,8 @@ export class Game {
     } else if (offer.kind === "clearance") {
       const n = offer.pirateTargets?.length ?? 0;
       msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
+    } else if (offer.kind === "derelictCargo") {
+      msg = `Missions: Accepted — scoop cargo at ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
     } else if (offer.kind === "distressAnswer") {
       const where =
         offer.targetBodyName ?? offer.targetPoiName ?? "the distress site";
@@ -1039,6 +1091,41 @@ export class Game {
       );
       this.messages.push(
         `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
+        "station",
+      );
+      this.refreshMissionBoardUi();
+      return;
+    }
+
+    if (mission.kind === "derelictCargo") {
+      if (!mission.scanned || here !== mission.originStationKey) {
+        this.messages.push(
+          `Missions: Scoop the cargo and return to ${mission.originStationName}.`,
+          "station",
+        );
+        return;
+      }
+      const lotId = missionCargoId(mission.id);
+      const need = mission.cu ?? QUEST.derelictCargoCu;
+      this.ship.stashActiveToFleet();
+      const held = this.ship.fleet.amountOfCargo(lotId);
+      if (held < need) {
+        this.messages.push(
+          `Missions: Missing ${need} CU ${DERELICT_CARGO_NAME} — scoop it at the derelict.`,
+          "station",
+        );
+        return;
+      }
+      this.ship.fleet.removeCargo(lotId, need);
+      this.ship.addCredits(mission.reward);
+      this.activeMissions.splice(idx, 1);
+      this.adjustStationRep(
+        mission.originStationKey,
+        mission.originStationName,
+        REPUTATION.missionComplete,
+      );
+      this.messages.push(
+        `${station.name}: Derelict cargo recovered — ${mission.title} (+${mission.reward} cr).`,
         "station",
       );
       this.refreshMissionBoardUi();
@@ -1097,6 +1184,7 @@ export class Game {
       this.ship.cargo.freeCu,
       this.activeMissions.filter((m) => m.kind !== "clearance").length <
         QUEST.maxActive,
+      this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
     );
   }
@@ -1119,6 +1207,7 @@ export class Game {
       this.ship.cargo.freeCu,
       this.activeMissions.filter((m) => m.kind !== "clearance").length <
         QUEST.maxActive,
+      this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
     );
     this.missionBoardOpen = true;
@@ -1178,6 +1267,7 @@ export class Game {
 
     let stoleCu = 0;
     let returnedCu = 0;
+    let keptDerelictCu = 0;
     if (mission.kind === "cargo") {
       const lotId = missionCargoId(mission.id);
       // Mission freight may sit on a parked hangar hull — search the whole fleet.
@@ -1199,6 +1289,22 @@ export class Game {
           });
           stoleCu = held;
         }
+      }
+    } else if (mission.kind === "derelictCargo") {
+      // Abandon: expected mild rep drop, but cargo is NOT stolen and does NOT
+      // create patrol/station fine/debt. Mike may later chain this into a
+      // follow-up quest — keep the lot as ordinary (non-stolen) freight.
+      const lotId = missionCargoId(mission.id);
+      this.ship.stashActiveToFleet();
+      const held = this.ship.fleet.amountOfCargo(lotId);
+      if (held > 0) {
+        this.ship.fleet.removeCargo(lotId, held);
+        this.ship.cargo.stow({
+          id: ABANDONED_DERELICT_CARGO_ID,
+          name: DERELICT_CARGO_NAME,
+          cu: held,
+        });
+        keptDerelictCu = held;
       }
     }
 
@@ -1235,6 +1341,8 @@ export class Game {
       msg = "Mission aborted, cargo returned.";
     } else if (stoleCu > 0) {
       msg = `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`;
+    } else if (keptDerelictCu > 0) {
+      msg = `Missions: Cancelled "${mission.title}" — kept ${keptDerelictCu} CU ${DERELICT_CARGO_NAME} (not stolen).`;
     } else {
       msg = `Missions: Cancelled "${mission.title}".`;
     }
@@ -2109,6 +2217,7 @@ export class Game {
   /**
    * Hold F near a scanned rich rock while Ore Scanner + Cargo Scoop are fitted
    * (or a Prospecting Rig). Collects 1 CU at a time; rocks deplete.
+   * Derelict debris (Retrieve Derelict Cargo): Cargo Scoop only — no scanner.
    */
   private updateScoop(dt: number): void {
     this.scoopHintCooldown = Math.max(0, this.scoopHintCooldown - dt);
@@ -2122,7 +2231,9 @@ export class Game {
     }
 
     const rocks = this.local.beltRocks;
-    if (!rocks || this.local.focus.kind !== "asteroidBelt") {
+    const inBelt = this.local.focus.kind === "asteroidBelt";
+    const inDerelict = this.local.focus.kind === "derelict";
+    if (!rocks || (!inBelt && !inDerelict)) {
       this.scoopProgress = 0;
       return;
     }
@@ -2130,6 +2241,11 @@ export class Game {
     const holding = this.keyboard.state.scoop;
     if (!holding) {
       this.scoopProgress = 0;
+      return;
+    }
+
+    if (inDerelict) {
+      this.updateDerelictCargoScoop(dt, rocks);
       return;
     }
 
@@ -2146,6 +2262,7 @@ export class Game {
     let bestDist = Number.POSITIVE_INFINITY;
     for (const rock of rocks) {
       if (!rock.yieldId || rock.remaining <= 0) continue;
+      if (rock.yieldId === "derelict_cargo") continue;
       const dist = Math.hypot(rock.x - this.ship.x, rock.y - this.ship.y);
       if (dist > scanRange) continue;
       if (dist > rock.r + reach) continue;
@@ -2194,6 +2311,86 @@ export class Game {
   }
 
   /**
+   * Scoop Sensitive Derelict Cargo from the marked debris piece (mission only).
+   */
+  private updateDerelictCargoScoop(
+    dt: number,
+    rocks: NonNullable<LocalView["beltRocks"]>,
+  ): void {
+    if (this.ship.loadout.scoopRange <= 0) {
+      this.scoopProgress = 0;
+      return;
+    }
+
+    const mission = this.activeMissions.find(
+      (m) =>
+        m.kind === "derelictCargo" &&
+        m.targetPoiId === this.local.poiId &&
+        !m.scanned,
+    );
+    if (!mission) {
+      this.scoopProgress = 0;
+      return;
+    }
+
+    const scoopRange = this.ship.loadout.scoopRange;
+    const reach = scoopRange + SCOOP.rangePad;
+
+    let best: (typeof rocks)[number] | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const rock of rocks) {
+      if (rock.yieldId !== "derelict_cargo" || rock.remaining <= 0) continue;
+      const dist = Math.hypot(rock.x - this.ship.x, rock.y - this.ship.y);
+      if (dist > rock.r + reach) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = rock;
+      }
+    }
+
+    if (!best) {
+      this.scoopProgress = 0;
+      if (this.scoopHintCooldown <= 0) {
+        this.messages.push(
+          "Scoop: Fly to the marked debris (circle) and hold F.",
+        );
+        this.scoopHintCooldown = 3.5;
+      }
+      return;
+    }
+
+    const need = mission.cu ?? QUEST.derelictCargoCu;
+    if (this.ship.cargo.freeCu < need) {
+      this.scoopProgress = 0;
+      if (this.scoopHintCooldown <= 0) {
+        this.messages.push("Scoop: Need free CU for derelict cargo.");
+        this.scoopHintCooldown = 4;
+      }
+      return;
+    }
+
+    this.scoopProgress += dt;
+    if (this.scoopProgress < SCOOP.secondsPerCu) return;
+    this.scoopProgress = 0;
+
+    if (
+      !this.ship.cargo.stow({
+        id: missionCargoId(mission.id),
+        name: `Contract: ${DERELICT_CARGO_NAME}`,
+        cu: need,
+      })
+    ) {
+      return;
+    }
+    best.remaining = 0;
+    best.yieldId = null;
+    mission.scanned = true;
+    this.messages.push(
+      `Scoop: +${need} CU ${DERELICT_CARGO_NAME} — return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
+    );
+  }
+
+  /**
    * Hold F near a main-sequence star with Fuel Scoop fitted — skim tank fuel.
    */
   private updateFuelScoop(dt: number): void {
@@ -2205,8 +2402,11 @@ export class Game {
       this.fuelScoopProgress = 0;
       return;
     }
-    // Asteroid scoop owns F in belts.
-    if (this.local.focus.kind === "asteroidBelt") {
+    // Asteroid / derelict cargo scoop owns F in those focus views.
+    if (
+      this.local.focus.kind === "asteroidBelt" ||
+      this.local.focus.kind === "derelict"
+    ) {
       this.fuelScoopProgress = 0;
       return;
     }

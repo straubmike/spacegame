@@ -5,7 +5,11 @@
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
  *   (cancel at A's Missions board → cargo returned; cancel elsewhere → stolen;
  *    reputation hit on steal later)
- * - explore: accept at A → visit/scan target POI → return to A → claim pay
+ * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim
+ * - derelictCargo: accept at A (needs Cargo Scoop + ≥1 free CU) → scoop Sensitive
+ *   Derelict Cargo at a derelict debris field → return to A → claim
+ *   Abandon: mild rep drop at offering station; cargo is NOT stolen and does NOT
+ *   create patrol/station fine/debt. (Mike may later chain this into a follow-up.)
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
@@ -25,7 +29,12 @@ import { FUEL_RAT_FACTION_ID } from "./reputation";
 import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
-export type MissionKind = "cargo" | "explore" | "clearance" | "distressAnswer";
+export type MissionKind =
+  | "cargo"
+  | "explore"
+  | "derelictCargo"
+  | "clearance"
+  | "distressAnswer";
 
 /** Rolled when the player arrives at a Fuel Rat distress site. */
 export type DistressAnswerOutcome = "stranded" | "bait";
@@ -51,7 +60,7 @@ export interface MissionOffer {
   destStationName?: string;
   destPoiId?: number;
   destBodyId?: number;
-  /** Exploration / clearance / distress-answer target POI (chart highlight). */
+  /** Exploration / clearance / derelict-cargo / distress-answer target POI. */
   targetPoiId?: number;
   targetPoiName?: string;
   targetPoiType?: PoiType;
@@ -68,12 +77,24 @@ export type ActiveMissionStatus = "inProgress" | "readyToClaim";
 
 export interface ActiveMission extends MissionOffer {
   status: ActiveMissionStatus;
-  /** Explore: arrived and scanned the target POI. */
+  /**
+   * Explore: arrived and scanned the target POI.
+   * Derelict cargo: scooped the Sensitive Derelict Cargo lot.
+   */
   scanned: boolean;
 }
 
+/** Display name for Retrieve Derelict Cargo mission freight. */
+export const DERELICT_CARGO_NAME = "Sensitive Derelict Cargo";
+
+/**
+ * Abandoned derelict-cargo lot kept as ordinary freight (not stolen / not illegal).
+ * Future: Mike may chain this into a follow-up quest — do not auto-convert to stolen.
+ */
+export const ABANDONED_DERELICT_CARGO_ID = "sensitive_derelict_cargo";
+
+/** Exploration scan targets — derelicts use Retrieve Derelict Cargo instead. */
 const EXPLORE_TYPES: PoiType[] = [
-  "derelict",
   "neutronStar",
   "nebula",
   "brownDwarf",
@@ -122,6 +143,12 @@ export function missionStatusLine(mission: ActiveMission): string {
       ? `Return to ${mission.originStationName} to claim`
       : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
   }
+  if (mission.kind === "derelictCargo") {
+    if (mission.scanned || mission.status === "readyToClaim") {
+      return `Cargo secured — return to ${mission.originStationName}`;
+    }
+    return `Scoop cargo at ${mission.targetPoiName ?? "derelict"} (hold F)`;
+  }
   if (mission.kind === "distressAnswer") {
     const where =
       mission.targetBodyName ??
@@ -141,7 +168,7 @@ export function missionStatusLine(mission: ActiveMission): string {
 export function questChartPoiIds(missions: readonly ActiveMission[]): Set<number> {
   const ids = new Set<number>();
   for (const m of missions) {
-    if (m.kind === "explore") {
+    if (m.kind === "explore" || m.kind === "derelictCargo") {
       if (m.scanned) {
         ids.add(m.originPoiId);
       } else if (m.targetPoiId !== undefined) {
@@ -198,6 +225,11 @@ export function generateStationMissions(
     const explore = makeExploreOffer(galaxy, station, rng, i);
     if (explore) offers.push(explore);
   }
+  // Replaces the old “scan derelict” explore flavor — scoop retrieval instead.
+  if (rng() < 0.7) {
+    const derelict = makeDerelictCargoOffer(galaxy, station, rng, 0);
+    if (derelict) offers.push(derelict);
+  }
 
   const distress = makeDistressAnswerOffer(galaxy, station, rng);
   if (distress) offers.push(distress);
@@ -207,7 +239,7 @@ export function generateStationMissions(
 
 /**
  * Exactly one new offer when a station's board is empty (Must-have 8).
- * Same cargo / explore generators and station-seeded flavor as the initial board.
+ * Same cargo / explore / derelict-cargo generators and station-seeded flavor.
  * `refillIndex` must be unique per station for the session so ids never collide.
  */
 export function generateStationReplenishmentOffer(
@@ -223,15 +255,24 @@ export function generateStationReplenishmentOffer(
   );
   // Index band above the initial board's 0–1 slots so offer ids stay unique.
   const index = 1000 + refillIndex;
-  const wantCargo = rng() < 0.55;
-  if (wantCargo) {
+  const roll = rng();
+  if (roll < 0.4) {
     return (
       makeCargoOffer(galaxy, station, rng, index) ??
+      makeDerelictCargoOffer(galaxy, station, rng, index) ??
       makeExploreOffer(galaxy, station, rng, index)
+    );
+  }
+  if (roll < 0.7) {
+    return (
+      makeDerelictCargoOffer(galaxy, station, rng, index) ??
+      makeExploreOffer(galaxy, station, rng, index) ??
+      makeCargoOffer(galaxy, station, rng, index)
     );
   }
   return (
     makeExploreOffer(galaxy, station, rng, index) ??
+    makeDerelictCargoOffer(galaxy, station, rng, index) ??
     makeCargoOffer(galaxy, station, rng, index)
   );
 }
@@ -432,6 +473,45 @@ function makeExploreOffer(
   };
 }
 
+/**
+ * Retrieve Derelict Cargo — scoop mission freight at a derelict debris field.
+ * Replaces the old “scan derelict” explore offer.
+ */
+function makeDerelictCargoOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+  index: number,
+): MissionOffer | null {
+  const target = pickDerelictTarget(galaxy, origin.poiId, rng);
+  if (!target) return null;
+
+  const originPoi = galaxy.get(origin.poiId);
+  const dist = galaxy.distance(originPoi, target);
+  const jumpsHint = Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const cu = QUEST.derelictCargoCu;
+  const reward =
+    QUEST.derelictCargoBaseReward +
+    Math.round(dist * QUEST.derelictCargoPerDistance);
+
+  return {
+    id: `derelictCargo:${origin.key}:${index}:${target.id}`,
+    kind: "derelictCargo",
+    title: "Retrieve Derelict Cargo",
+    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}), then return here. Requires Cargo Scoop.`,
+    reward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    commodityId: ABANDONED_DERELICT_CARGO_ID,
+    commodityName: DERELICT_CARGO_NAME,
+    cu,
+    targetPoiId: target.id,
+    targetPoiName: target.name,
+    targetPoiType: "derelict",
+  };
+}
+
 function pickCargoDestination(
   galaxy: Galaxy,
   origin: SystemStationRef,
@@ -481,8 +561,34 @@ function pickExploreTarget(
     .sort((a, b) => a.dist - b.dist);
 
   if (ranked.length === 0) {
-    // Fallback: any exotic in the chart.
+    // Fallback: any exotic in the chart (still no derelicts).
     const any = galaxy.pois.filter((p) => EXPLORE_TYPES.includes(p.type));
+    if (any.length === 0) return null;
+    return any[(rng() * any.length) | 0]!;
+  }
+
+  const pool = ranked.slice(0, Math.min(8, ranked.length));
+  return pool[(rng() * pool.length) | 0]!.p;
+}
+
+function pickDerelictTarget(
+  galaxy: Galaxy,
+  originPoiId: number,
+  rng: () => number,
+): PoiRef | null {
+  const origin = galaxy.get(originPoiId);
+  const ranked = galaxy.pois
+    .filter(
+      (p) =>
+        p.type === "derelict" &&
+        galaxy.distance(origin, p) <=
+          GALAXY.jumpRange * QUEST.derelictCargoMaxJumpRanges,
+    )
+    .map((p) => ({ p, dist: galaxy.distance(origin, p) }))
+    .sort((a, b) => a.dist - b.dist);
+
+  if (ranked.length === 0) {
+    const any = galaxy.pois.filter((p) => p.type === "derelict");
     if (any.length === 0) return null;
     return any[(rng() * any.length) | 0]!;
   }

@@ -1,6 +1,11 @@
 import { LOCAL, SCOOP } from "../game/config";
 
-export type RockYieldId = "minerals" | "alloys" | "precious_metals";
+export type RockYieldId =
+  | "minerals"
+  | "alloys"
+  | "precious_metals"
+  /** Mission-only derelict debris lot (Retrieve Derelict Cargo). */
+  | "derelict_cargo";
 
 export interface BeltRock {
   id: number;
@@ -101,7 +106,81 @@ export function rockYieldLabel(id: RockYieldId): string {
       return "Alloys";
     case "precious_metals":
       return "Precious Metals";
+    case "derelict_cargo":
+      return "Sensitive Derelict Cargo";
   }
+}
+
+/**
+ * Seeded debris cloud around a derelict hulk — same survey/scoop feel as belts.
+ * Rocks start barren; Game tags one scoopable lot when a Retrieve Derelict Cargo
+ * contract targets this POI.
+ */
+export function generateDerelictDebris(
+  focusX: number,
+  focusY: number,
+  hulkRadius: number,
+  seed: number,
+): BeltRock[] {
+  const target = SCOOP.derelictDebrisCount;
+  const inner = hulkRadius * 2.5;
+  const outer = hulkRadius * 9.5;
+  const minGap = 12;
+  const rocks: BeltRock[] = [];
+  let attempts = 0;
+  const maxAttempts = target * 50;
+
+  while (rocks.length < target && attempts < maxAttempts) {
+    const h1 = unitHash(seed, attempts * 5 + 1);
+    const h2 = unitHash(seed, attempts * 5 + 2);
+    const h3 = unitHash(seed, attempts * 5 + 3);
+    attempts += 1;
+
+    const a = h1 * Math.PI * 2;
+    const d = inner + h2 * (outer - inner);
+    const rx = focusX + Math.cos(a) * d;
+    const ry = focusY + Math.sin(a) * d;
+    const size = 1.2 + h3 * 2.8;
+
+    let ok = true;
+    for (const p of rocks) {
+      if (Math.hypot(rx - p.x, ry - p.y) < p.r + size + minGap) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+
+    rocks.push({
+      id: rocks.length,
+      x: rx,
+      y: ry,
+      r: size,
+      yieldId: null,
+      remaining: 0,
+    });
+  }
+
+  return rocks;
+}
+
+/**
+ * Mark exactly one barren debris piece as the mission scoop target.
+ * No-op if a derelict_cargo lot is already present (or none left barren).
+ */
+export function markDerelictMissionDebris(
+  rocks: BeltRock[],
+  seed: number,
+): BeltRock | null {
+  if (rocks.some((r) => r.yieldId === "derelict_cargo" && r.remaining > 0)) {
+    return rocks.find((r) => r.yieldId === "derelict_cargo") ?? null;
+  }
+  const barren = rocks.filter((r) => r.yieldId === null || r.remaining <= 0);
+  if (barren.length === 0) return null;
+  const pick = barren[(unitHash(seed, 777) * barren.length) | 0]!;
+  pick.yieldId = "derelict_cargo";
+  pick.remaining = 1;
+  return pick;
 }
 
 /** Deterministic 0–1 hash (matches Renderer belt scatter). */

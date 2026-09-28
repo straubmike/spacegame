@@ -251,6 +251,11 @@ export class Renderer {
         menuOpen: false,
         inBelt: args.local.focus.kind === "asteroidBelt",
         canProspect: args.ship.loadout.canProspectBelts,
+        inDerelict: args.local.focus.kind === "derelict",
+        hasScoop: args.ship.loadout.scoopRange > 0,
+        derelictScoopHint: args.local.beltRocks?.some(
+          (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
+        ),
       });
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(
@@ -638,7 +643,20 @@ export class Renderer {
         this.drawBlackHole(p.x, p.y, body.radius);
         break;
       case "derelict":
-        this.drawDerelict(p.x, p.y, body.radius, body.id + local.poiId * 23);
+        this.drawDerelict(
+          p.x,
+          p.y,
+          body.radius,
+          body.id + local.poiId * 23,
+          local,
+          camera,
+          width,
+          height,
+          shipX,
+          shipY,
+          scanRange,
+          prospecting,
+        );
         break;
       case "neutronStar":
         this.drawNeutronStar(p.x, p.y, body.radius);
@@ -915,12 +933,17 @@ export class Renderer {
       }
 
       const dist = Math.hypot(rock.x - shipX, rock.y - shipY);
+      const isDerelictCargo =
+        rock.yieldId === "derelict_cargo" && rock.remaining > 0;
       const scanned =
+        !isDerelictCargo &&
         canScan &&
         rock.yieldId !== null &&
         rock.remaining > 0 &&
         dist <= scanRange;
-      const scoopable = prospecting && scanned;
+      const scoopable =
+        (prospecting && scanned) ||
+        (isDerelictCargo && local.focus.kind === "derelict");
 
       const tone = 100 + ((rock.id * 37) % 55);
       ctx.beginPath();
@@ -929,8 +952,9 @@ export class Renderer {
       ctx.fill();
 
       if (scoopable) {
-        const ring =
-          rock.yieldId === "precious_metals"
+        const ring = isDerelictCargo
+          ? "rgba(220, 170, 90, 0.9)"
+          : rock.yieldId === "precious_metals"
             ? "rgba(230, 190, 80, 0.85)"
             : rock.yieldId === "alloys"
               ? "rgba(140, 200, 230, 0.8)"
@@ -940,6 +964,16 @@ export class Renderer {
         ctx.strokeStyle = ring;
         ctx.lineWidth = 1.5;
         ctx.stroke();
+        if (isDerelictCargo) {
+          ctx.font =
+            "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+          ctx.fillStyle = "rgba(230, 200, 120, 0.95)";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText("Scoopable", sp.x, sp.y - rock.r - 6);
+          ctx.textAlign = "left";
+          ctx.textBaseline = "alphabetic";
+        }
       } else if (scanned) {
         // Scanner alone: dim ping, no scoop ring.
         ctx.beginPath();
@@ -1127,10 +1161,36 @@ export class Renderer {
     ctx.fill();
   }
 
-  private drawDerelict(x: number, y: number, radius: number, seed: number): void {
+  private drawDerelict(
+    x: number,
+    y: number,
+    radius: number,
+    seed: number,
+    local: LocalView,
+    camera: Camera,
+    width: number,
+    height: number,
+    shipX: number,
+    shipY: number,
+    scanRange: number,
+    prospecting: boolean,
+  ): void {
     const ctx = this.ctx;
-    // Spiral / annular debris cloud around the hulk
-    this.drawAnnularDebris(x, y, radius * 2.5, radius * 9.5, 55, seed);
+    // Interactive debris (beltRocks) replaces the old draw-only annular cloud.
+    if (!local.beltRocks || local.beltRocks.length === 0) {
+      this.drawAnnularDebris(x, y, radius * 2.5, radius * 9.5, 55, seed);
+    } else {
+      this.drawBeltRocks(
+        local,
+        camera,
+        width,
+        height,
+        shipX,
+        shipY,
+        scanRange,
+        prospecting,
+      );
+    }
 
     ctx.save();
     ctx.translate(x, y);
