@@ -343,11 +343,54 @@ export const FUEL = {
   scoopSecondsPerUnit: 1.2,
   /** How close (beyond star radius) the scoop must be. */
   scoopRangePad: 28,
-  /** Distress: chance of pirates vs fuel rat when not forced-rat. */
-  distressPirateChance: 0.55,
-  /** Distress pirate pack size (inclusive). */
-  distressPirateMin: 1,
-  distressPirateMax: 3,
+  /**
+   * L-menu distress: pirate vs Fuel Rat odds scale with Fuel Rats reputation.
+   * Allied (≥ REPUTATION.alliedAtOrAbove) → hard 0% pirates (always Fuel Rat).
+   * Negative → higher pirate chance, larger packs, harder tiers.
+   * See `distressOdds.ts` for the piecewise lerp.
+   */
+  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline). */
+  distressPirateChanceNeutral: 0.55,
+  /** Pirate roll at Fuel Rat Hostile floor (≤ REPUTATION.hostileAtOrBelow). */
+  distressPirateChanceHostile: 0.95,
+  /**
+   * Pirate roll at Fuel Rat Friendly floor (≥ friendlyAtOrAbove, < Allied).
+   * Allied band is always 0 — not a tunable.
+   */
+  distressPirateChanceFriendly: 0.2,
+  /** Pack size (inclusive) at Neutral / Hostile / Friendly Fuel Rat standing. */
+  distressPirateMinNeutral: 1,
+  distressPirateMaxNeutral: 3,
+  distressPirateMinHostile: 3,
+  distressPirateMaxHostile: 5,
+  distressPirateMinFriendly: 1,
+  distressPirateMaxFriendly: 2,
+  /** Pack tribute at Neutral / Hostile / Friendly. */
+  distressFeeNeutral: 12,
+  distressFeeHostile: 28,
+  distressFeeFriendly: 8,
+  /**
+   * Relative tier weights at Neutral / Hostile / Friendly.
+   * Negative standing lerps Neutral→Hostile; positive lerps Neutral→Friendly.
+   */
+  distressTierWeightsNeutral: {
+    scout: 55,
+    raider: 45,
+    gunship: 0,
+    corsair: 0,
+  },
+  distressTierWeightsHostile: {
+    scout: 5,
+    raider: 25,
+    gunship: 40,
+    corsair: 30,
+  },
+  distressTierWeightsFriendly: {
+    scout: 80,
+    raider: 20,
+    gunship: 0,
+    corsair: 0,
+  },
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
   /** Downtime after broadcast before a responder appears (inclusive range). */
@@ -426,8 +469,8 @@ export const STATION_MENU_VARIETY = {
 
 /**
  * Station mission board (non-combat) — cargo transit, exploration scans,
- * and Retrieve Derelict Cargo (scoop at derelict POI).
- * Passenger fares need Passenger Berth equipped (Must-have 5–6).
+ * Retrieve Derelict Cargo, and passenger fares (berths, not CU).
+ * Passenger fares need a Passenger Berth equipped (Must-have 5–6).
  */
 export const QUEST = {
   /** Max concurrent accepted board missions. */
@@ -452,12 +495,20 @@ export const QUEST = {
   derelictCargoPerDistance: 1.8,
   derelictCargoMaxJumpRanges: 2.5,
   /**
-   * Passenger fare design hooks (unused until berths equip):
-   * payouts should beat cargo of similar distance; require passengerCapacity.
+   * Passenger fares — berths (not CU); payouts beat cargo of similar distance.
+   * Party sizes match berth module marks (1 / 2 / 4).
    */
+  passengerPartySizes: [1, 2, 4] as const,
   passengerBaseReward: 70,
   passengerPerBerth: 20,
   passengerPerDistance: 2.4,
+  /** Prefer destinations at least this many jump-ranges away (long-haul). */
+  passengerMinJumpRanges: 1.05,
+  passengerMaxJumpRanges: 2.8,
+  /** Chance pirates intercept on a jump that is not the final fare arrival. */
+  passengerInterceptChance: 0.1,
+  /** Seconds of taunt before intercept pack goes hostile (no fee demand). */
+  passengerInterceptAggroSeconds: 2.5,
   /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
   distressAnswerBaitChance: 0.4,
   /** Seconds of bait taunt before aggro (no fee demand). */
@@ -514,7 +565,7 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate / Fuel Rats / Rebels factions.
+ * Reputation — stations + pirate / Fuel Rats / Rebels / guild factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
@@ -554,6 +605,10 @@ export const REPUTATION = {
    * Applied per CU sold (`rebelsSellDerelictCargo` × CU).
    */
   rebelsSellDerelictCargo: 10,
+  /** Merchants Guild — complete cargo-haul mission (plus station Δ). */
+  merchantsHaulComplete: 8,
+  /** Cartographers — complete scan / exploration mission (plus station Δ). */
+  cartographersScanComplete: 8,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,

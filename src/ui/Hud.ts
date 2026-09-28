@@ -10,6 +10,8 @@ export class Hud {
       maxFuel: number;
       cargoUsed: number;
       cargoCapacity: number;
+      passengerUsed?: number;
+      passengerCapacity?: number;
       credits: number;
       poiName: string;
       locationName: string;
@@ -58,6 +60,11 @@ export class Hud {
         : []),
       ...(info.cargoCapacity > 0
         ? [`CU ${info.cargoUsed}/${info.cargoCapacity}`]
+        : []),
+      ...((info.passengerCapacity ?? 0) > 0
+        ? [
+            `BR ${info.passengerUsed ?? 0}/${info.passengerCapacity ?? 0}`,
+          ]
         : []),
       `CR ${info.credits}`,
     ];
