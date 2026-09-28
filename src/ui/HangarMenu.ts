@@ -329,9 +329,9 @@ export class HangarMenu {
       lines.push({
         kind: "stat",
         text:
-          hull.jumpRangeBonus > 0
-            ? `Jump bonus  +${hull.jumpRangeBonus} ly`
-            : "Jump bonus  —",
+          hull.fuelCapacityBonus > 0
+            ? `Fuel tank  +${hull.fuelCapacityBonus}`
+            : "Fuel tank  —",
       });
       lines.push({ kind: "gap" });
       lines.push({ kind: "section", text: "Factory fit" });

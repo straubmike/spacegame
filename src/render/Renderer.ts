@@ -3,11 +3,14 @@ import { STAR_COLORS } from "../galaxy/generateLocal";
 import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
 import type { Pirate } from "../entities/Pirate";
+import type { FuelRat } from "../entities/FuelRat";
 import type { StationPatrol } from "../entities/StationPatrol";
 import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud } from "../ui/Hud";
+import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "../ui/menu";
+import { galacticFuelCost } from "../ship/fuel";
 import type { GalaxyChart, ChartPoiHints } from "../ui/GalaxyChart";
 import type { SystemPanel } from "../ui/SystemPanel";
 import type { MessageSidebar } from "../ui/MessageSidebar";
@@ -48,6 +51,14 @@ export class Renderer {
     starfield: Starfield;
     local: LocalView;
     pirates: Pirate[];
+    fuelRat: FuelRat | null;
+    fuelWarn: {
+      cost: number;
+      fuel: number;
+      kind: "galaxy" | "body";
+    } | null;
+    fuelWarnYes: Rect;
+    fuelWarnNo: Rect;
     patrols: StationPatrol[];
     projectiles: Projectile[];
     alpha: number;
@@ -109,6 +120,13 @@ export class Renderer {
       }
     }
 
+    if (args.fuelRat && args.fuelRat.alive) {
+      const p = args.camera.worldToScreen(args.fuelRat.x, args.fuelRat.y, w, h);
+      if (this.isOnScreen(p.x, p.y, w, h)) {
+        this.drawFuelRat(p.x, p.y, args.fuelRat);
+      }
+    }
+
     for (const patrol of args.patrols) {
       if (!patrol.alive) continue;
       const p = args.camera.worldToScreen(patrol.x, patrol.y, w, h);
@@ -135,17 +153,26 @@ export class Renderer {
     }
 
     if (args.chartOpen) {
-      args.chart.draw(
-        ctx,
-        args.galaxy,
-        args.local.poiId,
-        w,
-        h,
-        args.pointerX,
-        args.pointerY,
-        args.ship.jumpRange(),
-        args.chartHints,
-      );
+      {
+        let costForSelected: number | null = null;
+        if (args.chart.selectedId !== null) {
+          const cur = args.galaxy.get(args.local.poiId);
+          const sel = args.galaxy.get(args.chart.selectedId);
+          costForSelected = galacticFuelCost(args.galaxy.distance(cur, sel));
+        }
+        args.chart.draw(
+          ctx,
+          args.galaxy,
+          args.local.poiId,
+          w,
+          h,
+          args.pointerX,
+          args.pointerY,
+          args.ship.jumpRange(),
+          args.chartHints,
+          { fuel: args.ship.fuel, costForSelected },
+        );
+      }
     } else if (args.panelOpen) {
       args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);
     } else if (args.shipMenuOpen) {
@@ -198,6 +225,8 @@ export class Renderer {
         maxHealth: args.ship.maxHull,
         shield: args.ship.shield,
         maxShield: args.ship.maxShield,
+        fuel: args.ship.fuel,
+        maxFuel: args.ship.maxFuel,
         cargoUsed: args.ship.cargo.usedCu,
         cargoCapacity: args.ship.cargo.capacityCu,
         credits: args.ship.credits,
@@ -210,6 +239,8 @@ export class Renderer {
         canProspect: args.ship.loadout.canProspectBelts,
         hasScanner: args.ship.loadout.mineralScanRange > 0,
         hasScoop: args.ship.loadout.scoopRange > 0,
+        atStar: args.local.focus.kind === "star",
+        hasFuelScoop: args.ship.loadout.hasFuelScoop,
       });
       args.messages.draw(ctx, w, h);
       args.stationMenu.draw(
@@ -235,7 +266,21 @@ export class Renderer {
         args.pointerX,
         args.pointerY,
         args.ship.missingHealth,
+        args.ship.missingFuel,
         args.ship.credits,
+      );
+    }
+
+    if (args.fuelWarn) {
+      this.drawFuelWarn(
+        ctx,
+        w,
+        h,
+        args.fuelWarn,
+        args.fuelWarnYes,
+        args.fuelWarnNo,
+        args.pointerX,
+        args.pointerY,
       );
     }
 
@@ -243,6 +288,77 @@ export class Renderer {
       ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, args.fadeAlpha)})`;
       ctx.fillRect(0, 0, w, h);
     }
+  }
+
+  private drawFuelWarn(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    warn: { cost: number; fuel: number; kind: "galaxy" | "body" },
+    yesBtn: Rect,
+    noBtn: Rect,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const box: Rect = {
+      x: Math.floor(w / 2 - 220),
+      y: Math.floor(h / 2 - 90),
+      w: 440,
+      h: 180,
+    };
+    drawPanel(ctx, box);
+    ctx.font = FONT_TITLE;
+    ctx.fillStyle = "rgba(230, 210, 160, 0.95)";
+    ctx.textBaseline = "top";
+    ctx.fillText("Low fuel warning", box.x + 24, box.y + 20);
+    ctx.font = FONT;
+    ctx.fillStyle = "rgba(200, 210, 230, 0.92)";
+    const trip = warn.kind === "galaxy" ? "jump" : "supercruise hop";
+    ctx.fillText(
+      `This ${trip} costs ${warn.cost} fuel (you have ${Math.floor(warn.fuel)}).`,
+      box.x + 24,
+      box.y + 58,
+    );
+    ctx.fillText(
+      "You would not have enough left for the same trip back.",
+      box.x + 24,
+      box.y + 78,
+    );
+    yesBtn.x = box.x + 24;
+    yesBtn.y = box.y + box.h - 52;
+    yesBtn.w = 120;
+    yesBtn.h = 34;
+    noBtn.x = box.x + 160;
+    noBtn.y = box.y + box.h - 52;
+    noBtn.w = 120;
+    noBtn.h = 34;
+    drawButton(ctx, yesBtn, "Continue", {
+      primary: true,
+      hover: hit(yesBtn, pointerX, pointerY),
+    });
+    drawButton(ctx, noBtn, "Cancel", {
+      hover: hit(noBtn, pointerX, pointerY),
+    });
+  }
+
+  private drawFuelRat(x: number, y: number, rat: FuelRat): void {
+    const size = rat.size;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rat.heading);
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.7, size * 0.55);
+    ctx.lineTo(-size * 0.35, 0);
+    ctx.lineTo(-size * 0.7, -size * 0.55);
+    ctx.closePath();
+    ctx.fillStyle = rat.fill;
+    ctx.fill();
+    ctx.strokeStyle = rat.stroke;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawProjectile(x: number, y: number, hostile: boolean): void {

@@ -31,7 +31,7 @@ export const COMMODITIES: Commodity[] = [
   { id: "illicit_stimulants", name: "Illicit Stimulants", basePrice: 52, illegal: true },
   { id: "alloys", name: "Alloys", basePrice: 26 },
   { id: "precious_metals", name: "Precious Metals", basePrice: 58 },
-  { id: "fuel_cells", name: "Fuel Cells", basePrice: 14 },
+  { id: "organs", name: "Organs", basePrice: 62, illegal: true },
 ];
 
 /** Legal goods shown on the main Market menu. */

@@ -135,8 +135,18 @@ export class ShipLoadout {
     this.warpCharges = Math.max(0, this.warpCharges - 1);
   }
 
-  jumpRange(): number {
-    return this.drive?.jumpRange ?? 0;
+  /** Drive tank size (utilities / hull bonuses applied on Ship). */
+  driveFuelCapacity(): number {
+    return this.drive?.fuelCapacity ?? 0;
+  }
+
+  /** Sum of utility Expanded Fuel Tank (etc.) bonuses. */
+  utilityFuelCapacity(): number {
+    return this.utilities().reduce((sum, u) => sum + u.fuelCapacity, 0);
+  }
+
+  get hasFuelScoop(): boolean {
+    return this.utilities().some((u) => u.fuelScoop);
   }
 
   /** Shared fire spacing: fastest fitted weapon sets the cadence. */

@@ -308,10 +308,44 @@ export const ECONOMY = {
   /** Default / patrol tribute — encounter fee overrides when present. */
   pirateFee: 10,
   repairCostPerHp: 1,
+  /** Flat credits to top off the tank at Repair & Refuel. */
+  refuelCost: 1,
   /** Credits paid per eliminated pirate when docking at any station. */
   redemptionPerPirate: 10,
   /** Bonus for completing a system pirate-clearance quest. */
   pirateQuestReward: 50,
+} as const;
+
+/**
+ * Ship fuel — hyperspace + supercruise only (not local flight).
+ * Drive / hull / Expanded Tank set capacity; jump *range* stays GALAXY.jumpRange.
+ */
+export const FUEL = {
+  /** Flat cost for one system-map (supercruise) hop. */
+  supercruiseCost: 1,
+  /** Fuel burned per chart-ly on a galactic jump. */
+  fuelPerLy: 0.2,
+  /** Hold F near a main-sequence star with Fuel Scoop fitted. */
+  scoopSecondsPerUnit: 1.2,
+  /** How close (beyond star radius) the scoop must be. */
+  scoopRangePad: 28,
+  /** Distress: chance of pirates vs fuel rat when not forced-rat. */
+  distressPirateChance: 0.55,
+  /** Distress pirate pack size (inclusive). */
+  distressPirateMin: 1,
+  distressPirateMax: 3,
+  /** Seconds of taunt before distress pirates aggro. */
+  distressTauntSeconds: 3.5,
+  /** Fuel rat visual + arrival tuning. */
+  ratFill: "#9fd9a8",
+  ratStroke: "#4a9a5c",
+  ratSize: 13,
+  ratCommsRange: 160,
+  ratCommsSeconds: 2.2,
+  ratDepartRange: 520,
+  /** Spawn distance from player for distress responders. */
+  distressSpawnMin: 220,
+  distressSpawnMax: 340,
 } as const;
 
 /**

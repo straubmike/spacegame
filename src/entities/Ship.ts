@@ -1,4 +1,4 @@
-import { SHIP, COMBAT, DOCK, ECONOMY } from "../game/config";
+import { SHIP, COMBAT, DOCK, ECONOMY, GALAXY } from "../game/config";
 import type { InputState } from "../input/Keyboard";
 import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
@@ -19,6 +19,8 @@ export class Ship {
   health: number = COMBAT.maxHealth;
   /** Current shield HP (0 when no shield module). */
   shield = 0;
+  /** Current hyperspace / supercruise fuel. */
+  fuel = 0;
   /** Seconds since last hull or shield damage. */
   private timeSinceDamage = Number.POSITIVE_INFINITY;
   credits: number = ECONOMY.startingCredits;
@@ -69,9 +71,46 @@ export class Ship {
       .reduce((sum, u) => sum + u.passengerCapacity, 0);
   }
 
-  /** Drive jump range plus hull explorer bonus. */
+  /** Chart reach — fixed for all hulls; fuel tank is the differentiator. */
   jumpRange(): number {
-    return this.loadout.jumpRange() + this.hull.jumpRangeBonus;
+    return GALAXY.jumpRange;
+  }
+
+  /** Drive + hull + utility tank size. */
+  get maxFuel(): number {
+    return (
+      this.loadout.driveFuelCapacity() +
+      this.hull.fuelCapacityBonus +
+      this.loadout.utilityFuelCapacity()
+    );
+  }
+
+  get missingFuel(): number {
+    return Math.max(0, this.maxFuel - this.fuel);
+  }
+
+  /** Spend fuel for a jump / supercruise; returns false if insufficient. */
+  consumeFuel(amount: number): boolean {
+    if (amount <= 0) return true;
+    if (this.fuel < amount) return false;
+    this.fuel -= amount;
+    return true;
+  }
+
+  /** Top off the tank (station refuel / fuel rat / scoop). */
+  addFuel(amount: number): number {
+    if (amount <= 0) return 0;
+    const before = this.fuel;
+    this.fuel = Math.min(this.maxFuel, this.fuel + amount);
+    return this.fuel - before;
+  }
+
+  /** Ensure fuel is at least `needed` (capped by tank). */
+  ensureFuelAtLeast(needed: number): number {
+    const target = Math.min(this.maxFuel, Math.max(0, needed));
+    const gained = Math.max(0, target - this.fuel);
+    this.fuel = Math.max(this.fuel, target);
+    return gained;
   }
 
   /**
@@ -96,6 +135,7 @@ export class Ship {
     snap.cargo = this.cargo;
     snap.health = this.health;
     snap.shield = this.shield;
+    snap.fuel = this.fuel;
   }
 
   /**
@@ -138,14 +178,19 @@ export class Ship {
     this.hullId = snap.hullId;
     this.loadout = snap.loadout;
     this.cargo = snap.cargo;
+    this.fuel = snap.fuel;
     this.syncDerivedStats({
       refillShield: opts.refillShield,
       previousMaxHull: opts.fullHealth ? 0 : undefined,
+      previousMaxFuel: opts.fullHealth ? 0 : undefined,
+      refillFuel: opts.fullHealth,
     });
     if (opts.fullHealth) {
       this.health = this.maxHull;
+      this.fuel = this.maxFuel;
     } else {
       this.health = Math.min(snap.health, this.maxHull);
+      this.fuel = Math.min(snap.fuel, this.maxFuel);
       if (!opts.refillShield) {
         this.shield = Math.min(snap.shield, this.maxShield);
       }
@@ -153,12 +198,18 @@ export class Ship {
   }
 
   /**
-   * Recompute hull/shield/cargo caps from hull + utility slots.
+   * Recompute hull/shield/cargo/fuel caps from hull + utility slots.
    * Call after any utility equip change or hull swap.
    * Hull max gains raise current HP by the same amount (no free full heal).
+   * Fuel tank gains raise current fuel the same way (Expanded Fuel Tank).
    */
   syncDerivedStats(
-    opts: { refillShield?: boolean; previousMaxHull?: number } = {},
+    opts: {
+      refillShield?: boolean;
+      previousMaxHull?: number;
+      previousMaxFuel?: number;
+      refillFuel?: boolean;
+    } = {},
   ): void {
     const prevMaxHull = opts.previousMaxHull ?? this.maxHull;
     const nextMaxHull = this.maxHull;
@@ -168,6 +219,20 @@ export class Ship {
       this.health += hullGain;
     }
     this.health = Math.min(this.health, nextMaxHull);
+
+    const prevMaxFuel = opts.previousMaxFuel ?? this.maxFuel;
+    // Recompute after loadout already changed — maxFuel reads new modules.
+    const nextMaxFuel =
+      this.loadout.driveFuelCapacity() +
+      this.hull.fuelCapacityBonus +
+      this.loadout.utilityFuelCapacity();
+    const fuelGain = Math.max(0, nextMaxFuel - prevMaxFuel);
+    if (opts.refillFuel) {
+      this.fuel = nextMaxFuel;
+    } else if (fuelGain > 0) {
+      this.fuel += fuelGain;
+    }
+    this.fuel = Math.min(this.fuel, nextMaxFuel);
 
     const utilCargo = this.loadout
       .utilities()
@@ -215,6 +280,33 @@ export class Ship {
     if (this.maxShield > 0) this.shield = this.maxShield;
     this.timeSinceDamage = Number.POSITIVE_INFINITY;
     return { healed: affordable, cost };
+  }
+
+  /**
+   * Repair hull (as credits allow) and/or top off fuel for a flat fee.
+   * Refuel always fills to full when paid.
+   */
+  repairAndRefuelWithCredits(): {
+    healed: number;
+    repairCost: number;
+    refueled: boolean;
+    refuelCost: number;
+  } {
+    const repair = this.repairWithCredits();
+    let refueled = false;
+    let refuelCost = 0;
+    if (this.missingFuel > 0 && this.credits >= ECONOMY.refuelCost) {
+      this.credits -= ECONOMY.refuelCost;
+      this.fuel = this.maxFuel;
+      refueled = true;
+      refuelCost = ECONOMY.refuelCost;
+    }
+    return {
+      healed: repair.healed,
+      repairCost: repair.cost,
+      refueled,
+      refuelCost,
+    };
   }
 
   spendCredits(amount: number): boolean {

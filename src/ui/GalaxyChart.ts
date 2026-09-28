@@ -40,6 +40,10 @@ export class GalaxyChart {
     pointerY: number,
     jumpRange: number,
     hints: ChartPoiHints = EMPTY_HINTS,
+    fuelInfo: { fuel: number; costForSelected: number | null } = {
+      fuel: 0,
+      costForSelected: null,
+    },
   ): void {
     const margin = Math.max(40, Math.min(width, height) * 0.06);
     const panel: Rect = {
@@ -58,11 +62,17 @@ export class GalaxyChart {
       w: panel.w - 40,
       h: panel.h - headerH - footerH - 12,
     };
-
     ctx.font = FONT_TITLE;
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
     ctx.fillText("Galaxy", panel.x + 24, panel.y + 18);
+    ctx.font = FONT;
+    ctx.fillStyle = "rgba(160, 190, 160, 0.85)";
+    ctx.fillText(
+      `Fuel ${Math.floor(fuelInfo.fuel)}`,
+      panel.x + panel.w - 120,
+      panel.y + 22,
+    );
 
     const current = galaxy.get(currentId);
     const layout = this.layout(galaxy, this.mapRect);
@@ -150,9 +160,21 @@ export class GalaxyChart {
         !hints.questPoiIds.has(this.selectedId)
           ? "  ·  known"
           : "";
+      const fuelBit =
+        canJump && fuelInfo.costForSelected !== null
+          ? `  ·  ${fuelInfo.costForSelected} fuel`
+          : "";
       status = canJump
-        ? `${sel.name}  ·  ${dist.toFixed(1)} ly${questTag}`
+        ? `${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${questTag}`
         : `${sel.name}  ·  ${dist.toFixed(1)} ly  ·  out of range${questTag}${knownTag}`;
+      if (
+        canJump &&
+        fuelInfo.costForSelected !== null &&
+        fuelInfo.fuel < fuelInfo.costForSelected
+      ) {
+        status += "  ·  low fuel";
+        canJump = false;
+      }
     }
     ctx.fillText(status, panel.x + 24, footerY + footerH / 2);
 

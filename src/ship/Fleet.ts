@@ -14,6 +14,7 @@ export interface OwnedShipSnapshot {
   cargo: CargoHold;
   health: number;
   shield: number;
+  fuel: number;
 }
 
 export interface FleetCargoHit {
@@ -42,6 +43,10 @@ function freshOwned(hull: HullDef): OwnedShipSnapshot {
   const shieldMax = loadout
     .utilities()
     .reduce((sum, u) => sum + u.shieldMax, 0);
+  const maxFuel =
+    loadout.driveFuelCapacity() +
+    hull.fuelCapacityBonus +
+    loadout.utilityFuelCapacity();
   return {
     instanceId: newInstanceId(hull.id),
     hullId: hull.id,
@@ -49,6 +54,7 @@ function freshOwned(hull: HullDef): OwnedShipSnapshot {
     cargo,
     health: maxHull,
     shield: shieldMax,
+    fuel: maxFuel,
   };
 }
 
