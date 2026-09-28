@@ -53,6 +53,10 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
+  ChartCatalog,
+  stationMenuLettersForPoi,
+} from "../ship/chartCatalog";
+import {
   canReachNearestStation,
   galacticFuelCost,
   nearestStationRefuel,
@@ -197,10 +201,10 @@ export class Game {
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
   /**
-   * POIs the player has entered this session (fog / chart catalog feed).
-   * Cartographer bank redeems newly visited ids not yet in claimedCartographerVisits.
+   * Per-player chart fog-of-war (visited + identified neighbors).
+   * Cartographer bank redeems newly visited ids from catalog.visitedIds.
    */
-  private readonly visitedPoiIds = new Set<number>();
+  private readonly chartCatalog = new ChartCatalog();
   /**
    * Visited POIs already cashed in for Cartographer dock rewards.
    * Start POI is pre-claimed so home does not pay out.
@@ -307,8 +311,12 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
-    // Home is visited but already "known" — do not bank Cartographer payout.
-    this.visitedPoiIds.add(GALAXY.startPoiId);
+    // Home is visited (and fog-expanded) but already "known" — no Cartographer payout.
+    this.chartCatalog.markVisited(
+      GALAXY.startPoiId,
+      this.galaxy,
+      this.ship.jumpRange(),
+    );
     this.claimedCartographerVisits.add(GALAXY.startPoiId);
     this.enterLocal();
 
@@ -684,12 +692,28 @@ export class Game {
 
   private chartHints(): ChartPoiHints {
     const questPoiIds = questChartPoiIds(this.activeMissions);
-    const selectableOutOfRange = new Set<number>([
-      ...this.visitedPoiIds,
-      ...this.scannedPoiIds,
-      ...questPoiIds,
-    ]);
-    return { selectableOutOfRange, questPoiIds };
+    // Mission targets get identified-level visibility (Mike add-on).
+    for (const id of questPoiIds) {
+      this.chartCatalog.grantIdentified(id);
+    }
+    const selectedMenuLetters =
+      this.chart.selectedId !== null &&
+      this.chartCatalog.isVisited(this.chart.selectedId)
+        ? stationMenuLettersForPoi(this.galaxy, this.chart.selectedId)
+        : [];
+    return {
+      visitedPoiIds: this.chartCatalog.visitedIds,
+      identifiedPoiIds: this.chartCatalog.identifiedIds,
+      questPoiIds,
+      selectedMenuLetters,
+    };
+  }
+
+  /** Grant chart visibility for a mission's destination POI(s). */
+  private revealMissionChartTargets(mission: MissionOffer | ActiveMission): void {
+    for (const id of questChartPoiIds([mission])) {
+      this.chartCatalog.grantIdentified(id);
+    }
   }
 
   private missionsForBoardUi(): ActiveMission[] {
@@ -871,12 +895,12 @@ export class Game {
   }
 
   /**
-   * Cash in newly visited POIs (visited catalog − already claimed).
-   * Same dock timing as pirate bounty redemption. Feeds fog visited set.
+   * Cash in newly visited POIs (chart catalog visited − already claimed).
+   * Same dock timing as pirate bounty redemption. Single discovery track.
    */
   private redeemCartographerVisits(stationName: string): void {
     const fresh: number[] = [];
-    for (const id of this.visitedPoiIds) {
+    for (const id of this.chartCatalog.visitedIds) {
       if (this.claimedCartographerVisits.has(id)) continue;
       fresh.push(id);
     }
@@ -961,8 +985,8 @@ export class Game {
    */
   private checkExploreScanProgress(): void {
     const poiId = this.local.poiId;
-    const firstVisit = !this.visitedPoiIds.has(poiId);
-    this.visitedPoiIds.add(poiId);
+    const firstVisit = !this.chartCatalog.isVisited(poiId);
+    this.chartCatalog.markVisited(poiId, this.galaxy, this.ship.jumpRange());
     if (firstVisit && !this.claimedCartographerVisits.has(poiId)) {
       this.messages.push(
         "New system charted. Dock at any station to redeem Cartographer data.",
@@ -1197,6 +1221,7 @@ export class Game {
     };
     this.activeMissions.push(active);
     this.acceptedMissionIds.add(offer.id);
+    this.revealMissionChartTargets(active);
 
     let msg: string;
     if (offer.kind === "cargo") {
