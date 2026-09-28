@@ -75,6 +75,11 @@ export class ShipLoadout {
     return this.mineralScanRange > 0 && this.scoopRange > 0;
   }
 
+  /** True if any utility slot has the given module id. */
+  hasUtilityId(moduleId: string): boolean {
+    return this.utilities().some((u) => u.id === moduleId);
+  }
+
   slotByKind(kind: ShipSlot["kind"]): ShipSlot | undefined {
     return this.slots.find((s) => s.kind === kind);
   }

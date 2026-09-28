@@ -446,6 +446,14 @@ export const QUEST = {
   passengerBaseReward: 70,
   passengerPerBerth: 20,
   passengerPerDistance: 2.4,
+  /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
+  distressAnswerBaitChance: 0.4,
+  /** Seconds of bait taunt before aggro (no fee demand). */
+  distressAnswerAggroSeconds: 3,
+  /** How far (in jump-range multiples) distress-answer destinations may sit. */
+  distressAnswerMaxJumpRanges: 2.5,
+  /** Utility module id required to accept Fuel Rat distress contracts. */
+  distressAnswerRequiredModuleId: "expanded_fuel_tank",
 } as const;
 
 /**
@@ -519,6 +527,10 @@ export const REPUTATION = {
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
+  /** Fuel Rat faction deltas */
+  fuelRatAbuse: -10,
+  fuelRatGenuineRescue: 5,
+  fuelRatMissionComplete: 12,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,

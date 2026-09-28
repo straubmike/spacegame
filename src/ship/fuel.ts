@@ -105,3 +105,25 @@ export function nearestStationRefuel(
     }
   );
 }
+
+/**
+ * Whether current fuel is enough to reach a dockable station from here
+ * (same chart + supercruise costs as Fuel Rat rescue math).
+ * Already at a station body → reachable with any fuel (including 0).
+ */
+export function canReachNearestStation(
+  galaxy: Galaxy,
+  fromPoiId: number,
+  fromBodyId: number | null,
+  fuel: number,
+): { canReach: boolean; target: NearestStationRefuel; needed: number } {
+  const target = nearestStationRefuel(galaxy, fromPoiId, fromBodyId);
+  if (target.fuelNeeded <= 0) {
+    return { canReach: true, target, needed: 0 };
+  }
+  return {
+    canReach: fuel >= target.fuelNeeded,
+    target,
+    needed: target.fuelNeeded,
+  };
+}

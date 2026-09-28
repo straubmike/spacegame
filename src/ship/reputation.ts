@@ -1,5 +1,5 @@
 /**
- * Session reputation — per-station standings + pirate faction.
+ * Session reputation — per-station standings + pirate / Fuel Rat factions.
  *
  * Station ladder includes Violation between Unfriendly and Hostile.
  * Federations / guilds are design-only; merchants tariff is a stub.
@@ -16,6 +16,9 @@ export type StandingBand =
   | "allied";
 
 export const PIRATE_FACTION_ID = "pirates";
+export const FUEL_RAT_FACTION_ID = "fuel_rats";
+
+const FACTION_IDS = new Set([PIRATE_FACTION_ID, FUEL_RAT_FACTION_ID]);
 
 export interface ReputationFactionRow {
   id: string;
@@ -31,7 +34,7 @@ export interface ReputationStationRow {
 
 /** Payload for the L-menu Reputation band. */
 export interface ReputationListing {
-  /** Always shown (even at 0) — pirates now; guild stubs reserved. */
+  /** Always shown (even at 0) — pirates + Fuel Rats; guild stubs reserved. */
   factions: ReputationFactionRow[];
   /** Only stations with non-zero standing. */
   stations: ReputationStationRow[];
@@ -52,7 +55,7 @@ export function standingBand(score: number): StandingBand {
 }
 
 /**
- * Pirate faction has no Violation band — fold that range into Unfriendly.
+ * Pirate / Fuel Rat factions have no Violation band — fold that range into Unfriendly.
  */
 export function pirateStandingBand(score: number): StandingBand {
   if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
@@ -61,6 +64,9 @@ export function pirateStandingBand(score: number): StandingBand {
   if (score >= REPUTATION.friendlyAtOrAbove) return "friendly";
   return "neutral";
 }
+
+/** Alias — same ladder as pirates (no Violation). */
+export const factionStandingBand = pirateStandingBand;
 
 export function standingBandLabel(band: StandingBand): string {
   switch (band) {
@@ -86,17 +92,20 @@ export function formatStanding(score: number): string {
   return `${band} (${signed})`;
 }
 
-/** Pirate faction label — no Violation band. */
+/** Pirate / Fuel Rat faction label — no Violation band. */
 export function formatPirateStanding(score: number): string {
   const band = standingBandLabel(pirateStandingBand(score));
   const signed = score > 0 ? `+${score}` : `${score}`;
   return `${band} (${signed})`;
 }
 
+export const formatFactionStanding = formatPirateStanding;
+
 export class ReputationTracker {
   private readonly stations = new Map<string, number>();
   private readonly stationLabels = new Map<string, string>();
   private pirateStanding = 0;
+  private fuelRatStanding = 0;
 
   stationStanding(stationKey: string): number {
     return this.stations.get(stationKey) ?? 0;
@@ -104,6 +113,23 @@ export class ReputationTracker {
 
   pirateRep(): number {
     return this.pirateStanding;
+  }
+
+  fuelRatRep(): number {
+    return this.fuelRatStanding;
+  }
+
+  private factionStanding(id: string): number {
+    if (id === PIRATE_FACTION_ID) return this.pirateStanding;
+    if (id === FUEL_RAT_FACTION_ID) return this.fuelRatStanding;
+    return 0;
+  }
+
+  private setFactionStanding(id: string, value: number): number {
+    const next = clampStanding(value);
+    if (id === PIRATE_FACTION_ID) this.pirateStanding = next;
+    else if (id === FUEL_RAT_FACTION_ID) this.fuelRatStanding = next;
+    return next;
   }
 
   /** Stations with non-zero standing (for L-menu listing). */
@@ -126,17 +152,19 @@ export class ReputationTracker {
    * Optional `label` stores a display name for station rows.
    */
   adjust(target: string, delta: number, label?: string): number {
-    if (label && target !== PIRATE_FACTION_ID) {
+    if (label && !FACTION_IDS.has(target)) {
       this.stationLabels.set(target, label);
     }
     if (delta === 0) {
-      return target === PIRATE_FACTION_ID
-        ? this.pirateStanding
+      return FACTION_IDS.has(target)
+        ? this.factionStanding(target)
         : this.stationStanding(target);
     }
-    if (target === PIRATE_FACTION_ID) {
-      this.pirateStanding = clampStanding(this.pirateStanding + delta);
-      return this.pirateStanding;
+    if (FACTION_IDS.has(target)) {
+      return this.setFactionStanding(
+        target,
+        this.factionStanding(target) + delta,
+      );
     }
     const next = clampStanding(this.stationStanding(target) + delta);
     this.stations.set(target, next);
@@ -145,14 +173,13 @@ export class ReputationTracker {
 
   /** Absolute set (fines, attack-patrol / Violation-timeout → Hostile). */
   setStanding(target: string, value: number, label?: string): number {
-    if (label && target !== PIRATE_FACTION_ID) {
+    if (label && !FACTION_IDS.has(target)) {
       this.stationLabels.set(target, label);
     }
-    const next = clampStanding(value);
-    if (target === PIRATE_FACTION_ID) {
-      this.pirateStanding = next;
-      return next;
+    if (FACTION_IDS.has(target)) {
+      return this.setFactionStanding(target, value);
     }
+    const next = clampStanding(value);
     this.stations.set(target, next);
     return next;
   }
