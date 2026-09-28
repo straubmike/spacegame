@@ -29,6 +29,7 @@ export class MissionBoardMenu {
   private rows: OfferRow[] = [];
   private scroll = 0;
   private freeCu = 0;
+  private freeBerths = 0;
   private canAcceptMore = true;
   private hasScoop = false;
   /** Expanded Fuel Tank fitted — required for Fuel Rat distress contracts. */
@@ -42,12 +43,14 @@ export class MissionBoardMenu {
     canAcceptMore: boolean,
     hasScoop = false,
     hasExpandedFuelTank = false,
+    freeBerths = 0,
   ): void {
     this.open = true;
     this.stationName = stationName;
     this.offers = offers;
     this.active = active;
     this.freeCu = freeCu;
+    this.freeBerths = freeBerths;
     this.canAcceptMore = canAcceptMore;
     this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
@@ -62,11 +65,13 @@ export class MissionBoardMenu {
     canAcceptMore: boolean,
     hasScoop = false,
     hasExpandedFuelTank = false,
+    freeBerths = 0,
   ): void {
     if (!this.open) return;
     this.offers = offers;
     this.active = active;
     this.freeCu = freeCu;
+    this.freeBerths = freeBerths;
     this.canAcceptMore = canAcceptMore;
     this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
@@ -112,8 +117,8 @@ export class MissionBoardMenu {
     ctx.fillText(this.stationName, panel.x + 20, panel.y + 40);
     ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
     ctx.fillText(
-      `CR ${credits}   ·   Free CU ${this.freeCu}`,
-      panel.x + panel.w - 240,
+      `CR ${credits}   ·   Free CU ${this.freeCu}   ·   Berths ${this.freeBerths}`,
+      panel.x + panel.w - 320,
       panel.y + 22,
     );
 
@@ -245,7 +250,10 @@ export class MissionBoardMenu {
       mission.kind === "cargo" || mission.kind === "derelictCargo"
         ? (mission.cu ?? 0)
         : 0;
+    const needBerths =
+      mission.kind === "passenger" ? (mission.passengers ?? 0) : 0;
     const cargoOk = needCu === 0 || this.freeCu >= needCu;
+    const berthOk = needBerths === 0 || this.freeBerths >= needBerths;
     const scoopOk =
       mission.kind !== "derelictCargo" || this.hasScoop;
     const tankOk =
@@ -257,7 +265,7 @@ export class MissionBoardMenu {
       mission.kind === "clearance"
         ? !clearanceBusy
         : this.canAcceptMore;
-    const enabled = slotOk && cargoOk && scoopOk && tankOk;
+    const enabled = slotOk && cargoOk && berthOk && scoopOk && tankOk;
     const label = !enabled
       ? clearanceBusy
         ? "Active"
@@ -265,9 +273,11 @@ export class MissionBoardMenu {
           ? "Need tank"
           : !scoopOk
             ? "Need Scoop"
-            : cargoOk
-              ? "Full"
-              : "Need CU"
+            : !berthOk
+              ? "Need berths"
+              : cargoOk
+                ? "Full"
+                : "Need CU"
       : "Accept";
     drawButton(ctx, acceptBtn, label, {
       enabled,

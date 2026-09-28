@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -88,10 +88,12 @@ import {
   distressAnswerMatchesView,
   generateStationMissions,
   generateStationReplenishmentOffer,
+  freePassengerBerths,
   isMissionCargoId,
   isStolenCargoId,
   makeClearanceOffer,
   missionCargoId,
+  occupiedPassengerBerths,
   questChartPoiIds,
   stolenCargoId,
   stationRefFromLocal,
@@ -124,6 +126,11 @@ interface PackEncounter {
   /** True after the pack has hailed once (re-approach → fight). */
   demanded: boolean;
   shipCount: number;
+  /**
+   * Passenger-fare intercept: taunt then aggro — no tribute UI.
+   * Starts in "comms" with demanded already true.
+   */
+  noFeeAggro?: boolean;
 }
 
 export class Game {
@@ -224,6 +231,11 @@ export class Game {
   /** Fuel Rat faction quest — pirate bait (no fee, delayed aggro). */
   private baitPirate: Pirate | null = null;
   private baitPack: PackEncounter | null = null;
+  /**
+   * Armed on a galaxy jump while carrying fare passengers to a non-destination
+   * POI (~10%). Consumed on local enter to spawn a no-fee aggro intercept.
+   */
+  private pendingPassengerIntercept: { passengers: number } | null = null;
   /** Confirm dialog when a jump would leave too little fuel to return. */
   private fuelWarnTravel: PendingTravel | null = null;
   private fuelWarnYes: { x: number; y: number; w: number; h: number } = {
@@ -322,32 +334,40 @@ export class Game {
     // Patrols first — arrival pirate packs are already nullified in
     // pirateEncounterFor when a patrol would share this local view.
     this.spawnStationPatrols();
-    const key = this.pirateKey();
-    const allowArrivalPirates = this.patrols.length === 0;
-    if (
-      allowArrivalPirates &&
-      this.local.pirate &&
-      !this.clearedPirateViews.has(key)
-    ) {
-      const feePaid = this.paidPirateViews.has(key);
-      const encounter = this.local.pirate;
-      for (const ship of encounter.ships) {
-        this.pirates.push(
-          new Pirate(ship.x, ship.y, ship.heading, ship.tier, encounter.fee),
-        );
+
+    // Passenger-fare intercept overrides the seeded arrival pack for this visit.
+    const intercept = this.pendingPassengerIntercept;
+    this.pendingPassengerIntercept = null;
+    if (intercept && intercept.passengers > 0) {
+      this.spawnPassengerIntercept(intercept.passengers);
+    } else {
+      const key = this.pirateKey();
+      const allowArrivalPirates = this.patrols.length === 0;
+      if (
+        allowArrivalPirates &&
+        this.local.pirate &&
+        !this.clearedPirateViews.has(key)
+      ) {
+        const feePaid = this.paidPirateViews.has(key);
+        const encounter = this.local.pirate;
+        for (const ship of encounter.ships) {
+          this.pirates.push(
+            new Pirate(ship.x, ship.y, ship.heading, ship.tier, encounter.fee),
+          );
+        }
+        this.pack = {
+          phase: feePaid ? "paid" : "idle",
+          fee: encounter.fee,
+          timer: 0,
+          demanded: feePaid,
+          shipCount: encounter.ships.length,
+        };
+        if (feePaid) {
+          for (const p of this.pirates) p.setPeaceful();
+        }
       }
-      this.pack = {
-        phase: feePaid ? "paid" : "idle",
-        fee: encounter.fee,
-        timer: 0,
-        demanded: feePaid,
-        shipCount: encounter.ships.length,
-      };
-      if (feePaid) {
-        for (const p of this.pirates) p.setPeaceful();
-      }
+      this.armPirateIntrusion();
     }
-    this.armPirateIntrusion();
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
@@ -470,7 +490,7 @@ export class Game {
   }
 
   private packAcceptingPayment(): boolean {
-    return this.pack?.phase === "comms";
+    return this.pack?.phase === "comms" && !this.pack.noFeeAggro;
   }
 
   /**
@@ -553,7 +573,7 @@ export class Game {
         if (p.alive) p.setPeaceful();
       }
       if (pack.timer <= 0) {
-        if (inRange) {
+        if (inRange || pack.noFeeAggro) {
           pack.phase = "hostile";
           for (const p of this.pirates) {
             if (p.alive) p.goAggro();
@@ -896,6 +916,22 @@ export class Game {
 
     const delivered: ActiveMission[] = [];
     for (const mission of this.activeMissions) {
+      if (mission.kind === "passenger") {
+        if (mission.destStationKey !== here) continue;
+        this.ship.addCredits(mission.reward);
+        delivered.push(mission);
+        this.adjustStationRep(
+          mission.destStationKey!,
+          mission.destStationName ?? station.name,
+          REPUTATION.missionComplete,
+        );
+        const n = mission.passengers ?? 0;
+        this.messages.push(
+          `${station.name}: ${n} passenger${n === 1 ? "" : "s"} delivered — ${mission.title} (+${mission.reward} cr).`,
+          "station",
+        );
+        continue;
+      }
       if (mission.kind !== "cargo") continue;
       if (mission.destStationKey !== here) continue;
       const lotId = missionCargoId(mission.id);
@@ -1039,6 +1075,28 @@ export class Game {
       }
     }
 
+    if (offer.kind === "passenger") {
+      const need = offer.passengers ?? 0;
+      const free = freePassengerBerths(
+        this.ship.passengerCapacity,
+        this.activeMissions,
+      );
+      if (this.ship.passengerCapacity <= 0) {
+        this.messages.push(
+          "Missions: Fit a Passenger Berth (Bay) before accepting fares.",
+          "station",
+        );
+        return;
+      }
+      if (free < need) {
+        this.messages.push(
+          `Missions: Need ${need} free berth${need === 1 ? "" : "s"} (have ${free}).`,
+          "station",
+        );
+        return;
+      }
+    }
+
     const active: ActiveMission = {
       ...offer,
       pirateTargets: offer.pirateTargets
@@ -1053,6 +1111,9 @@ export class Game {
     let msg: string;
     if (offer.kind === "cargo") {
       msg = `Missions: Accepted — haul to ${offer.destStationName} (+${offer.reward} cr).`;
+    } else if (offer.kind === "passenger") {
+      const n = offer.passengers ?? 0;
+      msg = `Missions: Accepted — fare for ${n} passenger${n === 1 ? "" : "s"} to ${offer.destStationName} (+${offer.reward} cr).`;
     } else if (offer.kind === "clearance") {
       const n = offer.pirateTargets?.length ?? 0;
       msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
@@ -1169,10 +1230,19 @@ export class Game {
       return;
     }
 
-    // Cargo pays on delivery; claim button is unused for cargo.
+    // Cargo / passenger pay on delivery; claim button is unused for those.
     this.messages.push(
-      "Missions: Deliver the freight at the destination station.",
+      mission.kind === "passenger"
+        ? "Missions: Deliver the passengers at the destination station."
+        : "Missions: Deliver the freight at the destination station.",
       "station",
+    );
+  }
+
+  private freeBerthsForUi(): number {
+    return freePassengerBerths(
+      this.ship.passengerCapacity,
+      this.activeMissions,
     );
   }
 
@@ -1189,6 +1259,7 @@ export class Game {
         QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
+      this.freeBerthsForUi(),
     );
   }
 
@@ -1212,6 +1283,7 @@ export class Game {
         QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
+      this.freeBerthsForUi(),
     );
     this.missionBoardOpen = true;
   }
@@ -2742,6 +2814,76 @@ export class Game {
     );
   }
 
+  /**
+   * Passenger-fare jump intercept — taunt then aggro, no fee demand.
+   * Group size / tier scales with passengers aboard.
+   */
+  private spawnPassengerIntercept(passengers: number): void {
+    const tiers = passengerInterceptTiers(passengers);
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      COMBAT.pirateSpawnMin +
+      Math.random() * (COMBAT.pirateSpawnMax - COMBAT.pirateSpawnMin);
+    const anchorX = this.ship.x + Math.cos(angle) * dist;
+    const anchorY = this.ship.y + Math.sin(angle) * dist;
+    const count = tiers.length;
+
+    for (let i = 0; i < count; i += 1) {
+      const offset =
+        count === 1
+          ? 0
+          : ((i / count) * 2 - 1) * ENCOUNTERS.formationRadius * 0.55;
+      const heading = Math.atan2(this.ship.y - anchorY, this.ship.x - anchorX);
+      this.pirates.push(
+        new Pirate(
+          anchorX + Math.cos(heading + Math.PI / 2) * offset,
+          anchorY + Math.sin(heading + Math.PI / 2) * offset,
+          heading,
+          tiers[i]!,
+          0,
+        ),
+      );
+    }
+
+    for (const p of this.pirates) p.setPeaceful();
+    this.pack = {
+      phase: "comms",
+      fee: 0,
+      timer: QUEST.passengerInterceptAggroSeconds,
+      demanded: true,
+      shipCount: count,
+      noFeeAggro: true,
+    };
+    this.messages.push(
+      "Thought you'd hitch a ride unnoticed? I'll shred all of you!",
+      "pirate",
+    );
+  }
+
+  /**
+   * ~10% chance to arm a passenger intercept when jumping away from a fare
+   * destination (not on the final arrival jump to the dest POI).
+   */
+  private armPassengerInterceptIfNeeded(destPoiId: number): void {
+    const fares = this.activeMissions.filter((m) => m.kind === "passenger");
+    if (fares.length === 0) {
+      this.pendingPassengerIntercept = null;
+      return;
+    }
+    // Final arrival jump onto a fare destination POI — no intercept.
+    if (fares.some((m) => m.destPoiId === destPoiId)) {
+      this.pendingPassengerIntercept = null;
+      return;
+    }
+    if (Math.random() >= QUEST.passengerInterceptChance) {
+      this.pendingPassengerIntercept = null;
+      return;
+    }
+    this.pendingPassengerIntercept = {
+      passengers: occupiedPassengerBerths(this.activeMissions),
+    };
+  }
+
   private updateCombat(dt: number): void {
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.updatePirateIntrusion(dt);
@@ -3433,6 +3575,29 @@ export class Game {
     if (!slot || module.kind !== slot.kind) return;
     if (slot.equipped?.id === module.id) return;
 
+    // Do not drop berth capacity below occupied fare passengers.
+    if (module.kind === "utility") {
+      const occupied = occupiedPassengerBerths(this.activeMissions);
+      if (occupied > 0) {
+        let nextCap = 0;
+        for (const s of this.ship.loadout.slots) {
+          if (s.kind !== "utility") continue;
+          if (s.id === slot.id) {
+            nextCap += module.passengerCapacity;
+          } else if (s.equipped?.kind === "utility") {
+            nextCap += s.equipped.passengerCapacity;
+          }
+        }
+        if (nextCap < occupied) {
+          this.messages.push(
+            `Bay: ${occupied} passenger${occupied === 1 ? "" : "s"} aboard — need ${occupied} berths fitted.`,
+            "station",
+          );
+          return;
+        }
+      }
+    }
+
     const baseCost = swapCost(slot.equipped, module);
     const cost = applyBayDiscount(baseCost, this.shipMenu.bayDiscount);
     if (!this.ship.spendCredits(cost)) {
@@ -3713,6 +3878,11 @@ export class Game {
     this.chart.selectedId = null;
     this.rememberPaidPirates();
     this.armMissionRefillsOnLeavingView();
+    if (travel.kind === "galaxy") {
+      this.armPassengerInterceptIfNeeded(travel.poiId);
+    } else {
+      this.pendingPassengerIntercept = null;
+    }
     this.clearDockState();
   }
 
@@ -3827,4 +3997,20 @@ export class Game {
       fadeAlpha: this.fadeAlpha,
     });
   }
+}
+
+/**
+ * Pirate hulls for a passenger-fare jump intercept.
+ * Larger parties draw tougher / bigger packs.
+ */
+function passengerInterceptTiers(passengers: number): PirateTierId[] {
+  if (passengers <= 1) return ["scout"];
+  if (passengers === 2) {
+    return Math.random() < 0.55 ? ["raider"] : ["scout", "scout"];
+  }
+  if (passengers === 3) return ["raider", "scout"];
+  // 4+
+  return Math.random() < 0.5
+    ? ["gunship", "scout"]
+    : ["raider", "raider", "scout"];
 }
