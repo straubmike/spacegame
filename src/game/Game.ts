@@ -2021,6 +2021,33 @@ export class Game {
     this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
+    this.applyComplimentaryDockService(station);
+  }
+
+  /** Free hull repair + full refuel on every dock — station courtesy. */
+  private applyComplimentaryDockService(station: Landmark): void {
+    const result = this.ship.applyComplimentaryDockService();
+    if (result.healed > 0 && result.refueled) {
+      this.messages.push(
+        `${station.name}: Complimentary repair & refuel — hull and tanks topped free of charge.`,
+        "station",
+      );
+    } else if (result.healed > 0) {
+      this.messages.push(
+        `${station.name}: Complimentary repair — hull restored free of charge.`,
+        "station",
+      );
+    } else if (result.refueled) {
+      this.messages.push(
+        `${station.name}: Complimentary refuel — tanks topped free of charge.`,
+        "station",
+      );
+    } else {
+      this.messages.push(
+        `${station.name}: Complimentary dock services — hull and fuel already full.`,
+        "station",
+      );
+    }
   }
 
   private updateDockedMenu(): void {
@@ -2028,44 +2055,6 @@ export class Game {
     if (this.dock.kind !== "docked") return;
     const station = this.dock.station;
     const action = this.dockedMenu.handleClick(this.pointer.x, this.pointer.y);
-    if (action === "repair") {
-      const needHull = this.ship.missingHealth > 0;
-      const needFuel = this.ship.missingFuel > 0;
-      if (!needHull && !needFuel) {
-        this.messages.push("Hull and fuel already full.");
-        return;
-      }
-      const beforeCredits = this.ship.credits;
-      const result = this.ship.repairAndRefuelWithCredits();
-      if (result.healed <= 0 && !result.refueled) {
-        this.messages.push("Insufficient credits for Repair & Refuel.");
-        return;
-      }
-      const key = this.currentStationKey(station);
-      if (key && result.healed > 0) {
-        this.adjustStationRep(
-          key,
-          station.name,
-          REPUTATION.repairGoodwill,
-        );
-      }
-      const parts: string[] = [];
-      if (result.healed > 0) {
-        parts.push(
-          this.ship.health >= this.ship.maxHull
-            ? `hull restored (−${result.repairCost} cr)`
-            : `+${result.healed} HP (−${result.repairCost} cr)`,
-        );
-      }
-      if (result.refueled) {
-        parts.push(`fuel full (−${result.refuelCost} cr)`);
-      } else if (needFuel && this.ship.credits < ECONOMY.refuelCost) {
-        parts.push("fuel unchanged (need 1 cr)");
-      }
-      this.messages.push(`Repair & Refuel: ${parts.join("; ")}.`);
-      void beforeCredits;
-      return;
-    }
     if (action === "bay") {
       this.openBay(station);
       return;
@@ -2779,10 +2768,8 @@ export class Game {
     if (this.distressPending && this.distressPack && this.distressPirates.length === 0) {
       this.distressPack = null;
       this.distressPending = false;
+      // Next L-menu distress is Fuel Rat only — no player-facing spoiler.
       this.distressNextFuelRatOnly = true;
-      this.messages.push(
-        "Distress pirates cleared. Next distress beacon should draw a Fuel Rat.",
-      );
     }
 
     if (this.baitPirate && !this.baitPirate.alive) {

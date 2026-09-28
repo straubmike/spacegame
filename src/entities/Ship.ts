@@ -262,51 +262,22 @@ export class Ship {
   }
 
   /**
-   * Repair as much hull as credits allow (1 cr per HP).
+   * Free station courtesy on dock — full hull repair + tank top-off.
    * Successful repair also refills weapon ammo, warp charges, and shields.
    */
-  repairWithCredits(): { healed: number; cost: number } {
-    const missing = this.missingHealth;
-    if (missing <= 0) return { healed: 0, cost: 0 };
-    const affordable = Math.min(
-      missing,
-      Math.floor(this.credits / ECONOMY.repairCostPerHp),
-    );
-    if (affordable <= 0) return { healed: 0, cost: 0 };
-    const cost = affordable * ECONOMY.repairCostPerHp;
-    this.credits -= cost;
-    this.health += affordable;
-    this.loadout.refillConsumables();
-    if (this.maxShield > 0) this.shield = this.maxShield;
-    this.timeSinceDamage = Number.POSITIVE_INFINITY;
-    return { healed: affordable, cost };
-  }
-
-  /**
-   * Repair hull (as credits allow) and/or top off fuel for a flat fee.
-   * Refuel always fills to full when paid.
-   */
-  repairAndRefuelWithCredits(): {
-    healed: number;
-    repairCost: number;
-    refueled: boolean;
-    refuelCost: number;
-  } {
-    const repair = this.repairWithCredits();
-    let refueled = false;
-    let refuelCost = 0;
-    if (this.missingFuel > 0 && this.credits >= ECONOMY.refuelCost) {
-      this.credits -= ECONOMY.refuelCost;
-      this.fuel = this.maxFuel;
-      refueled = true;
-      refuelCost = ECONOMY.refuelCost;
+  applyComplimentaryDockService(): { healed: number; refueled: boolean } {
+    const healed = this.missingHealth;
+    const refueled = this.missingFuel > 0;
+    if (healed > 0) {
+      this.health = this.maxHull;
+      this.loadout.refillConsumables();
+      if (this.maxShield > 0) this.shield = this.maxShield;
+      this.timeSinceDamage = Number.POSITIVE_INFINITY;
     }
-    return {
-      healed: repair.healed,
-      repairCost: repair.cost,
-      refueled,
-      refuelCost,
-    };
+    if (refueled) {
+      this.fuel = this.maxFuel;
+    }
+    return { healed, refueled };
   }
 
   spendCredits(amount: number): boolean {

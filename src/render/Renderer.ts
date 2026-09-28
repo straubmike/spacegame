@@ -271,14 +271,7 @@ export class Renderer {
         args.pointerY,
         args.ship.credits,
       );
-      args.dockedMenu.draw(
-        ctx,
-        args.pointerX,
-        args.pointerY,
-        args.ship.missingHealth,
-        args.ship.missingFuel,
-        args.ship.credits,
-      );
+      args.dockedMenu.draw(ctx, args.pointerX, args.pointerY);
     }
 
     if (args.fuelWarn) {

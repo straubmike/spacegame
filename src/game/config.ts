@@ -320,8 +320,9 @@ export const ECONOMY = {
   startingCredits: 100,
   /** Default / patrol tribute — encounter fee overrides when present. */
   pirateFee: 10,
+  /** Legacy — dock repair/refuel is complimentary (no charge). */
   repairCostPerHp: 1,
-  /** Flat credits to top off the tank at Repair & Refuel. */
+  /** Legacy — dock repair/refuel is complimentary (no charge). */
   refuelCost: 1,
   /** Credits paid per eliminated pirate when docking at any station. */
   redemptionPerPirate: 10,
@@ -412,9 +413,10 @@ export const BLACK_MARKET = {
 
 /**
  * Station dock menu variety (Must-have 10).
- * Repair + Missions are always on. Optional menus (bay / hangar / market /
- * black market) roll a seed-stable subset — higher counts are rarer; the full
- * optional set is rarest. Index 0 = Repair+Missions only (most common).
+ * Missions are always on; repair/refuel is complimentary on dock (no button).
+ * Optional menus (bay / hangar / market / black market) roll a seed-stable
+ * subset — higher counts are rarer; the full optional set is rarest.
+ * Index 0 = Missions only (most common).
  * `countWeights[k]` = relative weight for offering exactly k optional menus.
  */
 export const STATION_MENU_VARIETY = {
