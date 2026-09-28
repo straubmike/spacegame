@@ -10,6 +10,8 @@ export class Hud {
       maxFuel: number;
       cargoUsed: number;
       cargoCapacity: number;
+      passengerUsed?: number;
+      passengerCapacity?: number;
       credits: number;
       poiName: string;
       locationName: string;
@@ -21,6 +23,9 @@ export class Hud {
       inDerelict?: boolean;
       hasScoop?: boolean;
       derelictScoopHint?: boolean;
+      /** Pending explore mission at this POI — show hold-F survey hint. */
+      surveyScanHint?: boolean;
+      hasSurveyScanner?: boolean;
     },
   ): void {
     if (info.menuOpen) return;
@@ -56,6 +61,11 @@ export class Hud {
       ...(info.cargoCapacity > 0
         ? [`CU ${info.cargoUsed}/${info.cargoCapacity}`]
         : []),
+      ...((info.passengerCapacity ?? 0) > 0
+        ? [
+            `BR ${info.passengerUsed ?? 0}/${info.passengerCapacity ?? 0}`,
+          ]
+        : []),
       `CR ${info.credits}`,
     ];
 
@@ -74,6 +84,14 @@ export class Hud {
       y += 8;
       ctx.fillStyle = "rgba(220, 200, 150, 0.85)";
       ctx.fillText("Derelict · hold F to scoop cargo", pad, y);
+    } else if (info.surveyScanHint && info.hasSurveyScanner) {
+      y += 8;
+      ctx.fillStyle = "rgba(170, 210, 220, 0.85)";
+      ctx.fillText("Survey · hold F to scan", pad, y);
+    } else if (info.surveyScanHint && !info.hasSurveyScanner) {
+      y += 8;
+      ctx.fillStyle = "rgba(200, 160, 140, 0.85)";
+      ctx.fillText("Survey · need Survey Scanner", pad, y);
     }
 
     ctx.fillStyle = "rgba(150, 170, 200, 0.55)";

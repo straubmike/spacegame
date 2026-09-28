@@ -24,6 +24,7 @@ import type { MarketMenu } from "../ui/MarketMenu";
 import type { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import type { HangarMenu } from "../ui/HangarMenu";
 import type { ActiveMission } from "../ship/missions";
+import { occupiedPassengerBerths } from "../ship/missions";
 import type { ReputationListing } from "../ship/reputation";
 import type { Galaxy } from "../galaxy/Galaxy";
 
@@ -250,6 +251,8 @@ export class Renderer {
         maxFuel: args.ship.maxFuel,
         cargoUsed: args.ship.cargo.usedCu,
         cargoCapacity: args.ship.cargo.capacityCu,
+        passengerUsed: occupiedPassengerBerths(args.activeMissions),
+        passengerCapacity: args.ship.passengerCapacity,
         credits: args.ship.credits,
         poiName: args.local.poiName,
         locationName: args.local.locationName,
@@ -263,6 +266,13 @@ export class Renderer {
         derelictScoopHint: args.local.beltRocks?.some(
           (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
         ),
+        surveyScanHint: args.activeMissions.some(
+          (m) =>
+            m.kind === "explore" &&
+            !m.scanned &&
+            m.targetPoiId === args.local.poiId,
+        ),
+        hasSurveyScanner: args.ship.loadout.hasPoiScan,
       });
       args.messages.draw(ctx, w, h, args.pointerX, args.pointerY);
       args.stationMenu.draw(

@@ -739,8 +739,9 @@ export class ShipMenu {
   }
 
   /**
-   * Stations (non-zero) first, then factions (Pirates/Fuel Rats/Cartographers
-   * always; Rebels when revealed). Wheel-scrolls when the list overflows.
+   * Stations (non-zero) first, then factions (Pirates/Fuel Rats always;
+   * Rebels when revealed; Merchants Guild + Cartographers always).
+   * Wheel-scrolls when the list overflows.
    */
   private drawReputationBand(
     ctx: CanvasRenderingContext2D,
@@ -1285,7 +1286,10 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
     },
     {
       label: "Passengers",
-      text: `${mod.passengerCapacity}`,
+      text:
+        mod.passengerCapacity > 0
+          ? `${mod.passengerCapacity} berth${mod.passengerCapacity === 1 ? "" : "s"}`
+          : "—",
       value: mod.passengerCapacity,
     },
     {
@@ -1310,6 +1314,11 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       label: "Fuel scoop",
       text: mod.fuelScoop ? "Yes" : "—",
       value: mod.fuelScoop ? 1 : 0,
+    },
+    {
+      label: "POI survey",
+      text: mod.poiScan ? "Yes" : "—",
+      value: mod.poiScan ? 1 : 0,
     },
   ];
 }

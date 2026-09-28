@@ -72,6 +72,35 @@ export function stationBayStock(
     pickInto(stock, prospecting, 1 + (rng() < 0.55 ? 1 : 0), rng);
   }
 
+  // Bias: Survey Scanner so exploration contracts stay reachable (Must-have 6).
+  if (maxTier >= 1 && rng() < 0.72) {
+    if (!stock.some((m) => m.id === MODULES.surveyScanner.id)) {
+      stock.push(cloneModule(MODULES.surveyScanner));
+    }
+  }
+
+  // Bias: passenger berths so fare missions are reachable (1/2 common; 4 on hubs).
+  if (maxTier >= 1 && rng() < 0.7) {
+    const berths =
+      wealth === "outpost"
+        ? [MODULES.passengerBerth1, MODULES.passengerBerth2]
+        : wealth === "hub"
+          ? [
+              MODULES.passengerBerth1,
+              MODULES.passengerBerth2,
+              MODULES.passengerBerth4,
+            ]
+          : [
+              MODULES.passengerBerth1,
+              MODULES.passengerBerth2,
+              ...(maxTier >= 2 ? [MODULES.passengerBerth4] : []),
+            ];
+    const available = berths.filter((m) => m.tier <= maxTier);
+    const picks =
+      wealth === "hub" ? 1 + (rng() < 0.55 ? 1 : 0) : 1;
+    pickInto(stock, available, picks, rng);
+  }
+
   // Prefer at least one module at the station's max tier so shelves read progressive.
   ensureTopTierPresence(stock, maxTier, rng);
 
