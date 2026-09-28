@@ -1,11 +1,12 @@
 /**
- * Session reputation — per-station standings + pirate / Fuel Rats / Rebels factions.
+ * Session reputation — per-station standings + pirate / Fuel Rats /
+ * Cartographers / Rebels factions.
  *
  * Station ladder includes Violation between Unfriendly and Hostile.
- * Federations / guilds are design-only; merchants tariff is a stub.
+ * Merchants Guild tariff is still a stub; Cartographers visit bank is live.
  *
  * L-menu visibility:
- * - Pirates + Fuel Rats: always shown (even at 0)
+ * - Pirates + Fuel Rats + Cartographers: always shown (even at 0)
  * - Rebels: hidden until revealed (first fence of Sensitive Derelict Cargo, etc.)
  * - Stations: non-zero only
  */
@@ -22,6 +23,7 @@ export type StandingBand =
 
 export const PIRATE_FACTION_ID = "pirates";
 export const FUEL_RATS_FACTION_ID = "fuel_rats";
+export const CARTOGRAPHERS_FACTION_ID = "cartographers";
 export const REBELS_FACTION_ID = "rebels";
 
 /** Factions always listed on the L Reputation band (even Neutral 0). */
@@ -31,6 +33,7 @@ export const ALWAYS_VISIBLE_FACTIONS: readonly {
 }[] = [
   { id: PIRATE_FACTION_ID, label: "Pirates" },
   { id: FUEL_RATS_FACTION_ID, label: "Fuel Rats" },
+  { id: CARTOGRAPHERS_FACTION_ID, label: "Cartographers" },
 ];
 
 export interface ReputationFactionRow {
@@ -48,8 +51,8 @@ export interface ReputationStationRow {
 /** Payload for the L-menu Reputation band. */
 export interface ReputationListing {
   /**
-   * Always-visible factions first (Pirates, Fuel Rats), then revealed
-   * factions (Rebels), then guild stubs.
+   * Always-visible factions first (Pirates, Fuel Rats, Cartographers), then
+   * revealed factions (Rebels), then guild stubs (Merchants).
    */
   factions: ReputationFactionRow[];
   /** Only stations with non-zero standing. */
@@ -71,7 +74,8 @@ export function standingBand(score: number): StandingBand {
 }
 
 /**
- * Pirate / Fuel Rats / Rebels — no Violation band; fold that range into Unfriendly.
+ * Pirate / Fuel Rats / Cartographers / Rebels — no Violation band;
+ * fold that range into Unfriendly.
  */
 export function pirateStandingBand(score: number): StandingBand {
   if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
@@ -117,6 +121,7 @@ export class ReputationTracker {
   private readonly stationLabels = new Map<string, string>();
   private pirateStanding = 0;
   private fuelRatsStanding = 0;
+  private cartographersStanding = 0;
   private rebelsStanding = 0;
   /** Once true, Rebels stay on the L list even if standing returns to 0. */
   private rebelsRevealed = false;
@@ -131,6 +136,10 @@ export class ReputationTracker {
 
   fuelRatsRep(): number {
     return this.fuelRatsStanding;
+  }
+
+  cartographersRep(): number {
+    return this.cartographersStanding;
   }
 
   rebelsRep(): number {
@@ -165,6 +174,7 @@ export class ReputationTracker {
       label &&
       target !== PIRATE_FACTION_ID &&
       target !== FUEL_RATS_FACTION_ID &&
+      target !== CARTOGRAPHERS_FACTION_ID &&
       target !== REBELS_FACTION_ID
     ) {
       this.stationLabels.set(target, label);
@@ -179,6 +189,12 @@ export class ReputationTracker {
     if (target === FUEL_RATS_FACTION_ID) {
       this.fuelRatsStanding = clampStanding(this.fuelRatsStanding + delta);
       return this.fuelRatsStanding;
+    }
+    if (target === CARTOGRAPHERS_FACTION_ID) {
+      this.cartographersStanding = clampStanding(
+        this.cartographersStanding + delta,
+      );
+      return this.cartographersStanding;
     }
     if (target === REBELS_FACTION_ID) {
       this.rebelsStanding = clampStanding(this.rebelsStanding + delta);
@@ -196,6 +212,7 @@ export class ReputationTracker {
       label &&
       target !== PIRATE_FACTION_ID &&
       target !== FUEL_RATS_FACTION_ID &&
+      target !== CARTOGRAPHERS_FACTION_ID &&
       target !== REBELS_FACTION_ID
     ) {
       this.stationLabels.set(target, label);
@@ -207,6 +224,10 @@ export class ReputationTracker {
     }
     if (target === FUEL_RATS_FACTION_ID) {
       this.fuelRatsStanding = next;
+      return next;
+    }
+    if (target === CARTOGRAPHERS_FACTION_ID) {
+      this.cartographersStanding = next;
       return next;
     }
     if (target === REBELS_FACTION_ID) {
@@ -221,6 +242,7 @@ export class ReputationTracker {
   private readTarget(target: string): number {
     if (target === PIRATE_FACTION_ID) return this.pirateStanding;
     if (target === FUEL_RATS_FACTION_ID) return this.fuelRatsStanding;
+    if (target === CARTOGRAPHERS_FACTION_ID) return this.cartographersStanding;
     if (target === REBELS_FACTION_ID) return this.rebelsStanding;
     return this.stationStanding(target);
   }

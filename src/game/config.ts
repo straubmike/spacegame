@@ -326,6 +326,11 @@ export const ECONOMY = {
   refuelCost: 1,
   /** Credits paid per eliminated pirate when docking at any station. */
   redemptionPerPirate: 10,
+  /**
+   * Credits paid per newly visited POI when docking (Cartographer bank).
+   * Intentionally tiny vs pirate bounty.
+   */
+  cartographerCreditsPerVisit: 3,
   /** Bonus for completing a system pirate-clearance quest. */
   pirateQuestReward: 50,
 } as const;
@@ -510,7 +515,7 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate / Fuel Rats / Rebels factions.
+ * Reputation — stations + pirate / Fuel Rats / Cartographers / Rebels factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
@@ -545,6 +550,11 @@ export const REPUTATION = {
   fuelRatAbuse: -10,
   fuelRatGenuineRescue: 5,
   fuelRatMissionComplete: 12,
+  /**
+   * Cartographers — small standing per newly visited POI redeemed on dock.
+   * Credits: `ECONOMY.cartographerCreditsPerVisit`.
+   */
+  cartographerVisitRep: 1,
   /**
    * Rebels — revealed by fencing Sensitive Derelict Cargo on the Black Market.
    * Applied per CU sold (`rebelsSellDerelictCargo` × CU).

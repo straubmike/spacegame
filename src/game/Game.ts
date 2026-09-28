@@ -32,6 +32,7 @@ import type { MarketContext } from "../ship/economy";
 import {
   ALWAYS_VISIBLE_FACTIONS,
   applyBayDiscount,
+  CARTOGRAPHERS_FACTION_ID,
   formatStanding,
   FUEL_RATS_FACTION_ID,
   PIRATE_FACTION_ID,
@@ -180,11 +181,19 @@ export class Game {
   private readonly acceptedMissionIds = new Set<string>();
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
-  /** POIs the player has entered this session. */
+  /**
+   * POIs the player has entered this session (fog / chart catalog feed).
+   * Cartographer bank redeems newly visited ids not yet in claimedCartographerVisits.
+   */
   private readonly visitedPoiIds = new Set<number>();
+  /**
+   * Visited POIs already cashed in for Cartographer dock rewards.
+   * Start POI is pre-claimed so home does not pay out.
+   */
+  private readonly claimedCartographerVisits = new Set<number>();
   /** POIs scanned via exploration contracts. */
   private readonly scannedPoiIds = new Set<number>();
-  /** Per-station + pirate / Fuel Rat faction standing (session). */
+  /** Per-station + pirate / Fuel Rat / Cartographers / Rebels standing (session). */
   private readonly reputation = new ReputationTracker();
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
@@ -275,7 +284,9 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
+    // Home is visited but already "known" — do not bank Cartographer payout.
     this.visitedPoiIds.add(GALAXY.startPoiId);
+    this.claimedCartographerVisits.add(GALAXY.startPoiId);
     this.enterLocal();
 
     this.loop = new Loop(
@@ -817,6 +828,33 @@ export class Game {
   }
 
   /**
+   * Cash in newly visited POIs (visited catalog − already claimed).
+   * Same dock timing as pirate bounty redemption. Feeds fog visited set.
+   */
+  private redeemCartographerVisits(stationName: string): void {
+    const fresh: number[] = [];
+    for (const id of this.visitedPoiIds) {
+      if (this.claimedCartographerVisits.has(id)) continue;
+      fresh.push(id);
+    }
+    if (fresh.length === 0) return;
+
+    for (const id of fresh) this.claimedCartographerVisits.add(id);
+    const n = fresh.length;
+    const payout = n * ECONOMY.cartographerCreditsPerVisit;
+    const repDelta = n * REPUTATION.cartographerVisitRep;
+    this.ship.addCredits(payout);
+    this.messages.push(
+      `${stationName}: Cartographer data — ${n} new visit${n === 1 ? "" : "s"} (+${payout} cr).`,
+      "station",
+    );
+    if (repDelta !== 0) {
+      const next = this.reputation.adjust(CARTOGRAPHERS_FACTION_ID, repDelta);
+      this.pushRepChange("Cartographers", next, repDelta);
+    }
+  }
+
+  /**
    * One or more pirates left this frame. Credits kills separately;
    * clears the encounter slot when no ships remain.
    */
@@ -873,9 +911,16 @@ export class Game {
     }
   }
 
-  /** On arriving in a local view — complete explore scans when at the target POI. */
+  /** On arriving in a local view — bank visit + complete explore scans when at the target POI. */
   private checkExploreScanProgress(): void {
-    this.visitedPoiIds.add(this.local.poiId);
+    const poiId = this.local.poiId;
+    const firstVisit = !this.visitedPoiIds.has(poiId);
+    this.visitedPoiIds.add(poiId);
+    if (firstVisit && !this.claimedCartographerVisits.has(poiId)) {
+      this.messages.push(
+        "New system charted. Dock at any station to redeem Cartographer data.",
+      );
+    }
     for (const mission of this.activeMissions) {
       if (mission.kind !== "explore" || mission.scanned) continue;
       if (mission.targetPoiId !== this.local.poiId) continue;
@@ -1397,7 +1442,9 @@ export class Game {
             ? this.reputation.pirateRep()
             : f.id === FUEL_RATS_FACTION_ID
               ? this.reputation.fuelRatsRep()
-              : 0,
+              : f.id === CARTOGRAPHERS_FACTION_ID
+                ? this.reputation.cartographersRep()
+                : 0,
       }),
     );
     // Rebels stay hidden until revealed (e.g. fence Sensitive Derelict Cargo).
@@ -1408,10 +1455,8 @@ export class Game {
         score: this.reputation.rebelsRep(),
       });
     }
-    factions.push(
-      { id: "merchants", label: "Merchants guild", score: 0 },
-      { id: "cartographers", label: "Cartographers", score: 0 },
-    );
+    // Merchants Guild still a stub until faction-tagged missions land.
+    factions.push({ id: "merchants", label: "Merchants guild", score: 0 });
     return {
       factions,
       stations: this.reputation.nonzeroStations(),
@@ -2142,6 +2187,7 @@ export class Game {
     this.ship.y = station.y;
     this.projectiles = [];
     this.redeemPendingKills(station.name);
+    this.redeemCartographerVisits(station.name);
     this.tryCompleteCargoDelivery(station);
     this.syncExploreClaimableAtStation(station);
     const key =

@@ -739,8 +739,8 @@ export class ShipMenu {
   }
 
   /**
-   * Stations (non-zero) first, then factions (Pirates/Fuel Rats always;
-   * Rebels when revealed). Wheel-scrolls when the list overflows.
+   * Stations (non-zero) first, then factions (Pirates/Fuel Rats/Cartographers
+   * always; Rebels when revealed). Wheel-scrolls when the list overflows.
    */
   private drawReputationBand(
     ctx: CanvasRenderingContext2D,
