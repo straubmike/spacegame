@@ -362,13 +362,14 @@ export const BLACK_MARKET = {
 
 /**
  * Station dock menu variety (Must-have 10).
- * Repair is always on. Optional menus (bay / hangar / market / black market /
- * missions) roll a seed-stable subset — higher counts are rarer.
+ * Repair + Missions are always on. Optional menus (bay / hangar / market /
+ * black market) roll a seed-stable subset — higher counts are rarer; the full
+ * optional set is rarest. Index 0 = Repair+Missions only (most common).
  * `countWeights[k]` = relative weight for offering exactly k optional menus.
  */
 export const STATION_MENU_VARIETY = {
-  /** Index = optional-menu count. Index 0 unused; length must cover all five. */
-  countWeights: [0, 40, 28, 18, 10, 4] as const,
+  /** Index = optional-menu count (0..4 for bay/hangar/market/blackMarket). */
+  countWeights: [32, 28, 22, 13, 5] as const,
 } as const;
 
 /**

@@ -998,13 +998,7 @@ export class Game {
   }
 
   private openMissionBoard(station: Landmark): void {
-    const key =
-      this.currentStationKey(station) ??
-      `visit:${this.local.poiId}:${station.id}`;
-    if (!stationHasMenu(key, "missions")) {
-      this.messages.push("No mission board at this dock.", "station");
-      return;
-    }
+    // Missions is always-on (Must-have 10) — no stationHasMenu gate.
     this.dockedMenu.hide();
     this.marketMenuOpen = false;
     this.marketMenu.hide();

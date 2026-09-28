@@ -31,7 +31,7 @@ Then open the URL Vite prints (usually `http://localhost:5173`).
 | **Esc** | Close menus / cancel approach |
 | Click station | Context menu → hail / dock |
 
-While **docked**: **Repair** is always available; other menus (**Bay**, **Hangar**, **Market**, **Black Market**, **Missions**) vary by station — explore to find services.
+While **docked**: **Repair** and **Missions** are always available; **Bay**, **Hangar**, **Market**, and **Black Market** vary by station — explore to find specialty docks.
 
 ## Current prototype loop
 

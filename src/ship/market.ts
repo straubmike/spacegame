@@ -87,31 +87,37 @@ export class StationMarket {
   }
 }
 
-/** Service menus that may or may not appear at a station (Repair / Launch are fixed). */
+/**
+ * Always-on service menu (Repair / Launch are fixed in the dock UI, not rolled).
+ * Optional menus below are the rarity roll.
+ */
+export type AlwaysStationMenu = "missions";
+
+/** Service menus that may or may not appear at a station. */
 export type OptionalStationMenu =
   | "bay"
   | "hangar"
   | "market"
-  | "blackMarket"
-  | "missions";
+  | "blackMarket";
 
-/** Canonical order for dock UI layout. */
+export type StationServiceMenu = AlwaysStationMenu | OptionalStationMenu;
+
+/** Rollable specialty services — more of these = rarer. */
 export const OPTIONAL_STATION_MENUS: readonly OptionalStationMenu[] = [
   "bay",
   "hangar",
   "market",
   "blackMarket",
-  "missions",
 ];
 
-export type StationMenuSet = ReadonlySet<OptionalStationMenu>;
+export type StationMenuSet = ReadonlySet<StationServiceMenu>;
 
 const menuCache = new Map<string, StationMenuSet>();
 
 /**
- * Seed-stable optional menus for a station (Must-have 10).
- * Always returns at least one menu; full set is the rarest outcome.
- * Lives in market.ts (already on the boot import path) — no extra module.
+ * Seed-stable service menus for a station (Must-have 10).
+ * Always includes Missions. Optional bay/hangar/market/blackMarket are a
+ * weighted subset (0..all); full optional set is rarest.
  */
 export function rollStationMenus(stationKey: string): StationMenuSet {
   const cached = menuCache.get(stationKey);
@@ -124,27 +130,23 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
   const weights = STATION_MENU_VARIETY.countWeights;
   const maxCount = OPTIONAL_STATION_MENUS.length;
   let total = 0;
-  for (let k = 1; k <= maxCount; k += 1) {
+  for (let k = 0; k <= maxCount; k += 1) {
     total += weights[k] ?? 0;
   }
-  if (total <= 0) {
-    const idx = Math.floor(rng() * maxCount) % maxCount;
-    const alone: StationMenuSet = new Set([OPTIONAL_STATION_MENUS[idx]!]);
-    menuCache.set(stationKey, alone);
-    return alone;
-  }
 
-  let pick = rng() * total;
-  let count = 1;
-  for (let k = 1; k <= maxCount; k += 1) {
-    pick -= weights[k] ?? 0;
-    if (pick < 0) {
-      count = k;
-      break;
+  let count = 0;
+  if (total > 0) {
+    let pick = rng() * total;
+    for (let k = 0; k <= maxCount; k += 1) {
+      pick -= weights[k] ?? 0;
+      if (pick < 0) {
+        count = k;
+        break;
+      }
     }
+    if (pick >= 0) count = maxCount;
   }
-  if (pick >= 0) count = maxCount;
-  count = Math.max(1, Math.min(maxCount, count));
+  count = Math.max(0, Math.min(maxCount, count));
 
   const pool = OPTIONAL_STATION_MENUS.slice();
   for (let i = pool.length - 1; i > 0; i -= 1) {
@@ -154,15 +156,19 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     pool[j] = tmp;
   }
 
-  const result: StationMenuSet = new Set(pool.slice(0, count));
+  const result: StationMenuSet = new Set<StationServiceMenu>([
+    "missions",
+    ...pool.slice(0, count),
+  ]);
   menuCache.set(stationKey, result);
   return result;
 }
 
 export function stationHasMenu(
   stationKey: string,
-  menu: OptionalStationMenu,
+  menu: StationServiceMenu,
 ): boolean {
+  if (menu === "missions") return true;
   return rollStationMenus(stationKey).has(menu);
 }
 

@@ -32,8 +32,8 @@ const MENU_ORDER: readonly ServiceMenu[] = [
 
 /**
  * Shown while the player is docked at a station.
- * Contracts live under Missions (including pirate clearance).
- * Optional service buttons come from the station's rolled menu set.
+ * Repair + Missions are always available; Bay / Hangar / Market / Black Market
+ * come from the station's rolled optional set.
  */
 export class DockedMenu {
   open = false;
