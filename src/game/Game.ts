@@ -2601,7 +2601,7 @@ export class Game {
       this.scoopProgress = 0;
       if (this.scoopHintCooldown <= 0) {
         this.messages.push(
-          "Scoop: Fly to the marked debris (circle) and hold F.",
+          "Scoop: Fly to the marked debris (circle).",
         );
         this.scoopHintCooldown = 3.5;
       }
@@ -2798,7 +2798,10 @@ export class Game {
     }
 
     if (this.strandedPilot?.alive) {
-      this.strandedPilot.update(dt);
+      this.strandedPilot.update(dt, this.ship.x, this.ship.y);
+      if (this.strandedPilot.warpedAway) {
+        this.strandedPilot = null;
+      }
     }
 
     if (this.fuelRat && this.fuelRat.alive) {
@@ -2901,7 +2904,7 @@ export class Game {
   /** Left-click stranded pilot → donate fuel for nearest-station reach. */
   private tryHelpStrandedPilot(worldX: number, worldY: number): boolean {
     const pilot = this.strandedPilot;
-    if (!pilot?.alive) return false;
+    if (!pilot?.canHelp) return false;
     const hitR = pilot.radius + DOCK.clickPad;
     if (Math.hypot(worldX - pilot.x, worldY - pilot.y) > hitR) return false;
 
@@ -2921,8 +2924,8 @@ export class Game {
     }
     if (!this.ship.consumeFuel(needed)) return true;
 
-    pilot.helped = true;
-    this.strandedPilot = null;
+    // Scoot off then hyperspace (pirate escape pathing) — don't vanish instantly.
+    pilot.beginDepart();
     this.messages.push(
       `Stranded: Bless you — ${needed} fuel should get me to ${reach.target.poiName}.`,
       "station",
@@ -3696,6 +3699,11 @@ export class Game {
 
     if (result.action === "buy") {
       if (listing.playerBuyPrice === null) return;
+      // Sensitive Derelict Cargo is sell-only (Rebels fence kickoff).
+      if (listing.commodityId === ABANDONED_DERELICT_CARGO_ID) {
+        this.messages.push(`${label}: That lot is fence-only — not for sale.`, "station");
+        return;
+      }
       const cost = listing.playerBuyPrice * result.cu;
       if (result.cu > listing.stock) {
         this.messages.push(`${label}: Not enough stock.`, "station");

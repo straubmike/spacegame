@@ -199,7 +199,12 @@ export class ShipMenu {
     const listY = panel.y + (this.mode === "bay" ? 64 : 52);
     const listW = this.mode === "bay" ? 150 : 148;
     const rowH = 40;
-    const footerY = panel.y + panel.h - 50;
+    // Distress + Close live at the bottom of the left (modules) column.
+    const btnH = 36;
+    const btnGap = 8;
+    const leftBtnStack =
+      this.mode === "view" ? btnH * 2 + btnGap : btnH;
+    const footerY = panel.y + panel.h - 16 - leftBtnStack - 10;
     this.missionCancelBtns = [];
     this.cargoRows = [];
     this.confirmYesBtn = { x: 0, y: 0, w: 0, h: 0 };
@@ -306,17 +311,17 @@ export class ShipMenu {
     }
 
     this.closeBtn = {
-      x: panel.x + panel.w - 120,
-      y: footerY,
-      w: 88,
-      h: 36,
+      x: listX,
+      y: panel.y + panel.h - 16 - btnH,
+      w: listW,
+      h: btnH,
     };
     if (this.mode === "view") {
       this.distressBtn = {
-        x: panel.x + 24,
-        y: footerY,
-        w: 148,
-        h: 36,
+        x: listX,
+        y: this.closeBtn.y - btnGap - btnH,
+        w: listW,
+        h: btnH,
       };
       drawButton(ctx, this.distressBtn, "Distress signal", {
         hover: !this.missionConfirm && hit(this.distressBtn, pointerX, pointerY),

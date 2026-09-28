@@ -34,7 +34,8 @@ export const COMMODITIES: Commodity[] = [
   { id: "organs", name: "Organs", basePrice: 62, illegal: true },
   /**
    * Abandoned Retrieve Derelict Cargo lot — not stolen; Black Market fence only.
-   * Selling reveals / boosts Rebels faction standing.
+   * Sell-only (never buyable); row appears only when the player is carrying it.
+   * Selling reveals / boosts Rebels faction standing (future Rebels path kickoff).
    */
   {
     id: "sensitive_derelict_cargo",
@@ -350,6 +351,26 @@ export function createBlackMarket(
   const listings: MarketListing[] = [];
 
   for (const c of ILLEGAL_COMMODITIES) {
+    // Sensitive Derelict Cargo: sell-only fence row — no buy, no market gloss.
+    // Visibility is gated in MarketMenu (only when the player holds it).
+    if (c.id === "sensitive_derelict_cargo") {
+      const mid = Math.max(
+        1,
+        Math.round(c.basePrice * (1 + BLACK_MARKET.pricePremium)),
+      );
+      const spread = Math.max(2, Math.round(mid * BLACK_MARKET.spreadFraction));
+      listings.push({
+        commodityId: c.id,
+        name: c.name,
+        playerBuyPrice: null,
+        playerSellPrice: Math.max(1, mid - Math.max(1, Math.round(spread * 0.55))),
+        stock: 0,
+        demand: Math.max(8, BLACK_MARKET.baseDemand),
+        priceReason: "quiet market",
+      });
+      continue;
+    }
+
     const bias = biases.effective[c.id] ?? 0;
     const reason = priceReasonFor(c.id, biases.local, biases.neighbor);
     const noise = 1 + (rng() * 2 - 1) * BLACK_MARKET.noiseAmplitude;

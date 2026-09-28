@@ -156,7 +156,7 @@ export function missionStatusLine(mission: ActiveMission): string {
     if (mission.scanned || mission.status === "readyToClaim") {
       return `Cargo secured — return to ${mission.originStationName}`;
     }
-    return `Scoop cargo at ${mission.targetPoiName ?? "derelict"} (hold F)`;
+    return `Scoop cargo at ${mission.targetPoiName ?? "derelict"}`;
   }
   if (mission.kind === "distressAnswer") {
     const where =
