@@ -5,6 +5,8 @@
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
  *   (cancel at A's Missions board → cargo returned; cancel elsewhere → stolen;
  *    reputation hit on steal later). Faction-tagged **Merchants Guild**.
+ * - passenger: accept at A (free berths ≥ party) → occupy berths → deliver at B → paid at B
+ *   Long-range preferred; ~10% pirate intercept on pre-destination jumps (Game).
  * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim.
  *   Faction-tagged **Cartographers**.
  * - derelictCargo: accept at A (needs Cargo Scoop + ≥1 free CU) → scoop Sensitive
@@ -15,10 +17,6 @@
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
- *
- * Passenger fares (design only until berth utility ships):
- * - require passengerCapacity berths; pickup A → deliver B across multi-jump range
- * - payouts higher than cargo of similar distance/risk; berths ≠ CU
  */
 
 import { ECONOMY, GALAXY, QUEST } from "../game/config";
@@ -33,6 +31,7 @@ import { hashStationKey } from "./stationKey";
 
 export type MissionKind =
   | "cargo"
+  | "passenger"
   | "explore"
   | "derelictCargo"
   | "clearance"
@@ -58,6 +57,8 @@ export interface MissionOffer {
   commodityId?: string;
   commodityName?: string;
   cu?: number;
+  /** Passenger fare party size (berths occupied, not CU). */
+  passengers?: number;
   destStationKey?: string;
   destStationName?: string;
   destPoiId?: number;
@@ -137,6 +138,10 @@ export function missionStatusLine(mission: ActiveMission): string {
   if (mission.kind === "cargo") {
     return `Deliver to ${mission.destStationName ?? "destination"}`;
   }
+  if (mission.kind === "passenger") {
+    const n = mission.passengers ?? 0;
+    return `Deliver ${n} passenger${n === 1 ? "" : "s"} to ${mission.destStationName ?? "destination"}`;
+  }
   if (mission.kind === "clearance") {
     if (mission.status === "readyToClaim") {
       return `Clearance complete — claim at ${mission.originStationName}`;
@@ -165,6 +170,25 @@ export function missionStatusLine(mission: ActiveMission): string {
   return `Travel to ${mission.targetPoiName ?? "target"} and scan`;
 }
 
+/** Berths occupied by active passenger fare contracts. */
+export function occupiedPassengerBerths(
+  missions: readonly ActiveMission[],
+): number {
+  let n = 0;
+  for (const m of missions) {
+    if (m.kind === "passenger") n += m.passengers ?? 0;
+  }
+  return n;
+}
+
+/** Free berths remaining after active fares. */
+export function freePassengerBerths(
+  capacity: number,
+  missions: readonly ActiveMission[],
+): number {
+  return Math.max(0, capacity - occupiedPassengerBerths(missions));
+}
+
 /**
  * Chart POI ids that are active quest destinations (or return-to-claim origins).
  */
@@ -177,7 +201,10 @@ export function questChartPoiIds(missions: readonly ActiveMission[]): Set<number
       } else if (m.targetPoiId !== undefined) {
         ids.add(m.targetPoiId);
       }
-    } else if (m.kind === "cargo" && m.destPoiId !== undefined) {
+    } else if (
+      (m.kind === "cargo" || m.kind === "passenger") &&
+      m.destPoiId !== undefined
+    ) {
       ids.add(m.destPoiId);
     } else if (
       (m.kind === "clearance" || m.kind === "distressAnswer") &&
@@ -233,6 +260,11 @@ export function generateStationMissions(
     const derelict = makeDerelictCargoOffer(galaxy, station, rng, 0);
     if (derelict) offers.push(derelict);
   }
+  // Long-range passenger fares — accept gated on free berths in Game.
+  if (rng() < 0.75) {
+    const fare = makePassengerOffer(galaxy, station, rng, 0);
+    if (fare) offers.push(fare);
+  }
 
   const distress = makeDistressAnswerOffer(galaxy, station, rng);
   if (distress) offers.push(distress);
@@ -259,23 +291,34 @@ export function generateStationReplenishmentOffer(
   // Index band above the initial board's 0–1 slots so offer ids stay unique.
   const index = 1000 + refillIndex;
   const roll = rng();
-  if (roll < 0.4) {
+  if (roll < 0.3) {
     return (
       makeCargoOffer(galaxy, station, rng, index) ??
+      makePassengerOffer(galaxy, station, rng, index) ??
       makeDerelictCargoOffer(galaxy, station, rng, index) ??
       makeExploreOffer(galaxy, station, rng, index)
     );
   }
-  if (roll < 0.7) {
+  if (roll < 0.55) {
+    return (
+      makePassengerOffer(galaxy, station, rng, index) ??
+      makeCargoOffer(galaxy, station, rng, index) ??
+      makeExploreOffer(galaxy, station, rng, index) ??
+      makeDerelictCargoOffer(galaxy, station, rng, index)
+    );
+  }
+  if (roll < 0.8) {
     return (
       makeDerelictCargoOffer(galaxy, station, rng, index) ??
       makeExploreOffer(galaxy, station, rng, index) ??
+      makePassengerOffer(galaxy, station, rng, index) ??
       makeCargoOffer(galaxy, station, rng, index)
     );
   }
   return (
     makeExploreOffer(galaxy, station, rng, index) ??
     makeDerelictCargoOffer(galaxy, station, rng, index) ??
+    makePassengerOffer(galaxy, station, rng, index) ??
     makeCargoOffer(galaxy, station, rng, index)
   );
 }
@@ -345,6 +388,53 @@ function makeCargoOffer(
     commodityId: commodity.id,
     commodityName: commodity.name,
     cu,
+    destStationKey: dest.key,
+    destStationName: destLabel,
+    destPoiId: dest.poiId,
+    destBodyId: dest.bodyId,
+  };
+}
+
+/**
+ * Long-range passenger fare — occupy berths (not CU) until delivery.
+ * Party size is 1 / 2 / 4 to match berth module marks.
+ */
+function makePassengerOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+  index: number,
+): MissionOffer | null {
+  const dest = pickPassengerDestination(galaxy, origin, rng);
+  if (!dest) return null;
+
+  const sizes = QUEST.passengerPartySizes;
+  const passengers = sizes[(rng() * sizes.length) | 0]!;
+  const originPoi = galaxy.get(origin.poiId);
+  const destPoi = galaxy.get(dest.poiId);
+  const dist = galaxy.distance(originPoi, destPoi);
+  const jumpsHint = Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const reward =
+    QUEST.passengerBaseReward +
+    passengers * QUEST.passengerPerBerth +
+    Math.round(dist * QUEST.passengerPerDistance);
+
+  const destLabel = `${dest.name} (${destPoi.name})`;
+  const partyLabel =
+    passengers === 1
+      ? "1 passenger"
+      : `${passengers} passengers`;
+
+  return {
+    id: `passenger:${origin.key}:${index}`,
+    kind: "passenger",
+    title: `Fare: ${partyLabel}`,
+    blurb: `Deliver to ${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs ${passengers} free berth${passengers === 1 ? "" : "s"}.`,
+    reward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    passengers,
     destStationKey: dest.key,
     destStationName: destLabel,
     destPoiId: dest.poiId,
@@ -548,6 +638,39 @@ function pickCargoDestination(
   // Soft preference for nearer destinations.
   candidates.sort((a, b) => a.dist - b.dist);
   const pool = candidates.slice(0, Math.min(12, candidates.length));
+  return pool[(rng() * pool.length) | 0]!.station;
+}
+
+/**
+ * Prefer other-system stations at least ~1 jump-range away (long-haul fares).
+ */
+function pickPassengerDestination(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+): SystemStationRef | null {
+  const originPoi = galaxy.get(origin.poiId);
+  const minDist = GALAXY.jumpRange * QUEST.passengerMinJumpRanges;
+  const maxDist = GALAXY.jumpRange * QUEST.passengerMaxJumpRanges;
+  const longHaul: { station: SystemStationRef; dist: number }[] = [];
+  const fallback: { station: SystemStationRef; dist: number }[] = [];
+
+  for (const poi of galaxy.pois) {
+    if (poi.type !== "starSystem" || poi.id === origin.poiId) continue;
+    const dist = galaxy.distance(originPoi, poi);
+    if (dist > maxDist) continue;
+    for (const s of listSystemStations(galaxy, poi.id)) {
+      const row = { station: s, dist };
+      if (dist >= minDist) longHaul.push(row);
+      else fallback.push(row);
+    }
+  }
+
+  const poolSrc = longHaul.length > 0 ? longHaul : fallback;
+  if (poolSrc.length === 0) return null;
+  // Prefer farther end of the long-haul band so planning matters.
+  poolSrc.sort((a, b) => b.dist - a.dist);
+  const pool = poolSrc.slice(0, Math.min(14, poolSrc.length));
   return pool[(rng() * pool.length) | 0]!.station;
 }
 

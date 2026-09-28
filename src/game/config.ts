@@ -426,8 +426,8 @@ export const STATION_MENU_VARIETY = {
 
 /**
  * Station mission board (non-combat) — cargo transit, exploration scans,
- * and Retrieve Derelict Cargo (scoop at derelict POI).
- * Passenger fares need Passenger Berth equipped (Must-have 5–6).
+ * Retrieve Derelict Cargo, and passenger fares (berths, not CU).
+ * Passenger fares need a Passenger Berth equipped (Must-have 5–6).
  */
 export const QUEST = {
   /** Max concurrent accepted board missions. */
@@ -448,12 +448,20 @@ export const QUEST = {
   derelictCargoPerDistance: 1.8,
   derelictCargoMaxJumpRanges: 2.5,
   /**
-   * Passenger fare design hooks (unused until berths equip):
-   * payouts should beat cargo of similar distance; require passengerCapacity.
+   * Passenger fares — berths (not CU); payouts beat cargo of similar distance.
+   * Party sizes match berth module marks (1 / 2 / 4).
    */
+  passengerPartySizes: [1, 2, 4] as const,
   passengerBaseReward: 70,
   passengerPerBerth: 20,
   passengerPerDistance: 2.4,
+  /** Prefer destinations at least this many jump-ranges away (long-haul). */
+  passengerMinJumpRanges: 1.05,
+  passengerMaxJumpRanges: 2.8,
+  /** Chance pirates intercept on a jump that is not the final fare arrival. */
+  passengerInterceptChance: 0.1,
+  /** Seconds of taunt before intercept pack goes hostile (no fee demand). */
+  passengerInterceptAggroSeconds: 2.5,
   /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
   distressAnswerBaitChance: 0.4,
   /** Seconds of bait taunt before aggro (no fee demand). */

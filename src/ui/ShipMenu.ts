@@ -1286,7 +1286,10 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
     },
     {
       label: "Passengers",
-      text: `${mod.passengerCapacity}`,
+      text:
+        mod.passengerCapacity > 0
+          ? `${mod.passengerCapacity} berth${mod.passengerCapacity === 1 ? "" : "s"}`
+          : "—",
       value: mod.passengerCapacity,
     },
     {

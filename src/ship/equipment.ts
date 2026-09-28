@@ -562,14 +562,57 @@ export const MODULES = {
     fuelScoop: false,
   } satisfies UtilityModule,
 
-  passengerBerth: {
+  /** 1-berth starter cabin — common on outpost shelves. */
+  passengerBerth1: {
     kind: "utility",
-    id: "passenger_berth",
-    name: "Passenger Berth",
+    id: "passenger_berth_1",
+    name: "Single Berth",
     blurb:
-      "Cabin space for paying travelers (berths, not CU). Required to accept passenger fare contracts.",
-    price: 90,
+      "One passenger bunk (not CU). Required to accept fare contracts that fit free berths.",
+    price: 55,
     tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 1,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+  } satisfies UtilityModule,
+
+  /** 2-berth cabin — standard station stock. */
+  passengerBerth2: {
+    kind: "utility",
+    id: "passenger_berth_2",
+    name: "Twin Berth",
+    blurb:
+      "Two passenger bunks (not CU). Accept fares whose party fits free berths.",
+    price: 80,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 2,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+  } satisfies UtilityModule,
+
+  /** 4-berth cabin — mid-tier / hub shelves. */
+  passengerBerth4: {
+    kind: "utility",
+    id: "passenger_berth_4",
+    name: "Quad Berth",
+    blurb:
+      "Four passenger bunks (not CU). Unlocks larger long-range fare parties.",
+    price: 120,
+    tier: 2,
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
@@ -696,7 +739,9 @@ export const CATALOG: EquipModule[] = [
   MODULES.dualLattice,
   MODULES.oreScanner,
   MODULES.cargoScoop,
-  MODULES.passengerBerth,
+  MODULES.passengerBerth1,
+  MODULES.passengerBerth2,
+  MODULES.passengerBerth4,
   MODULES.prospectingRig,
   MODULES.fuelScoop,
   MODULES.expandedFuelTank,
