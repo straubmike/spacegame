@@ -122,9 +122,12 @@ export class MarketMenu {
     const rowH = this.rowH;
     const visibleH = footerY - listTop - 8;
     // Sensitive Derelict Cargo is sell-only and only listed when carried.
-    const listings = this.market.listings.filter((l) =>
-      visibleBlackMarketListing(l, cargo),
-    );
+    const listings =
+      this.title === "Black Market"
+        ? this.market.listings.filter((l) =>
+            visibleBlackMarketListing(l, cargo),
+          )
+        : this.market.listings;
     this.listRect = {
       x: panel.x + 8,
       y: listTop,

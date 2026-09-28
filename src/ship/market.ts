@@ -330,7 +330,12 @@ export function createStationMarket(
 
 /**
  * Seeded black-market book — illegal commodities only, premium prices.
- * Always stocks + buys every illegal line so testing / fence routes stay reliable.
+ *
+ * Strong surplus / shortage → one-way books (cheap buy / strong sell) so
+ * route smuggling beats legal haul margins. Quiet docks stay two-way with
+ * spread so same-station flips still lose.
+ *
+ * Sensitive Derelict Cargo is sell-only / not a surplus–shortage route good.
  */
 export function createBlackMarket(
   stationKey: string,
@@ -363,7 +368,10 @@ export function createBlackMarket(
         commodityId: c.id,
         name: c.name,
         playerBuyPrice: null,
-        playerSellPrice: Math.max(1, mid - Math.max(1, Math.round(spread * 0.55))),
+        playerSellPrice: Math.max(
+          1,
+          mid - Math.max(1, Math.round(spread * BLACK_MARKET.twoWaySellSpreadFactor)),
+        ),
         stock: 0,
         demand: Math.max(8, BLACK_MARKET.baseDemand),
         priceReason: "quiet market",
@@ -372,6 +380,7 @@ export function createBlackMarket(
     }
 
     const bias = biases.effective[c.id] ?? 0;
+    const local = biases.local[c.id] ?? 0;
     const reason = priceReasonFor(c.id, biases.local, biases.neighbor);
     const noise = 1 + (rng() * 2 - 1) * BLACK_MARKET.noiseAmplitude;
     const mid = Math.max(
@@ -379,31 +388,67 @@ export function createBlackMarket(
       Math.round(
         c.basePrice *
           (1 + BLACK_MARKET.pricePremium) *
-          (1 - bias * MARKET.biasStrength * 0.65) *
+          (1 - bias * BLACK_MARKET.biasStrength) *
           noise,
       ),
     );
 
-    const spread = Math.max(2, Math.round(mid * BLACK_MARKET.spreadFraction));
-    const playerBuyPrice = mid + spread;
-    const playerSellPrice = Math.max(1, mid - Math.max(1, Math.round(spread * 0.55)));
+    // Mirror legal one-way signals so surplus dumps and shortage sinks read.
+    const surplus = bias >= BLACK_MARKET.surplusThreshold;
+    const shortage = bias <= -BLACK_MARKET.shortageThreshold;
 
-    const stock = Math.max(
-      8,
-      Math.round(
-        BLACK_MARKET.baseStock +
-          Math.max(0, bias) * BLACK_MARKET.stockBiasScale +
-          rng() * 10,
-      ),
-    );
-    const demand = Math.max(
-      8,
-      Math.round(
-        BLACK_MARKET.baseDemand +
-          Math.max(0, -bias) * BLACK_MARKET.demandBiasScale +
-          rng() * 10,
-      ),
-    );
+    let sells = false;
+    let buys = false;
+    if (surplus || local >= 0.2) {
+      sells = true;
+      buys = false;
+    } else if (shortage || local <= -0.2) {
+      buys = true;
+      sells = false;
+    } else {
+      // Quiet BM: always two-way so the line stays present; spread eats flips.
+      sells = true;
+      buys = true;
+    }
+
+    let playerBuyPrice: number | null = null;
+    let playerSellPrice: number | null = null;
+
+    if (sells && buys) {
+      const spread = Math.max(2, Math.round(mid * BLACK_MARKET.spreadFraction));
+      playerBuyPrice = mid + spread;
+      playerSellPrice = Math.max(
+        1,
+        mid - Math.max(1, Math.round(spread * BLACK_MARKET.twoWaySellSpreadFactor)),
+      );
+    } else if (sells) {
+      // Surplus dump: player buys near the depressed mid.
+      playerBuyPrice = Math.max(1, mid);
+    } else {
+      // Shortage sink: station pays near the elevated mid.
+      playerSellPrice = Math.max(1, mid);
+    }
+
+    const stock = sells
+      ? Math.max(
+          8,
+          Math.round(
+            BLACK_MARKET.baseStock +
+              Math.max(0, bias) * BLACK_MARKET.stockBiasScale +
+              rng() * 10,
+          ),
+        )
+      : 0;
+    const demand = buys
+      ? Math.max(
+          8,
+          Math.round(
+            BLACK_MARKET.baseDemand +
+              Math.max(0, -bias) * BLACK_MARKET.demandBiasScale +
+              rng() * 10,
+          ),
+        )
+      : 0;
 
     listings.push({
       commodityId: c.id,
@@ -412,7 +457,7 @@ export function createBlackMarket(
       playerSellPrice,
       stock,
       demand,
-      priceReason: reason === "quiet market" ? "local specialty" : reason,
+      priceReason: reason,
     });
   }
 

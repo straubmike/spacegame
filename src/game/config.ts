@@ -446,17 +446,32 @@ export const MARKET = {
  * Black market (Must-have 9) — illegal cargo only; stripped from main Market.
  * Risk pairs with Must-have 11 patrol scan (fee above these rates).
  * Availability is rolled with other dock menus (Must-have 10).
+ *
+ * Margin intent (route smuggling, not local flips):
+ * - Clear illegal surplus→shortage: ~25–45 cr/CU (beats legal ~7–15).
+ * - Specialty extremes (e.g. organs gas-giant dump) can run higher.
+ * - Same-station two-way books still lose to the spread.
  */
 export const BLACK_MARKET = {
   /** Mid-price markup vs commodity base (player pays more / risks more). */
   pricePremium: 0.55,
-  /** Wider buy/sell spread than legal markets. */
-  spreadFraction: 0.18,
-  noiseAmplitude: 0.07,
+  /**
+   * How hard bias moves BM mid-price.
+   * Own strength (not diluted vs legal) so surplus→shortage clears a fat route margin.
+   */
+  biasStrength: 0.42,
+  /** Half-spread for two-way (quiet) BM books — same-station flips lose. */
+  spreadFraction: 0.16,
+  /** Sell-side of two-way spread as a fraction of the buy-side half-spread. */
+  twoWaySellSpreadFactor: 0.55,
+  noiseAmplitude: 0.06,
+  /** One-way dump/import thresholds (aligned with legal readability). */
+  surplusThreshold: 0.32,
+  shortageThreshold: 0.32,
   baseStock: 14,
   baseDemand: 16,
-  stockBiasScale: 18,
-  demandBiasScale: 20,
+  stockBiasScale: 22,
+  demandBiasScale: 24,
 } as const;
 
 /**
