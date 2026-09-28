@@ -518,7 +518,7 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate / Fuel Rats / Rebels factions.
+ * Reputation — stations + pirate / Fuel Rats / Rebels / guild factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
  * See docs/reputation-system.md in the project Context store.
  */
@@ -558,6 +558,10 @@ export const REPUTATION = {
    * Applied per CU sold (`rebelsSellDerelictCargo` × CU).
    */
   rebelsSellDerelictCargo: 10,
+  /** Merchants Guild — complete cargo-haul mission (plus station Δ). */
+  merchantsHaulComplete: 8,
+  /** Cartographers — complete scan / exploration mission (plus station Δ). */
+  cartographersScanComplete: 8,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
