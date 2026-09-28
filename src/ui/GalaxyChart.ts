@@ -143,7 +143,7 @@ export class GalaxyChart {
       const sel = galaxy.get(this.selectedId);
       const dist = galaxy.distance(current, sel);
       canJump = this.selectedId !== currentId && dist <= jumpRange;
-      const questTag = hints.questPoiIds.has(this.selectedId) ? "  ·  quest" : "";
+      const questTag = hints.questPoiIds.has(this.selectedId) ? "  ·  mission" : "";
       const knownTag =
         !canJump &&
         this.selectedId !== currentId &&
