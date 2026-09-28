@@ -7,6 +7,8 @@
  *    reputation hit on steal later)
  * - explore: accept at A → visit/scan target POI → return to A → claim pay
  * - clearance: accept at giver → clear system pirates → return → claim pay
+ * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
+ *   stranded (rep only) or fight pirate bait (no reward)
  *
  * Passenger fares (design only until berth utility ships):
  * - require passengerCapacity berths; pickup A → deliver B across multi-jump range
@@ -15,13 +17,18 @@
 
 import { ECONOMY, GALAXY, QUEST } from "../game/config";
 import { listSystemStations, type SystemStationRef } from "../galaxy/pirates";
+import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
 import { hash2, mulberry32 } from "../galaxy/rng";
+import { FUEL_RAT_FACTION_ID } from "./reputation";
 import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
-export type MissionKind = "cargo" | "explore" | "clearance";
+export type MissionKind = "cargo" | "explore" | "clearance" | "distressAnswer";
+
+/** Rolled when the player arrives at a Fuel Rat distress site. */
+export type DistressAnswerOutcome = "stranded" | "bait";
 
 export interface MissionOffer {
   id: string;
@@ -33,6 +40,9 @@ export interface MissionOffer {
   originStationKey: string;
   originStationName: string;
   originPoiId: number;
+  /** Faction section on the board (Fuel Rats, …). */
+  factionId?: string;
+  factionLabel?: string;
   /** Cargo freight. */
   commodityId?: string;
   commodityName?: string;
@@ -41,12 +51,17 @@ export interface MissionOffer {
   destStationName?: string;
   destPoiId?: number;
   destBodyId?: number;
-  /** Exploration / clearance target POI (chart highlight). */
+  /** Exploration / clearance / distress-answer target POI (chart highlight). */
   targetPoiId?: number;
   targetPoiName?: string;
   targetPoiType?: PoiType;
+  /** Distress-answer: body within a star system (null = whole non-system POI). */
+  targetBodyId?: number | null;
+  targetBodyName?: string;
   /** Clearance: pirate view keys to clear. */
   pirateTargets?: string[];
+  /** Distress-answer: seeded outcome once the site is visited. */
+  distressOutcome?: DistressAnswerOutcome;
 }
 
 export type ActiveMissionStatus = "inProgress" | "readyToClaim";
@@ -107,6 +122,13 @@ export function missionStatusLine(mission: ActiveMission): string {
       ? `Return to ${mission.originStationName} to claim`
       : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
   }
+  if (mission.kind === "distressAnswer") {
+    const where =
+      mission.targetBodyName ??
+      mission.targetPoiName ??
+      "distress site";
+    return `Answer distress at ${where}`;
+  }
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
   }
@@ -127,11 +149,28 @@ export function questChartPoiIds(missions: readonly ActiveMission[]): Set<number
       }
     } else if (m.kind === "cargo" && m.destPoiId !== undefined) {
       ids.add(m.destPoiId);
-    } else if (m.kind === "clearance" && m.targetPoiId !== undefined) {
+    } else if (
+      (m.kind === "clearance" || m.kind === "distressAnswer") &&
+      m.targetPoiId !== undefined
+    ) {
       ids.add(m.targetPoiId);
     }
   }
   return ids;
+}
+
+/** True when this local view matches a distress-answer destination. */
+export function distressAnswerMatchesView(
+  mission: ActiveMission,
+  poiId: number,
+  bodyId: number | null,
+): boolean {
+  if (mission.kind !== "distressAnswer") return false;
+  if (mission.targetPoiId !== poiId) return false;
+  if (mission.targetBodyId === undefined || mission.targetBodyId === null) {
+    return bodyId === null;
+  }
+  return mission.targetBodyId === bodyId;
 }
 
 /**
@@ -159,6 +198,9 @@ export function generateStationMissions(
     const explore = makeExploreOffer(galaxy, station, rng, i);
     if (explore) offers.push(explore);
   }
+
+  const distress = makeDistressAnswerOffer(galaxy, station, rng);
+  if (distress) offers.push(distress);
 
   return offers;
 }
@@ -262,6 +304,102 @@ function makeCargoOffer(
     destPoiId: dest.poiId,
     destBodyId: dest.bodyId,
   };
+}
+
+function makeDistressAnswerOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+): MissionOffer | null {
+  const dest = pickDistressAnswerDestination(galaxy, origin.poiId, rng);
+  if (!dest) return null;
+
+  const originPoi = galaxy.get(origin.poiId);
+  const destPoi = galaxy.get(dest.poiId);
+  const dist = galaxy.distance(originPoi, destPoi);
+  const jumpsHint = Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const where =
+    dest.bodyName && dest.bodyName !== destPoi.name
+      ? `${dest.bodyName} (${destPoi.name})`
+      : destPoi.name;
+
+  return {
+    id: `distressAnswer:${origin.key}`,
+    kind: "distressAnswer",
+    title: "Answer distress signal",
+    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Expanded Fuel Tank · rep only.`,
+    reward: 0,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    factionId: FUEL_RAT_FACTION_ID,
+    factionLabel: "Fuel Rats",
+    targetPoiId: dest.poiId,
+    targetPoiName: destPoi.name,
+    targetPoiType: destPoi.type,
+    targetBodyId: dest.bodyId,
+    targetBodyName: dest.bodyName,
+    distressOutcome: rng() < QUEST.distressAnswerBaitChance ? "bait" : "stranded",
+  };
+}
+
+interface DistressDest {
+  poiId: number;
+  bodyId: number | null;
+  bodyName: string;
+}
+
+/**
+ * Stationless local view outside the origin system — star, orbital, or exotic POI.
+ */
+function pickDistressAnswerDestination(
+  galaxy: Galaxy,
+  originPoiId: number,
+  rng: () => number,
+): DistressDest | null {
+  const origin = galaxy.get(originPoiId);
+  const candidates: { dest: DistressDest; dist: number }[] = [];
+
+  for (const poi of galaxy.pois) {
+    if (poi.id === originPoiId) continue;
+    const dist = galaxy.distance(origin, poi);
+    if (dist > GALAXY.jumpRange * QUEST.distressAnswerMaxJumpRanges) continue;
+
+    if (poi.type !== "starSystem") {
+      candidates.push({
+        dest: {
+          poiId: poi.id,
+          bodyId: null,
+          bodyName: poi.name,
+        },
+        dist,
+      });
+      continue;
+    }
+
+    let blueprint;
+    try {
+      blueprint = generateSystemBlueprint(galaxy, poi.id);
+    } catch {
+      continue;
+    }
+    for (const body of blueprint.bodies) {
+      if (body.stationCount > 0) continue;
+      candidates.push({
+        dest: {
+          poiId: poi.id,
+          bodyId: body.id,
+          bodyName: body.name,
+        },
+        dist,
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.dist - b.dist);
+  const pool = candidates.slice(0, Math.min(14, candidates.length));
+  return pool[(rng() * pool.length) | 0]!.dest;
 }
 
 function makeExploreOffer(

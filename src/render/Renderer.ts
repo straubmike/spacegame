@@ -4,6 +4,7 @@ import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
 import type { Pirate } from "../entities/Pirate";
 import type { FuelRat } from "../entities/FuelRat";
+import type { StrandedPilot } from "../entities/StrandedPilot";
 import type { StationPatrol } from "../entities/StationPatrol";
 import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
@@ -52,6 +53,7 @@ export class Renderer {
     local: LocalView;
     pirates: Pirate[];
     fuelRat: FuelRat | null;
+    strandedPilot?: StrandedPilot | null;
     fuelWarn: {
       cost: number;
       fuel: number;
@@ -124,6 +126,18 @@ export class Renderer {
       const p = args.camera.worldToScreen(args.fuelRat.x, args.fuelRat.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawFuelRat(p.x, p.y, args.fuelRat);
+      }
+    }
+
+    if (args.strandedPilot?.alive) {
+      const p = args.camera.worldToScreen(
+        args.strandedPilot.x,
+        args.strandedPilot.y,
+        w,
+        h,
+      );
+      if (this.isOnScreen(p.x, p.y, w, h)) {
+        this.drawStrandedPilot(p.x, p.y, args.strandedPilot);
       }
     }
 
@@ -257,14 +271,7 @@ export class Renderer {
         args.pointerY,
         args.ship.credits,
       );
-      args.dockedMenu.draw(
-        ctx,
-        args.pointerX,
-        args.pointerY,
-        args.ship.missingHealth,
-        args.ship.missingFuel,
-        args.ship.credits,
-      );
+      args.dockedMenu.draw(ctx, args.pointerX, args.pointerY);
     }
 
     if (args.fuelWarn) {
@@ -352,6 +359,26 @@ export class Renderer {
     ctx.fillStyle = rat.fill;
     ctx.fill();
     ctx.strokeStyle = rat.stroke;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawStrandedPilot(x: number, y: number, pilot: StrandedPilot): void {
+    const size = pilot.size;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(pilot.heading);
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.7, size * 0.55);
+    ctx.lineTo(-size * 0.35, 0);
+    ctx.lineTo(-size * 0.7, -size * 0.55);
+    ctx.closePath();
+    ctx.fillStyle = pilot.fill;
+    ctx.fill();
+    ctx.strokeStyle = pilot.stroke;
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.restore();

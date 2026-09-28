@@ -32,6 +32,7 @@ import type { MarketContext } from "../ship/economy";
 import {
   applyBayDiscount,
   formatStanding,
+  FUEL_RAT_FACTION_ID,
   PIRATE_FACTION_ID,
   ReputationTracker,
   standingBand,
@@ -47,6 +48,7 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
+  canReachNearestStation,
   galacticFuelCost,
   nearestStationRefuel,
   supercruiseFuelCost,
@@ -57,6 +59,7 @@ import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
 import { Pirate } from "../entities/Pirate";
 import { FuelRat } from "../entities/FuelRat";
+import { StrandedPilot } from "../entities/StrandedPilot";
 import {
   StationPatrol,
   type PatrolPlayerLaw,
@@ -78,6 +81,7 @@ import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
 import { hullById } from "../ship/hulls";
 import {
+  distressAnswerMatchesView,
   generateStationMissions,
   generateStationReplenishmentOffer,
   isStolenCargoId,
@@ -175,7 +179,7 @@ export class Game {
   private readonly visitedPoiIds = new Set<number>();
   /** POIs scanned via exploration contracts. */
   private readonly scannedPoiIds = new Set<number>();
-  /** Per-station + pirate faction standing (session). */
+  /** Per-station + pirate / Fuel Rat faction standing (session). */
   private readonly reputation = new ReputationTracker();
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
@@ -201,8 +205,20 @@ export class Game {
   private fuelRat: FuelRat | null = null;
   /** After defeating distress pirates, next broadcast is fuel-rat only. */
   private distressNextFuelRatOnly = false;
-  /** True while a distress responder is active in this view. */
+  /** True while a distress responder is inbound or active in this view. */
   private distressPending = false;
+  /**
+   * Armed on broadcast: wait delay seconds, then spawn pirates or a fuel rat.
+   * Arrival comms fire from the spawn helpers / approach phases.
+   */
+  private distressInbound:
+    | { kind: "pirates" | "rat"; delay: number; elapsed: number }
+    | null = null;
+  /** Fuel Rat faction quest — stranded pilot at the distress site. */
+  private strandedPilot: StrandedPilot | null = null;
+  /** Fuel Rat faction quest — pirate bait (no fee, delayed aggro). */
+  private baitPirate: Pirate | null = null;
+  private baitPack: PackEncounter | null = null;
   /** Confirm dialog when a jump would leave too little fuel to return. */
   private fuelWarnTravel: PendingTravel | null = null;
   private fuelWarnYes: { x: number; y: number; w: number; h: number } = {
@@ -288,6 +304,10 @@ export class Game {
     this.distressPack = null;
     this.fuelRat = null;
     this.distressPending = false;
+    this.distressInbound = null;
+    this.strandedPilot = null;
+    this.baitPirate = null;
+    this.baitPack = null;
     this.fuelScoopProgress = 0;
     this.fuelWarnTravel = null;
     this.intrusion = null;
@@ -323,6 +343,7 @@ export class Game {
       }
     }
     this.armPirateIntrusion();
+    this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
   }
 
@@ -408,7 +429,8 @@ export class Game {
   private pirateAggroActive(): boolean {
     return (
       this.pack?.phase === "hostile" ||
-      this.distressPack?.phase === "hostile"
+      this.distressPack?.phase === "hostile" ||
+      this.baitPack?.phase === "hostile"
     );
   }
 
@@ -925,6 +947,23 @@ export class Game {
       return;
     }
 
+    if (offer.kind === "distressAnswer") {
+      if (this.activeMissions.some((m) => m.kind === "distressAnswer")) {
+        this.messages.push(
+          "Missions: Already answering a Fuel Rat distress contract.",
+          "station",
+        );
+        return;
+      }
+      if (!this.hasExpandedFuelTank()) {
+        this.messages.push(
+          "Missions: Fit an Expanded Fuel Tank before accepting Fuel Rat work.",
+          "station",
+        );
+        return;
+      }
+    }
+
     if (offer.kind === "cargo") {
       const cu = offer.cu ?? 0;
       const name = offer.commodityName ?? "Freight";
@@ -964,6 +1003,10 @@ export class Game {
     } else if (offer.kind === "clearance") {
       const n = offer.pirateTargets?.length ?? 0;
       msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
+    } else if (offer.kind === "distressAnswer") {
+      const where =
+        offer.targetBodyName ?? offer.targetPoiName ?? "the distress site";
+      msg = `Missions: Accepted — answer distress at ${where} (Fuel Rats reputation).`;
     } else {
       msg = `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
     }
@@ -1054,6 +1097,7 @@ export class Game {
       this.ship.cargo.freeCu,
       this.activeMissions.filter((m) => m.kind !== "clearance").length <
         QUEST.maxActive,
+      this.hasExpandedFuelTank(),
     );
   }
 
@@ -1075,6 +1119,7 @@ export class Game {
       this.ship.cargo.freeCu,
       this.activeMissions.filter((m) => m.kind !== "clearance").length <
         QUEST.maxActive,
+      this.hasExpandedFuelTank(),
     );
     this.missionBoardOpen = true;
   }
@@ -1160,6 +1205,12 @@ export class Game {
     this.activeMissions.splice(idx, 1);
     // Keep missionId in acceptedMissionIds — cancel consumes the offer for this station.
 
+    if (mission.kind === "distressAnswer") {
+      this.strandedPilot = null;
+      this.baitPirate = null;
+      this.baitPack = null;
+    }
+
     if (stoleCu > 0) {
       const before = this.reputation.stationStanding(mission.originStationKey);
       const next = this.reputation.applyCargoSteal(
@@ -1222,11 +1273,28 @@ export class Game {
           label: "Pirates",
           score: this.reputation.pirateRep(),
         },
+        {
+          id: FUEL_RAT_FACTION_ID,
+          label: "Fuel Rats",
+          score: this.reputation.fuelRatRep(),
+        },
         { id: "merchants", label: "Merchants guild", score: 0 },
         { id: "cartographers", label: "Cartographers", score: 0 },
       ],
       stations: this.reputation.nonzeroStations(),
     };
+  }
+
+  private hasExpandedFuelTank(): boolean {
+    return this.ship.loadout.hasUtilityId(
+      QUEST.distressAnswerRequiredModuleId,
+    );
+  }
+
+  private adjustFuelRatRep(delta: number): number {
+    const next = this.reputation.adjust(FUEL_RAT_FACTION_ID, delta);
+    this.pushRepChange("Fuel Rats", next, delta);
+    return next;
   }
 
   private showDockedUi(station: Landmark): void {
@@ -1463,6 +1531,8 @@ export class Game {
       viewW,
       viewH,
     );
+
+    if (this.tryHelpStrandedPilot(world.x, world.y)) return;
 
     // Fee window only: click a pirate hull to open the shared pack pay UI.
     // Must not early-return when the pack is idle — that ate station clicks.
@@ -1951,6 +2021,33 @@ export class Game {
     this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
+    this.applyComplimentaryDockService(station);
+  }
+
+  /** Free hull repair + full refuel on every dock — station courtesy. */
+  private applyComplimentaryDockService(station: Landmark): void {
+    const result = this.ship.applyComplimentaryDockService();
+    if (result.healed > 0 && result.refueled) {
+      this.messages.push(
+        `${station.name}: Complimentary repair & refuel — hull and tanks topped free of charge.`,
+        "station",
+      );
+    } else if (result.healed > 0) {
+      this.messages.push(
+        `${station.name}: Complimentary repair — hull restored free of charge.`,
+        "station",
+      );
+    } else if (result.refueled) {
+      this.messages.push(
+        `${station.name}: Complimentary refuel — tanks topped free of charge.`,
+        "station",
+      );
+    } else {
+      this.messages.push(
+        `${station.name}: Complimentary dock services — hull and fuel already full.`,
+        "station",
+      );
+    }
   }
 
   private updateDockedMenu(): void {
@@ -1958,44 +2055,6 @@ export class Game {
     if (this.dock.kind !== "docked") return;
     const station = this.dock.station;
     const action = this.dockedMenu.handleClick(this.pointer.x, this.pointer.y);
-    if (action === "repair") {
-      const needHull = this.ship.missingHealth > 0;
-      const needFuel = this.ship.missingFuel > 0;
-      if (!needHull && !needFuel) {
-        this.messages.push("Hull and fuel already full.");
-        return;
-      }
-      const beforeCredits = this.ship.credits;
-      const result = this.ship.repairAndRefuelWithCredits();
-      if (result.healed <= 0 && !result.refueled) {
-        this.messages.push("Insufficient credits for Repair & Refuel.");
-        return;
-      }
-      const key = this.currentStationKey(station);
-      if (key && result.healed > 0) {
-        this.adjustStationRep(
-          key,
-          station.name,
-          REPUTATION.repairGoodwill,
-        );
-      }
-      const parts: string[] = [];
-      if (result.healed > 0) {
-        parts.push(
-          this.ship.health >= this.ship.maxHull
-            ? `hull restored (−${result.repairCost} cr)`
-            : `+${result.healed} HP (−${result.repairCost} cr)`,
-        );
-      }
-      if (result.refueled) {
-        parts.push(`fuel full (−${result.refuelCost} cr)`);
-      } else if (needFuel && this.ship.credits < ECONOMY.refuelCost) {
-        parts.push("fuel unchanged (need 1 cr)");
-      }
-      this.messages.push(`Repair & Refuel: ${parts.join("; ")}.`);
-      void beforeCredits;
-      return;
-    }
     if (action === "bay") {
       this.openBay(station);
       return;
@@ -2182,8 +2241,22 @@ export class Game {
     }
   }
 
-  /** Distress pirate taunt timer + fuel rat arrival / refuel. */
+  /** Distress inbound delay, pirate taunt timer, and fuel rat arrival / refuel. */
   private updateDistress(dt: number): void {
+    if (this.distressInbound) {
+      // Docked / menu time still counts — the beacon is already out.
+      this.distressInbound.elapsed += dt;
+      if (this.distressInbound.elapsed >= this.distressInbound.delay) {
+        const kind = this.distressInbound.kind;
+        this.distressInbound = null;
+        if (kind === "pirates") {
+          this.spawnDistressPirates();
+        } else {
+          this.spawnFuelRat();
+        }
+      }
+    }
+
     if (this.distressPack && this.distressPirates.some((p) => p.alive)) {
       if (this.distressPack.phase === "comms") {
         this.distressPack.timer = Math.max(0, this.distressPack.timer - dt);
@@ -2205,17 +2278,50 @@ export class Game {
       }
     }
 
+    if (this.baitPack && this.baitPirate?.alive) {
+      if (this.baitPack.phase === "comms") {
+        this.baitPack.timer = Math.max(0, this.baitPack.timer - dt);
+        this.baitPirate.setPeaceful();
+        if (this.baitPack.timer <= 0) {
+          this.baitPack.phase = "hostile";
+          this.baitPirate.goAggro();
+          this.messages.push("Pirate: Weapons free!", "pirate");
+        }
+      }
+    }
+
+    if (this.strandedPilot?.alive) {
+      this.strandedPilot.update(dt);
+    }
+
     if (this.fuelRat && this.fuelRat.alive) {
       const rat = this.fuelRat;
       const prev = rat.phase;
       rat.update(dt, this.ship.x, this.ship.y);
       if (prev !== "comms" && rat.phase === "comms") {
-        this.messages.push(
-          "Fuel Rat: Copy distress — holding position, running a hose.",
-          "station",
+        const reach = canReachNearestStation(
+          this.galaxy,
+          this.local.poiId,
+          this.local.bodyId,
+          this.ship.fuel,
         );
+        if (reach.canReach) {
+          const place = reach.target.poiName;
+          this.messages.push(
+            `Fuel Rat: Looks like you can make it to ${place}, don't abuse the distress signal.`,
+            "station",
+          );
+          this.adjustFuelRatRep(REPUTATION.fuelRatAbuse);
+          rat.beginDepart();
+          this.distressPending = false;
+        } else {
+          this.messages.push(
+            "Fuel Rat: Copy distress — holding position, running a hose.",
+            "station",
+          );
+        }
       }
-      if (rat.phase === "refuel" && !rat.didRefuel) {
+      if (rat.phase === "refuel" && !rat.didRefuel && !rat.refuseAssist) {
         rat.didRefuel = true;
         const target = nearestStationRefuel(
           this.galaxy,
@@ -2224,6 +2330,7 @@ export class Game {
         );
         const needed = Math.max(target.fuelNeeded, supercruiseFuelCost());
         this.ship.ensureFuelAtLeast(needed);
+        this.adjustFuelRatRep(REPUTATION.fuelRatGenuineRescue);
         this.messages.push(
           `Fuel Rat: Topped you to ${Math.floor(this.ship.fuel)} fuel. ${target.detail}`,
           "station",
@@ -2233,8 +2340,114 @@ export class Game {
       if (rat.warpedAway) {
         this.fuelRat = null;
         this.distressPending = false;
-        this.messages.push("Fuel Rat: Clear skies — we're out.", "station");
+        if (!rat.refuseAssist) {
+          this.messages.push("Fuel Rat: Clear skies — we're out.", "station");
+        }
       }
+    }
+  }
+
+  /**
+   * On local enter: if an active Fuel Rat distress-answer mission targets this
+   * view, spawn either a stranded pilot or a no-fee pirate bait.
+   */
+  private spawnFactionDistressEncounter(): void {
+    const mission = this.activeMissions.find(
+      (m) =>
+        m.kind === "distressAnswer" &&
+        distressAnswerMatchesView(m, this.local.poiId, this.local.bodyId),
+    );
+    if (!mission) return;
+
+    const ang = Math.random() * Math.PI * 2;
+    const dist =
+      FUEL.distressSpawnMin +
+      Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
+    const x = this.ship.x + Math.cos(ang) * dist;
+    const y = this.ship.y + Math.sin(ang) * dist;
+    const heading = ang + Math.PI;
+
+    if (mission.distressOutcome === "bait") {
+      this.baitPirate = new Pirate(x, y, heading, "raider", 0);
+      this.baitPirate.setPeaceful();
+      this.baitPack = {
+        phase: "comms",
+        fee: 0,
+        timer: QUEST.distressAnswerAggroSeconds,
+        demanded: true,
+        shipCount: 1,
+      };
+      this.messages.push(
+        "Pirate: Took the bait- your cargo is mine!",
+        "pirate",
+      );
+      return;
+    }
+
+    this.strandedPilot = new StrandedPilot(x, y, heading);
+    this.messages.push(
+      "Stranded: Mayday — tanks dry. Click me if you can spare fuel.",
+      "station",
+    );
+  }
+
+  /** Left-click stranded pilot → donate fuel for nearest-station reach. */
+  private tryHelpStrandedPilot(worldX: number, worldY: number): boolean {
+    const pilot = this.strandedPilot;
+    if (!pilot?.alive) return false;
+    const hitR = pilot.radius + DOCK.clickPad;
+    if (Math.hypot(worldX - pilot.x, worldY - pilot.y) > hitR) return false;
+
+    const reach = canReachNearestStation(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      Number.POSITIVE_INFINITY,
+    );
+    const needed = Math.max(reach.needed, supercruiseFuelCost());
+    if (this.ship.fuel < needed) {
+      this.messages.push(
+        `Stranded: Need ${needed} fuel for a jump out — you only have ${Math.floor(this.ship.fuel)}.`,
+        "station",
+      );
+      return true;
+    }
+    if (!this.ship.consumeFuel(needed)) return true;
+
+    pilot.helped = true;
+    this.strandedPilot = null;
+    this.messages.push(
+      `Stranded: Bless you — ${needed} fuel should get me to ${reach.target.poiName}.`,
+      "station",
+    );
+    this.completeDistressAnswerMission(true);
+    return true;
+  }
+
+  /**
+   * Finish (or void) an active Fuel Rat distress-answer contract in this view.
+   * `helped` → Fuel Rat reputation only; bait kill/flee → nothing.
+   */
+  private completeDistressAnswerMission(helped: boolean): void {
+    const idx = this.activeMissions.findIndex(
+      (m) =>
+        m.kind === "distressAnswer" &&
+        distressAnswerMatchesView(m, this.local.poiId, this.local.bodyId),
+    );
+    if (idx < 0) return;
+    const mission = this.activeMissions[idx]!;
+    this.activeMissions.splice(idx, 1);
+    if (helped) {
+      this.adjustFuelRatRep(REPUTATION.fuelRatMissionComplete);
+      this.messages.push(
+        `Fuel Rats: Distress answered at ${mission.targetBodyName ?? mission.targetPoiName} — gratitude logged.`,
+        "station",
+      );
+    } else {
+      this.messages.push(
+        "Fuel Rats: Site was pirate bait — contract void. No reward.",
+        "station",
+      );
     }
   }
 
@@ -2365,6 +2578,15 @@ export class Game {
         distressHostile === true,
       );
     }
+    if (this.baitPirate?.alive) {
+      this.baitPirate.update(
+        dt,
+        this.ship.x,
+        this.ship.y,
+        pirateShots,
+        this.baitPack?.phase === "hostile",
+      );
+    }
     if (pirateShots.length > 0) {
       this.projectiles.push(...pirateShots);
     }
@@ -2469,6 +2691,19 @@ export class Game {
           }
         }
       }
+      if (!hit && this.baitPirate?.alive) {
+        const pirate = this.baitPirate;
+        const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
+        if (dist <= pirate.radius + COMBAT.projectileRadius) {
+          pirate.takeDamage(p.damage);
+          if (this.baitPack && this.baitPack.phase === "comms") {
+            this.baitPack.phase = "hostile";
+            this.baitPack.timer = 0;
+            pirate.goAggro();
+          }
+          hit = true;
+        }
+      }
       if (!hit) {
         for (const patrol of this.patrols) {
           if (!patrol.alive) continue;
@@ -2533,10 +2768,23 @@ export class Game {
     if (this.distressPending && this.distressPack && this.distressPirates.length === 0) {
       this.distressPack = null;
       this.distressPending = false;
+      // Next L-menu distress is Fuel Rat only — no player-facing spoiler.
       this.distressNextFuelRatOnly = true;
-      this.messages.push(
-        "Distress pirates cleared. Next distress beacon should draw a Fuel Rat.",
-      );
+    }
+
+    if (this.baitPirate && !this.baitPirate.alive) {
+      if (this.baitPirate.health <= 0) {
+        this.pendingPirateKills += 1;
+        const next = this.reputation.adjust(
+          PIRATE_FACTION_ID,
+          REPUTATION.pirateKill,
+        );
+        this.pushRepChange("Pirates", next, REPUTATION.pirateKill);
+      }
+      this.baitPirate = null;
+      this.baitPack = null;
+      // Bait kill/flee voids the Fuel Rat contract — no credits, no Fuel Rat rep.
+      this.completeDistressAnswerMission(false);
     }
 
     for (const patrol of this.patrols) {
@@ -3018,7 +3266,12 @@ export class Game {
       this.messages.push("Distress: Undock before broadcasting.");
       return;
     }
-    if (this.distressPending || this.fuelRat || this.distressPirates.some((p) => p.alive)) {
+    if (
+      this.distressPending ||
+      this.distressInbound ||
+      this.fuelRat ||
+      this.distressPirates.some((p) => p.alive)
+    ) {
       this.messages.push("Distress: Responder already inbound.");
       return;
     }
@@ -3026,15 +3279,24 @@ export class Game {
     const forceRat = this.distressNextFuelRatOnly;
     const wantPirates =
       !forceRat && Math.random() < FUEL.distressPirateChance;
-    this.distressPending = true;
-    if (wantPirates) {
-      this.spawnDistressPirates();
-      this.messages.push("Distress: Signal broadcast — unknown contacts inbound…");
-    } else {
+    if (!wantPirates) {
       this.distressNextFuelRatOnly = false;
-      this.spawnFuelRat();
-      this.messages.push("Distress: Signal broadcast — rescue craft inbound…");
     }
+    const span =
+      FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
+    const delay =
+      FUEL.distressResponseDelayMin + Math.random() * span;
+    this.distressPending = true;
+    this.distressInbound = {
+      kind: wantPirates ? "pirates" : "rat",
+      delay,
+      elapsed: 0,
+    };
+    this.messages.push(
+      wantPirates
+        ? "Distress: Signal broadcast — unknown contacts inbound…"
+        : "Distress: Signal broadcast — rescue craft inbound…",
+    );
   }
 
   private spawnDistressPirates(): void {
@@ -3264,8 +3526,13 @@ export class Game {
       camera: this.camera,
       starfield: this.starfield,
       local: this.local,
-      pirates: [...this.pirates, ...this.distressPirates],
+      pirates: [
+        ...this.pirates,
+        ...this.distressPirates,
+        ...(this.baitPirate ? [this.baitPirate] : []),
+      ],
       fuelRat: this.fuelRat,
+      strandedPilot: this.strandedPilot,
       fuelWarn: this.fuelWarnTravel
         ? {
             cost: this.travelFuelCost(this.fuelWarnTravel),

@@ -15,6 +15,16 @@ export class FuelRat {
   warpedAway = false;
   /** Set by Game when refuel fires (comms text already pushed). */
   didRefuel = false;
+  /** Abuse reject — skip hose, depart after scolding. */
+  refuseAssist = false;
+
+  /** Jump straight to depart (abuse / abort). */
+  beginDepart(): void {
+    this.phase = "depart";
+    this.timer = 0;
+    this.didRefuel = true;
+    this.refuseAssist = true;
+  }
 
   readonly fill = FUEL.ratFill;
   readonly stroke = FUEL.ratStroke;

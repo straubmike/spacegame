@@ -30,6 +30,8 @@ export class MissionBoardMenu {
   private scroll = 0;
   private freeCu = 0;
   private canAcceptMore = true;
+  /** Expanded Fuel Tank fitted — required for Fuel Rat distress contracts. */
+  private hasExpandedFuelTank = false;
 
   show(
     stationName: string,
@@ -37,6 +39,7 @@ export class MissionBoardMenu {
     active: ActiveMission[],
     freeCu: number,
     canAcceptMore: boolean,
+    hasExpandedFuelTank = false,
   ): void {
     this.open = true;
     this.stationName = stationName;
@@ -44,6 +47,7 @@ export class MissionBoardMenu {
     this.active = active;
     this.freeCu = freeCu;
     this.canAcceptMore = canAcceptMore;
+    this.hasExpandedFuelTank = hasExpandedFuelTank;
     this.scroll = 0;
   }
 
@@ -53,12 +57,14 @@ export class MissionBoardMenu {
     active: ActiveMission[],
     freeCu: number,
     canAcceptMore: boolean,
+    hasExpandedFuelTank = false,
   ): void {
     if (!this.open) return;
     this.offers = offers;
     this.active = active;
     this.freeCu = freeCu;
     this.canAcceptMore = canAcceptMore;
+    this.hasExpandedFuelTank = hasExpandedFuelTank;
   }
 
   hide(): void {
@@ -116,16 +122,25 @@ export class MissionBoardMenu {
       | { kind: "offer"; mission: MissionOffer }
       | { kind: "active"; mission: ActiveMission };
 
+    const factionOffers = this.offers.filter((m) => !!m.factionId);
+    const stationOffers = this.offers.filter((m) => !m.factionId);
+
     const items: ListItem[] = [];
     if (this.active.length > 0) {
       items.push({ kind: "section", title: "Active contracts" });
       for (const m of this.active) items.push({ kind: "active", mission: m });
     }
-    items.push({ kind: "section", title: "Available contracts" });
-    if (this.offers.length === 0) {
+    items.push({ kind: "section", title: "Faction quests" });
+    if (factionOffers.length === 0) {
       items.push({ kind: "section", title: "  (none available)" });
     } else {
-      for (const m of this.offers) items.push({ kind: "offer", mission: m });
+      for (const m of factionOffers) items.push({ kind: "offer", mission: m });
+    }
+    items.push({ kind: "section", title: "Station contracts" });
+    if (stationOffers.length === 0) {
+      items.push({ kind: "section", title: "  (none available)" });
+    } else {
+      for (const m of stationOffers) items.push({ kind: "offer", mission: m });
     }
 
     const contentH = items.reduce(
@@ -188,17 +203,43 @@ export class MissionBoardMenu {
     ctx.fillStyle = "rgba(20, 28, 40, 0.55)";
     ctx.fillRect(panelX + 14, y, panelW - 28, 70);
 
+    // Leave a clear gutter before the Accept column so long blurbs never overlap.
+    const acceptBtn: Rect = {
+      x: panelX + panelW - 130,
+      y: y + 18,
+      w: 96,
+      h: 32,
+    };
+    const textX = panelX + 24;
+    const textMaxW = acceptBtn.x - textX - 12;
+
     ctx.font = FONT;
     ctx.textBaseline = "top";
     ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
-    ctx.fillText(mission.title, panelX + 24, y + 8);
+    const title =
+      mission.factionLabel
+        ? `${mission.title} · ${mission.factionLabel}`
+        : mission.title;
+    ctx.fillText(truncateToWidth(ctx, title, textMaxW), textX, y + 8);
     ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
-    ctx.fillText(mission.blurb, panelX + 24, y + 28);
+    ctx.fillText(truncateToWidth(ctx, mission.blurb, textMaxW), textX, y + 28);
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    ctx.fillText(`+${mission.reward} cr`, panelX + 24, y + 48);
+    ctx.fillText(
+      truncateToWidth(
+        ctx,
+        mission.kind === "distressAnswer"
+          ? "Fuel Rats reputation"
+          : `+${mission.reward} cr`,
+        textMaxW,
+      ),
+      textX,
+      y + 48,
+    );
 
     const needCu = mission.kind === "cargo" ? (mission.cu ?? 0) : 0;
     const cargoOk = needCu === 0 || this.freeCu >= needCu;
+    const tankOk =
+      mission.kind !== "distressAnswer" || this.hasExpandedFuelTank;
     const clearanceBusy =
       mission.kind === "clearance" &&
       this.active.some((m) => m.kind === "clearance");
@@ -206,19 +247,15 @@ export class MissionBoardMenu {
       mission.kind === "clearance"
         ? !clearanceBusy
         : this.canAcceptMore;
-    const enabled = slotOk && cargoOk;
-    const acceptBtn: Rect = {
-      x: panelX + panelW - 130,
-      y: y + 18,
-      w: 96,
-      h: 32,
-    };
+    const enabled = slotOk && cargoOk && tankOk;
     const label = !enabled
       ? clearanceBusy
         ? "Active"
-        : cargoOk
-          ? "Full"
-          : "Need CU"
+        : !tankOk
+          ? "Need tank"
+          : cargoOk
+            ? "Full"
+            : "Need CU"
       : "Accept";
     drawButton(ctx, acceptBtn, label, {
       enabled,
@@ -246,15 +283,6 @@ export class MissionBoardMenu {
     ctx.fillStyle = "rgba(28, 36, 28, 0.55)";
     ctx.fillRect(panelX + 14, y, panelW - 28, 70);
 
-    ctx.font = FONT;
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
-    ctx.fillText(mission.title, panelX + 24, y + 8);
-    ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
-    ctx.fillText(missionStatusLine(mission), panelX + 24, y + 28);
-    ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    ctx.fillText(`+${mission.reward} cr`, panelX + 24, y + 48);
-
     const canClaim = mission.status === "readyToClaim";
     const cancelBtn: Rect = {
       x: panelX + panelW - 230,
@@ -268,6 +296,33 @@ export class MissionBoardMenu {
       w: 96,
       h: 32,
     };
+    // Text stops before Cancel so status lines never collide with buttons.
+    const textX = panelX + 24;
+    const textMaxW = cancelBtn.x - textX - 12;
+
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
+    ctx.fillText(truncateToWidth(ctx, mission.title, textMaxW), textX, y + 8);
+    ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
+    ctx.fillText(
+      truncateToWidth(ctx, missionStatusLine(mission), textMaxW),
+      textX,
+      y + 28,
+    );
+    ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
+    ctx.fillText(
+      truncateToWidth(
+        ctx,
+        mission.kind === "distressAnswer"
+          ? "Fuel Rats reputation"
+          : `+${mission.reward} cr`,
+        textMaxW,
+      ),
+      textX,
+      y + 48,
+    );
+
     drawButton(ctx, cancelBtn, "Cancel", {
       hover: hit(cancelBtn, pointerX, pointerY),
     });
@@ -301,4 +356,20 @@ export class MissionBoardMenu {
     }
     return null;
   }
+}
+
+/** Ellipsis-truncate so mission copy never paints under action buttons. */
+function truncateToWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (maxWidth <= 0) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  let s = text;
+  while (s.length > 1 && ctx.measureText(s + ellipsis).width > maxWidth) {
+    s = s.slice(0, -1);
+  }
+  return s.length === 0 ? ellipsis : s + ellipsis;
 }

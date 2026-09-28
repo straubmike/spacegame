@@ -1,8 +1,6 @@
-import { ECONOMY } from "../game/config";
 import { FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type DockedMenuAction =
-  | "repair"
   | "bay"
   | "hangar"
   | "market"
@@ -11,7 +9,7 @@ export type DockedMenuAction =
   | "launch"
   | null;
 
-type ServiceMenu = Exclude<DockedMenuAction, "repair" | "launch" | null>;
+type ServiceMenu = Exclude<DockedMenuAction, "launch" | null>;
 
 const MENU_LABEL: Record<ServiceMenu, string> = {
   bay: "Bay",
@@ -32,14 +30,14 @@ const MENU_ORDER: readonly ServiceMenu[] = [
 
 /**
  * Shown while the player is docked at a station.
- * Repair & Refuel + Missions are always available; Bay / Hangar / Market /
- * Black Market come from the station's rolled optional set.
+ * Missions are always available; Bay / Hangar / Market / Black Market come
+ * from the station's rolled optional set. Repair & refuel are complimentary
+ * on dock (no button) — see Game.applyComplimentaryDockService.
  */
 export class DockedMenu {
   open = false;
   stationName = "";
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private repairBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private launchBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private serviceBtns = new Map<ServiceMenu, Rect>();
   private availableMenus: ReadonlySet<string> = new Set();
@@ -67,7 +65,7 @@ export class DockedMenu {
       this.availableMenus.has(m),
     );
     const w = 280;
-    const rows = 1 + visibleServices.length + 1; // repair + services + launch
+    const rows = visibleServices.length + 1; // services + launch
     const headerExtra = standingLine ? 16 : 0;
     const h = 56 + headerExtra + rows * 38 + 16;
     this.panel = {
@@ -78,9 +76,6 @@ export class DockedMenu {
     };
 
     let y = this.panel.y + 56 + headerExtra;
-    this.repairBtn = { x: this.panel.x + 24, y, w: w - 48, h: 28 };
-    y += 38;
-
     this.serviceBtns.clear();
     for (const menu of visibleServices) {
       this.serviceBtns.set(menu, {
@@ -117,14 +112,7 @@ export class DockedMenu {
     this.open = false;
   }
 
-  draw(
-    ctx: CanvasRenderingContext2D,
-    pointerX: number,
-    pointerY: number,
-    missingHp: number,
-    missingFuel: number,
-    credits: number,
-  ): void {
+  draw(ctx: CanvasRenderingContext2D, pointerX: number, pointerY: number): void {
     if (!this.open) return;
     drawPanel(ctx, this.panel);
     ctx.font = FONT_TITLE;
@@ -138,32 +126,6 @@ export class DockedMenu {
       ctx.fillStyle = "rgba(190, 170, 140, 0.9)";
       ctx.fillText(this.standingLine, this.panel.x + 24, this.panel.y + 52);
     }
-
-    const repairCost = missingHp * ECONOMY.repairCostPerHp;
-    const needFuel = missingFuel > 0;
-    const refuelCost = needFuel ? ECONOMY.refuelCost : 0;
-    const total = repairCost + refuelCost;
-    const needRepair = missingHp > 0;
-    const canAffordRepair =
-      !needRepair || credits >= ECONOMY.repairCostPerHp;
-    const canAffordRefuel = !needFuel || credits >= ECONOMY.refuelCost;
-    // Allow partial repair even if refuel can't be paid, and vice versa.
-    const canAct =
-      (needRepair && canAffordRepair) || (needFuel && canAffordRefuel);
-    let repairLabel: string;
-    if (!needRepair && !needFuel) {
-      repairLabel = "Repair & Refuel (full)";
-    } else if (needRepair && needFuel) {
-      repairLabel = `Repair & Refuel (${total} cr)`;
-    } else if (needRepair) {
-      repairLabel = `Repair & Refuel (${repairCost} cr)`;
-    } else {
-      repairLabel = `Repair & Refuel (${refuelCost} cr)`;
-    }
-    drawButton(ctx, this.repairBtn, repairLabel, {
-      enabled: canAct,
-      hover: canAct && hit(this.repairBtn, pointerX, pointerY),
-    });
 
     for (const menu of MENU_ORDER) {
       const btn = this.serviceBtns.get(menu);
@@ -185,7 +147,6 @@ export class DockedMenu {
 
   handleClick(px: number, py: number): DockedMenuAction {
     if (!this.open) return null;
-    if (hit(this.repairBtn, px, py)) return "repair";
     for (const menu of MENU_ORDER) {
       const btn = this.serviceBtns.get(menu);
       if (btn && hit(btn, px, py)) return menu;

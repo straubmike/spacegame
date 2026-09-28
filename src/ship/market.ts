@@ -88,8 +88,9 @@ export class StationMarket {
 }
 
 /**
- * Always-on service menu (Repair / Launch are fixed in the dock UI, not rolled).
- * Optional menus below are the rarity roll.
+ * Always-on service menu (Missions / Launch are fixed in the dock UI, not rolled).
+ * Repair & refuel run automatically on dock (complimentary). Optional menus below
+ * are the rarity roll.
  */
 export type AlwaysStationMenu = "missions";
 

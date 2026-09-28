@@ -320,8 +320,9 @@ export const ECONOMY = {
   startingCredits: 100,
   /** Default / patrol tribute — encounter fee overrides when present. */
   pirateFee: 10,
+  /** Legacy — dock repair/refuel is complimentary (no charge). */
   repairCostPerHp: 1,
-  /** Flat credits to top off the tank at Repair & Refuel. */
+  /** Legacy — dock repair/refuel is complimentary (no charge). */
   refuelCost: 1,
   /** Credits paid per eliminated pirate when docking at any station. */
   redemptionPerPirate: 10,
@@ -349,6 +350,9 @@ export const FUEL = {
   distressPirateMax: 3,
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
+  /** Downtime after broadcast before a responder appears (inclusive range). */
+  distressResponseDelayMin: 15,
+  distressResponseDelayMax: 30,
   /** Fuel rat visual + arrival tuning. */
   ratFill: "#9fd9a8",
   ratStroke: "#4a9a5c",
@@ -409,9 +413,10 @@ export const BLACK_MARKET = {
 
 /**
  * Station dock menu variety (Must-have 10).
- * Repair + Missions are always on. Optional menus (bay / hangar / market /
- * black market) roll a seed-stable subset — higher counts are rarer; the full
- * optional set is rarest. Index 0 = Repair+Missions only (most common).
+ * Missions are always on; repair/refuel is complimentary on dock (no button).
+ * Optional menus (bay / hangar / market / black market) roll a seed-stable
+ * subset — higher counts are rarer; the full optional set is rarest.
+ * Index 0 = Missions only (most common).
  * `countWeights[k]` = relative weight for offering exactly k optional menus.
  */
 export const STATION_MENU_VARIETY = {
@@ -443,6 +448,14 @@ export const QUEST = {
   passengerBaseReward: 70,
   passengerPerBerth: 20,
   passengerPerDistance: 2.4,
+  /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
+  distressAnswerBaitChance: 0.4,
+  /** Seconds of bait taunt before aggro (no fee demand). */
+  distressAnswerAggroSeconds: 3,
+  /** How far (in jump-range multiples) distress-answer destinations may sit. */
+  distressAnswerMaxJumpRanges: 2.5,
+  /** Utility module id required to accept Fuel Rat distress contracts. */
+  distressAnswerRequiredModuleId: "expanded_fuel_tank",
 } as const;
 
 /**
@@ -516,6 +529,10 @@ export const REPUTATION = {
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
+  /** Fuel Rat faction deltas */
+  fuelRatAbuse: -10,
+  fuelRatGenuineRescue: 5,
+  fuelRatMissionComplete: 12,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
