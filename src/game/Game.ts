@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -11,6 +11,7 @@ import {
   stationKey,
   type SystemStationRef,
 } from "../galaxy/pirates";
+import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
 import { swapCost, type EquipModule } from "../ship/equipment";
 import {
   stationBayStock,
@@ -212,6 +213,13 @@ export class Game {
   };
   /** Fuel scoop progress while holding F at a star. */
   private fuelScoopProgress = 0;
+  /**
+   * Rare delayed pirate intrusion for this local visit.
+   * Armed on enter with a 30–60s delay; one roll then done (AFK-safe after).
+   */
+  private intrusion:
+    | { delay: number; elapsed: number; resolved: boolean }
+    | null = null;
 
   private projectiles: Projectile[] = [];
   private fireCooldown = 0;
@@ -282,10 +290,20 @@ export class Game {
     this.distressPending = false;
     this.fuelScoopProgress = 0;
     this.fuelWarnTravel = null;
+    this.intrusion = null;
+
     this.clearDockClearance();
     this.clearDockState();
+    // Patrols first — arrival pirate packs are already nullified in
+    // pirateEncounterFor when a patrol would share this local view.
+    this.spawnStationPatrols();
     const key = this.pirateKey();
-    if (this.local.pirate && !this.clearedPirateViews.has(key)) {
+    const allowArrivalPirates = this.patrols.length === 0;
+    if (
+      allowArrivalPirates &&
+      this.local.pirate &&
+      !this.clearedPirateViews.has(key)
+    ) {
       const feePaid = this.paidPirateViews.has(key);
       const encounter = this.local.pirate;
       for (const ship of encounter.ships) {
@@ -304,8 +322,18 @@ export class Game {
         for (const p of this.pirates) p.setPeaceful();
       }
     }
-    this.spawnStationPatrols();
+    this.armPirateIntrusion();
     this.checkExploreScanProgress();
+  }
+
+  /**
+   * Roll a one-shot intrusion delay for this local visit.
+   * Extra-rare spawn after the delay; no further rolls (AFK-safe past ~60s).
+   */
+  private armPirateIntrusion(): void {
+    const { delayMin, delayMax } = ENCOUNTERS.intrusion;
+    const delay = delayMin + Math.random() * (delayMax - delayMin);
+    this.intrusion = { delay, elapsed: 0, resolved: false };
   }
 
   /** Seeded chance: some stations get one patrol loitering nearby. */
@@ -313,9 +341,7 @@ export class Game {
     for (const station of this.stations()) {
       const key = this.currentStationKey(station);
       if (!key) continue;
-      const roll =
-        (hash2(GALAXY.seed ^ 0x9a71, hashStationKey(key)) % 1000) / 1000;
-      if (roll > PATROL.spawnChance) continue;
+      if (!patrolWouldSpawn(key)) continue;
       const angle =
         ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
         180;
@@ -2212,8 +2238,73 @@ export class Game {
     }
   }
 
+  /**
+   * Tick the one-shot intrusion timer while free-flying.
+   * After the rolled delay, one extra-rare chance — then never again this visit.
+   */
+  private updatePirateIntrusion(dt: number): void {
+    const state = this.intrusion;
+    if (!state || state.resolved) return;
+    // Docked / approaching time does not count — "mulling about" is free flight.
+    if (this.dock.kind !== "free") return;
+
+    state.elapsed += dt;
+    if (state.elapsed < state.delay) return;
+
+    state.resolved = true;
+    if (this.pirates.some((p) => p.alive) || this.pack) return;
+    if (Math.random() >= ENCOUNTERS.intrusion.chance) return;
+
+    this.spawnPirateIntrusion();
+  }
+
+  /** Drop a lone scout (rarely a pair) into the current local view near the player. */
+  private spawnPirateIntrusion(): void {
+    const dual = Math.random() < ENCOUNTERS.intrusion.dualChance;
+    const count = dual ? 2 : 1;
+    const fee = ENCOUNTERS.feeByTemplate.scout;
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      COMBAT.pirateSpawnMin +
+      Math.random() * (COMBAT.pirateSpawnMax - COMBAT.pirateSpawnMin);
+    const anchorX = this.ship.x + Math.cos(angle) * dist;
+    const anchorY = this.ship.y + Math.sin(angle) * dist;
+
+    for (let i = 0; i < count; i += 1) {
+      const offset =
+        count === 1
+          ? 0
+          : (i === 0 ? -1 : 1) * ENCOUNTERS.formationRadius * 0.5;
+      const heading = Math.atan2(this.ship.y - anchorY, this.ship.x - anchorX);
+      this.pirates.push(
+        new Pirate(
+          anchorX + Math.cos(heading + Math.PI / 2) * offset,
+          anchorY + Math.sin(heading + Math.PI / 2) * offset,
+          heading,
+          "scout",
+          fee,
+        ),
+      );
+    }
+
+    this.pack = {
+      phase: "idle",
+      fee,
+      timer: 0,
+      demanded: false,
+      shipCount: count,
+    };
+    this.messages.push(
+      count > 1
+        ? "Pirate scouts drop out of the black — unexpected visitors."
+        : "A pirate scout drops out of the black — unexpected visitor.",
+      "pirate",
+    );
+  }
+
   private updateCombat(dt: number): void {
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.updatePirateIntrusion(dt);
 
     const canFire =
       this.dock.kind === "free" &&

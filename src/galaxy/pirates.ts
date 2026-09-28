@@ -5,6 +5,7 @@ import {
   type EncounterTemplateId,
 } from "../game/config";
 import { generateSystemBlueprint } from "./generateLocal";
+import { patrolWouldSpawn } from "./patrolSpawn";
 import { hash2, mulberry32 } from "./rng";
 import type { Galaxy } from "./Galaxy";
 import type {
@@ -178,6 +179,9 @@ function buildShips(
 /**
  * Seeded pirate encounter for a local view — independent of landmark RNG
  * so presence can be queried without rebuilding the full scene.
+ *
+ * Patrol priority: if a station patrol would spawn in this local view, the
+ * arrival pirate pack is nullified (no simultaneous spawn on enter).
  */
 export function pirateEncounterFor(
   galaxy: Galaxy,
@@ -189,6 +193,9 @@ export function pirateEncounterFor(
   );
   const band = heatBandForPoi(galaxy, poiId);
   if (rng() >= spawnChanceForBand(band)) return null;
+
+  // Patrol takes the local slot — rare delayed intrusions still possible in Game.
+  if (localViewHasPatrol(galaxy, poiId, bodyId)) return null;
 
   const wealthy = isWealthySystem(galaxy, poiId) && band !== "near";
   const template = pickTemplate(rng, band, wealthy);
@@ -263,6 +270,22 @@ export function listSystemStations(
     }
   }
   return stations;
+}
+
+/**
+ * True when any station in this local view would spawn a patrol.
+ * Exotica / body-less views never have station patrols.
+ */
+export function localViewHasPatrol(
+  galaxy: Galaxy,
+  poiId: number,
+  bodyId: number | null,
+): boolean {
+  if (bodyId === null) return false;
+  const stations = listSystemStations(galaxy, poiId).filter(
+    (s) => s.bodyId === bodyId,
+  );
+  return stations.some((s) => patrolWouldSpawn(s.key));
 }
 
 /**
