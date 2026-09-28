@@ -327,7 +327,7 @@ function makeDistressAnswerOffer(
     id: `distressAnswer:${origin.key}`,
     kind: "distressAnswer",
     title: "Answer distress signal",
-    blurb: `Fuel Rats relay — respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Expanded Fuel Tank. Rep reward only.`,
+    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Expanded Fuel Tank · rep only.`,
     reward: 0,
     originStationKey: origin.key,
     originStationName: origin.name,
