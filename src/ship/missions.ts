@@ -167,11 +167,14 @@ export function missionStatusLine(mission: ActiveMission): string {
 /**
  * Chart POI ids that are active quest destinations (or return-to-claim origins).
  */
-export function questChartPoiIds(missions: readonly ActiveMission[]): Set<number> {
+export function questChartPoiIds(
+  missions: readonly (MissionOffer | ActiveMission)[],
+): Set<number> {
   const ids = new Set<number>();
   for (const m of missions) {
+    const scanned = "scanned" in m && m.scanned;
     if (m.kind === "explore" || m.kind === "derelictCargo") {
-      if (m.scanned) {
+      if (scanned) {
         ids.add(m.originPoiId);
       } else if (m.targetPoiId !== undefined) {
         ids.add(m.targetPoiId);

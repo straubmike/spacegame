@@ -2,26 +2,41 @@ import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu"
 import { POI_CHART_COLORS, STAR_COLORS } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef } from "../galaxy/types";
+import type { ChartReveal } from "../ship/chartCatalog";
 
 export type GalaxyClickResult = "jump" | "close" | null;
 
-/** Hints for out-of-range selection and quest markers. */
+/**
+ * Fog-of-war chart hints (per-player catalog).
+ * Hidden POIs are never drawn; fuel still gates Jump separately.
+ */
 export interface ChartPoiHints {
-  /** Selectable even outside jump range (quest targets + visited/scanned). */
-  selectableOutOfRange: ReadonlySet<number>;
-  /** Active quest destinations — always visually marked. */
+  /** Visited POIs — Station + letters + name + distance + fuel on select. */
+  visitedPoiIds: ReadonlySet<number>;
+  /**
+   * Identified (in-range neighbors of visited + mission grants).
+   * Icon visible; name on select. May include visited ids.
+   */
+  identifiedPoiIds: ReadonlySet<number>;
+  /** Active mission destinations — amber ring when visible. */
   questPoiIds: ReadonlySet<number>;
+  /** Deduped station menu letters for the current selection (visited only). */
+  selectedMenuLetters: readonly string[];
 }
 
 const EMPTY_HINTS: ChartPoiHints = {
-  selectableOutOfRange: new Set(),
+  visitedPoiIds: new Set(),
+  identifiedPoiIds: new Set(),
   questPoiIds: new Set(),
+  selectedMenuLetters: [],
 };
+
+const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
- * Quest / visited / scanned POIs stay selectable with full footer info
- * even when outside jump range (Jump stays disabled until in range).
+ * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade,
+ * no jump-range circle. Mission targets may be granted identified visibility.
  */
 export class GalaxyChart {
   selectedId: number | null = null;
@@ -76,7 +91,7 @@ export class GalaxyChart {
 
     const current = galaxy.get(currentId);
     const layout = this.layout(galaxy, this.mapRect);
-    const hoverId = this.pickPoi(galaxy, pointerX, pointerY, layout);
+    const hoverId = this.pickPoi(galaxy, pointerX, pointerY, layout, hints);
 
     // Map backdrop
     ctx.fillStyle = "rgba(4, 8, 14, 0.65)";
@@ -85,6 +100,9 @@ export class GalaxyChart {
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
 
     for (const poi of galaxy.pois) {
+      const reveal = this.revealFor(poi.id, currentId, hints);
+      if (reveal === "hidden") continue;
+
       const p = this.toScreen(poi.chartX, poi.chartY, layout);
       if (
         p.x < this.mapRect.x - 8 ||
@@ -94,17 +112,10 @@ export class GalaxyChart {
       ) {
         continue;
       }
-      const inRange =
-        poi.id === currentId || galaxy.distance(current, poi) <= jumpRange;
-      const known = hints.selectableOutOfRange.has(poi.id);
       const isQuest = hints.questPoiIds.has(poi.id);
       const selected = poi.id === this.selectedId;
       const hovered = poi.id === hoverId;
-      const color = inRange
-        ? poiFill(poi)
-        : known || isQuest
-          ? fadedPoiFill(poi)
-          : "rgba(90, 100, 120, 0.45)";
+      const color = poiFill(poi);
       const scale =
         selected || hovered || poi.id === currentId || isQuest ? 1.4 : 1;
       this.drawMarker(ctx, poi, p.x, p.y, color, scale);
@@ -139,35 +150,67 @@ export class GalaxyChart {
 
     let status = current.name;
     let canJump = false;
+    let statusX = panel.x + 24;
+    const statusY = footerY + footerH / 2;
+
     if (this.selectedId !== null) {
       const sel = galaxy.get(this.selectedId);
       const dist = galaxy.distance(current, sel);
-      canJump = this.selectedId !== currentId && dist <= jumpRange;
-      const questTag = hints.questPoiIds.has(this.selectedId) ? "  ·  quest" : "";
-      const knownTag =
-        !canJump &&
-        this.selectedId !== currentId &&
-        hints.selectableOutOfRange.has(this.selectedId) &&
-        !hints.questPoiIds.has(this.selectedId)
-          ? "  ·  known"
-          : "";
-      const fuelBit =
-        canJump && fuelInfo.costForSelected !== null
-          ? `  ·  ${fuelInfo.costForSelected} fuel`
-          : "";
-      status = canJump
-        ? `${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${questTag}`
-        : `${sel.name}  ·  ${dist.toFixed(1)} ly  ·  out of range${questTag}${knownTag}`;
-      if (
-        canJump &&
-        fuelInfo.costForSelected !== null &&
-        fuelInfo.fuel < fuelInfo.costForSelected
-      ) {
-        status += "  ·  low fuel";
-        canJump = false;
+      const inJumpRange =
+        this.selectedId !== currentId && dist <= jumpRange;
+      canJump = inJumpRange;
+      const visited = hints.visitedPoiIds.has(this.selectedId);
+      const questTag = hints.questPoiIds.has(this.selectedId)
+        ? "  ·  mission"
+        : "";
+
+      if (visited) {
+        // Station [letters] · name · distance · fuel
+        ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
+        ctx.fillText("Station", statusX, statusY);
+        statusX += ctx.measureText("Station").width;
+
+        if (hints.selectedMenuLetters.length > 0) {
+          ctx.fillStyle = LETTER_COLOR;
+          const letterBit = ` ${hints.selectedMenuLetters.join("")}`;
+          ctx.fillText(letterBit, statusX, statusY);
+          statusX += ctx.measureText(letterBit).width;
+        }
+
+        const fuelBit =
+          fuelInfo.costForSelected !== null
+            ? `  ·  ${fuelInfo.costForSelected} fuel`
+            : "";
+        const rangeBit = inJumpRange ? "" : "  ·  out of range";
+        status = `  ${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${rangeBit}${questTag}`;
+        ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
+        ctx.fillText(status, statusX, statusY);
+
+        if (
+          inJumpRange &&
+          fuelInfo.costForSelected !== null &&
+          fuelInfo.fuel < fuelInfo.costForSelected
+        ) {
+          const low = "  ·  low fuel";
+          statusX += ctx.measureText(status).width;
+          ctx.fillText(low, statusX, statusY);
+          canJump = false;
+        }
+      } else {
+        // Identified only: icon + name (no distance / fuel / Station).
+        status = `${sel.name}${questTag}`;
+        ctx.fillText(status, statusX, statusY);
+        if (
+          inJumpRange &&
+          fuelInfo.costForSelected !== null &&
+          fuelInfo.fuel < fuelInfo.costForSelected
+        ) {
+          canJump = false;
+        }
       }
+    } else {
+      ctx.fillText(status, statusX, statusY);
     }
-    ctx.fillText(status, panel.x + 24, footerY + footerH / 2);
 
     this.jumpBtn = {
       x: panel.x + panel.w - 220,
@@ -218,7 +261,7 @@ export class GalaxyChart {
     if (!hit(this.mapRect, px, py)) return null;
 
     const layout = this.layout(galaxy, this.mapRect);
-    const id = this.pickPoi(galaxy, px, py, layout);
+    const id = this.pickPoi(galaxy, px, py, layout, hints);
     if (id === null) {
       this.selectedId = null;
       return null;
@@ -227,17 +270,21 @@ export class GalaxyChart {
       this.selectedId = null;
       return null;
     }
-    const current = galaxy.get(currentId);
-    const target = galaxy.get(id);
-    const inRange = galaxy.distance(current, target) <= jumpRange;
-    const selectable =
-      inRange ||
-      hints.selectableOutOfRange.has(id) ||
-      hints.questPoiIds.has(id);
-    if (selectable) {
+    if (this.revealFor(id, currentId, hints) !== "hidden") {
       this.selectedId = id;
     }
     return null;
+  }
+
+  private revealFor(
+    poiId: number,
+    currentId: number,
+    hints: ChartPoiHints,
+  ): ChartReveal {
+    if (poiId === currentId || hints.visitedPoiIds.has(poiId)) return "visited";
+    if (hints.identifiedPoiIds.has(poiId)) return "identified";
+    // Mission grants land in identifiedPoiIds; quest ring alone does not reveal.
+    return "hidden";
   }
 
   private drawMarker(
@@ -303,6 +350,7 @@ export class GalaxyChart {
     galaxy: Galaxy,
     map: Rect,
   ): { scale: number; offsetX: number; offsetY: number } {
+    // Fit the full world so chart coordinates stay stable as fog expands.
     let minX = Infinity;
     let maxX = -Infinity;
     let minY = Infinity;
@@ -343,11 +391,13 @@ export class GalaxyChart {
     screenX: number,
     screenY: number,
     layout: { scale: number; offsetX: number; offsetY: number },
+    hints: ChartPoiHints,
   ): number | null {
     const hitR = 14;
     let best: PoiRef | null = null;
     let bestDist = hitR;
     for (const poi of galaxy.pois) {
+      if (this.revealFor(poi.id, -1, hints) === "hidden") continue;
       const p = this.toScreen(poi.chartX, poi.chartY, layout);
       const d = Math.hypot(p.x - screenX, p.y - screenY);
       if (d < bestDist) {
@@ -364,14 +414,4 @@ function poiFill(poi: PoiRef): string {
     return STAR_COLORS[poi.starClass];
   }
   return POI_CHART_COLORS[poi.type];
-}
-
-/** Dimmed but readable fill for known / quest POIs outside jump range. */
-function fadedPoiFill(poi: PoiRef): string {
-  const base = poiFill(poi);
-  // Soften via overlay — keep hue recognizable for quest identification.
-  if (base.startsWith("#") && (base.length === 7 || base.length === 4)) {
-    return base.length === 7 ? `${base}cc` : base;
-  }
-  return "rgba(160, 175, 200, 0.75)";
 }
