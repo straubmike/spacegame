@@ -72,6 +72,13 @@ export function stationBayStock(
     pickInto(stock, prospecting, 1 + (rng() < 0.55 ? 1 : 0), rng);
   }
 
+  // Bias: Survey Scanner so exploration contracts stay reachable (Must-have 6).
+  if (maxTier >= 1 && rng() < 0.72) {
+    if (!stock.some((m) => m.id === MODULES.surveyScanner.id)) {
+      stock.push(cloneModule(MODULES.surveyScanner));
+    }
+  }
+
   // Bias: passenger berths so fare missions are reachable (1/2 common; 4 on hubs).
   if (maxTier >= 1 && rng() < 0.7) {
     const berths =

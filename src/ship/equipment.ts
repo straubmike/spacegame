@@ -75,6 +75,11 @@ export interface UtilityModule extends ModuleBase {
   fuelCapacity: number;
   /** Hold F near a main-sequence star to skim fuel. */
   fuelScoop: boolean;
+  /**
+   * Survey / exploration POI scan capability (0 tiers — one module).
+   * Required to accept explore missions and to complete a scan at the target.
+   */
+  poiScan: boolean;
 }
 
 export type EquipModule = WeaponModule | DriveModule | UtilityModule;
@@ -367,6 +372,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   hullPlating: {
@@ -386,6 +392,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   cargoRack: {
@@ -405,6 +412,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   mediumShield: {
@@ -424,6 +432,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   reinforcedHull: {
@@ -443,6 +452,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   expandedHold: {
@@ -462,6 +472,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   heavyShield: {
@@ -481,6 +492,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   fortressPlating: {
@@ -500,6 +512,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   freighterBay: {
@@ -519,6 +532,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
 
@@ -540,6 +554,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   cargoScoop: {
@@ -560,6 +575,7 @@ export const MODULES = {
     scoopRange: 48,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   /** 1-berth starter cabin — common on outpost shelves. */
@@ -581,6 +597,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   /** 2-berth cabin — standard station stock. */
@@ -602,6 +619,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   /** 4-berth cabin — mid-tier / hub shelves. */
@@ -623,6 +641,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   prospectingRig: {
@@ -643,6 +662,7 @@ export const MODULES = {
     scoopRange: 44,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 
   fuelScoop: {
@@ -663,6 +683,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: true,
+    poiScan: false,
   } satisfies UtilityModule,
 
   expandedFuelTank: {
@@ -683,6 +704,32 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 12,
     fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  /**
+   * Single survey utility — no Mk ladder. Gates exploration missions and
+   * completes a lightweight hold-F scan at exotic (non-derelict) POIs.
+   */
+  surveyScanner: {
+    kind: "utility",
+    id: "survey_scanner",
+    name: "Survey Scanner",
+    blurb:
+      "Exploration suite. Required to accept scan contracts; hold F at the target POI to survey.",
+    price: 70,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: true,
   } satisfies UtilityModule,
 
   dualLattice: {
@@ -702,6 +749,7 @@ export const MODULES = {
     scoopRange: 0,
     fuelCapacity: 0,
     fuelScoop: false,
+    poiScan: false,
   } satisfies UtilityModule,
 } as const;
 
@@ -745,6 +793,7 @@ export const CATALOG: EquipModule[] = [
   MODULES.prospectingRig,
   MODULES.fuelScoop,
   MODULES.expandedFuelTank,
+  MODULES.surveyScanner,
 ];
 
 export function createStarterSlots(): ShipSlot[] {
@@ -765,7 +814,8 @@ export function createStarterSlots(): ShipSlot[] {
       id: "slot_utility_0",
       kind: "utility",
       label: "Utility A",
-      equipped: null,
+      // Match Sparrow defaultLoadout — Survey Scanner for explore on-ramp.
+      equipped: cloneModule(MODULES.surveyScanner),
     },
     {
       id: "slot_utility_1",

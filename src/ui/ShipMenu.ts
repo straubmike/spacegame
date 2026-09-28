@@ -1315,6 +1315,11 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       text: mod.fuelScoop ? "Yes" : "—",
       value: mod.fuelScoop ? 1 : 0,
     },
+    {
+      label: "POI survey",
+      text: mod.poiScan ? "Yes" : "—",
+      value: mod.poiScan ? 1 : 0,
+    },
   ];
 }
 

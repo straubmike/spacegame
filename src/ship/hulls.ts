@@ -59,7 +59,9 @@ export const HULLS = {
     size: 14,
     fill: "#c8d6e8",
     stroke: "#6a8bb0",
-    defaultLoadout: ["energy_pulse", "basic_drive", null, null],
+    // Utility A: Survey Scanner so new players can take explore missions
+    // without a Bay buy first; Utility B left empty for scoop/rack/etc.
+    defaultLoadout: ["energy_pulse", "basic_drive", "survey_scanner", null],
   } satisfies HullDef,
 
   hauler: {

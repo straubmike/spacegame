@@ -154,6 +154,11 @@ export class ShipLoadout {
     return this.utilities().some((u) => u.fuelScoop);
   }
 
+  /** Exploration / survey scan capability (Survey Scanner). */
+  get hasPoiScan(): boolean {
+    return this.utilities().some((u) => u.poiScan);
+  }
+
   /** Shared fire spacing: fastest fitted weapon sets the cadence. */
   fireCooldown(): number {
     const weapons = this.weapons();

@@ -7,7 +7,8 @@
  *    reputation hit on steal later). Faction-tagged **Merchants Guild**.
  * - passenger: accept at A (free berths ≥ party) → occupy berths → deliver at B → paid at B
  *   Long-range preferred; ~10% pirate intercept on pre-destination jumps (Game).
- * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim.
+ * - explore: accept at A (needs Survey Scanner) → jump to exotic POI
+ *   (non-derelict) → hold F to scan → return to A → claim.
  *   Faction-tagged **Cartographers**.
  * - derelictCargo: accept at A (needs Cargo Scoop + ≥1 free CU) → scoop Sensitive
  *   Derelict Cargo at a derelict debris field → return to A → claim
@@ -81,7 +82,7 @@ export type ActiveMissionStatus = "inProgress" | "readyToClaim";
 export interface ActiveMission extends MissionOffer {
   status: ActiveMissionStatus;
   /**
-   * Explore: arrived and scanned the target POI.
+   * Explore: surveyed the target POI with a Survey Scanner (hold F).
    * Derelict cargo: scooped the Sensitive Derelict Cargo lot.
    */
   scanned: boolean;
@@ -167,7 +168,7 @@ export function missionStatusLine(mission: ActiveMission): string {
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
   }
-  return `Travel to ${mission.targetPoiName ?? "target"} and scan`;
+  return `Travel to ${mission.targetPoiName ?? "target"} and hold F to scan`;
 }
 
 /** Berths occupied by active passenger fare contracts. */
@@ -557,7 +558,7 @@ function makeExploreOffer(
     id: `explore:${origin.key}:${index}:${target.id}`,
     kind: "explore",
     title: `Scan ${formatPoiType(target.type)}`,
-    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}), then return here.`,
+    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Survey Scanner — hold F at the target, then return.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
