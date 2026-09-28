@@ -483,7 +483,10 @@ export const PLAYTEST = {
   forceBlackMarket: true,
   /** Extra starting credits so a first illegal haul is buyable without grinding. */
   seedCredits: 400,
-  /** Seed 2 CU Organs on the starter hold for an immediate shortage-fence sell test. */
+  /**
+   * Seed 2 CU Organs on the starter hold for an immediate shortage-fence sell test.
+   * Also TEMP-fits a Cargo Rack in empty Utility B (Sparrow has 0 base cargo).
+   */
   seedIllegalCu: 2,
   seedIllegalCommodityId: "organs" as const,
 } as const;

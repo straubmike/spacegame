@@ -12,7 +12,12 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import { swapCost, type EquipModule } from "../ship/equipment";
+import {
+  cloneModule,
+  MODULES,
+  swapCost,
+  type EquipModule,
+} from "../ship/equipment";
 import {
   stationBayStock,
   stationBayWealth,
@@ -1675,13 +1680,24 @@ export class Game {
       this.ship.credits += PLAYTEST.seedCredits;
     }
     if (PLAYTEST.seedIllegalCu > 0) {
-      this.ship.cargo.stow({
-        id: PLAYTEST.seedIllegalCommodityId,
-        name:
-          commodityById(PLAYTEST.seedIllegalCommodityId)?.name ??
-          PLAYTEST.seedIllegalCommodityId,
-        cu: PLAYTEST.seedIllegalCu,
-      });
+      // Sparrow baseCargo is 0 and Utility A is Survey Scanner — need a rack
+      // before stow can succeed (otherwise seed silently no-ops).
+      const emptyUtil = this.ship.loadout.slots.find(
+        (s) => s.kind === "utility" && !s.equipped,
+      );
+      if (emptyUtil) {
+        this.ship.loadout.equip(emptyUtil.id, cloneModule(MODULES.cargoRack));
+        this.ship.syncDerivedStats();
+      }
+      if (this.ship.cargo.freeCu >= PLAYTEST.seedIllegalCu) {
+        this.ship.cargo.stow({
+          id: PLAYTEST.seedIllegalCommodityId,
+          name:
+            commodityById(PLAYTEST.seedIllegalCommodityId)?.name ??
+            PLAYTEST.seedIllegalCommodityId,
+          cu: PLAYTEST.seedIllegalCu,
+        });
+      }
     }
   }
 
