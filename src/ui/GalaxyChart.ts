@@ -84,15 +84,6 @@ export class GalaxyChart {
     ctx.strokeStyle = "rgba(100, 130, 170, 0.25)";
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
 
-    const cur = this.toScreen(current.chartX, current.chartY, layout);
-    ctx.beginPath();
-    ctx.arc(cur.x, cur.y, jumpRange * layout.scale, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(100, 180, 255, 0.3)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
     for (const poi of galaxy.pois) {
       const p = this.toScreen(poi.chartX, poi.chartY, layout);
       if (
