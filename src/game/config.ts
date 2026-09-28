@@ -694,19 +694,3 @@ export const PATROL = {
    */
   scanDebtFeeMul: 2.5,
 } as const;
-
-/**
- * TEMP draft-PR playtest helpers (see workflows/pr-playtest-affordances.md).
- * Strip or gate before merge unless Mike keeps them.
- */
-export const PLAYTEST = {
-  /** Seed 1 CU Sensitive Derelict Cargo on the starter hold. */
-  seedDerelictCargo: true,
-  /** Every dock offers Black Market so the fence row is reachable. */
-  forceBlackMarket: true,
-  /**
-   * Spawn a stranded NPC near the player on new-game start so fuel-assist
-   * scoot → hyperspace can be clicked without farming a distress mission.
-   */
-  spawnStrandedAtStart: true,
-} as const;

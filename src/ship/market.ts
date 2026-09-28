@@ -1,4 +1,4 @@
-import { BLACK_MARKET, MARKET, GALAXY, STATION_MENU_VARIETY, PLAYTEST } from "../game/config";
+import { BLACK_MARKET, MARKET, GALAXY, STATION_MENU_VARIETY } from "../game/config";
 import { hash2, mulberry32 } from "../galaxy/rng";
 import {
   effectiveCommodityBias,
@@ -186,7 +186,6 @@ export function stationHasMenu(
 
 /** Whether this station offers a Black Market dock menu (Must-have 10 variety). */
 export function stationOffersBlackMarket(stationKey: string): boolean {
-  if (PLAYTEST.forceBlackMarket) return true;
   return stationHasMenu(stationKey, "blackMarket");
 }
 
