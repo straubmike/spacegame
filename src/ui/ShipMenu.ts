@@ -1,6 +1,5 @@
 import {
   formatAmmo,
-  formatWarp,
   rateOfFire,
   slotKindLabel,
   swapCost,
@@ -38,6 +37,7 @@ export type ShipMenuClickResult =
   | { action: "install"; module: EquipModule }
   | { action: "eject"; commodityId: string; cu: number }
   | { action: "cancelMission"; missionId: string }
+  | { action: "distress" }
   | null;
 
 interface StatRow {
@@ -91,6 +91,7 @@ export class ShipMenu {
   private missionConfirm: MissionEjectConfirm | null = null;
   private confirmYesBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private confirmNoBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private distressBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
   /** L-menu Missions / Cargo list scroll (wheel when pointer over section). */
   private missionsScroll = 0;
@@ -305,6 +306,19 @@ export class ShipMenu {
       w: 88,
       h: 36,
     };
+    if (this.mode === "view") {
+      this.distressBtn = {
+        x: panel.x + 24,
+        y: footerY,
+        w: 148,
+        h: 36,
+      };
+      drawButton(ctx, this.distressBtn, "Distress signal", {
+        hover: !this.missionConfirm && hit(this.distressBtn, pointerX, pointerY),
+      });
+    } else {
+      this.distressBtn = { x: 0, y: 0, w: 0, h: 0 };
+    }
     drawButton(ctx, this.closeBtn, "Close", {
       hover: !this.missionConfirm && hit(this.closeBtn, pointerX, pointerY),
     });
@@ -1065,6 +1079,9 @@ export class ShipMenu {
     }
 
     if (hit(this.closeBtn, px, py)) return "close";
+    if (this.mode === "view" && this.distressBtn.w > 0 && hit(this.distressBtn, px, py)) {
+      return { action: "distress" };
+    }
 
     for (let i = 0; i < this.slotRects.length; i += 1) {
       if (hit(this.slotRects[i]!, px, py) && loadout.slots[i]) {
@@ -1177,12 +1194,6 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
   }
   if (mod.kind === "drive") {
     const turnDeg = (mod.turnRate * 180) / Math.PI;
-    const warp =
-      loadout.drive?.id === mod.id
-        ? loadout.warpCharges
-        : mod.warpChargesMax === null
-          ? Infinity
-          : mod.warpChargesMax;
     return [
       {
         label: "Thrust",
@@ -1205,14 +1216,9 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
         value: turnDeg,
       },
       {
-        label: "Jump range",
-        text: `${mod.jumpRange.toFixed(0)} ly`,
-        value: mod.jumpRange,
-      },
-      {
-        label: "Warp charges",
-        text: formatWarp(mod.warpChargesMax, warp),
-        value: mod.warpChargesMax,
+        label: "Fuel tank",
+        text: `${mod.fuelCapacity}`,
+        value: mod.fuelCapacity,
       },
     ];
   }
@@ -1259,6 +1265,16 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       label: "Scoop range",
       text: mod.scoopRange > 0 ? `${mod.scoopRange.toFixed(0)} u` : "—",
       value: mod.scoopRange,
+    },
+    {
+      label: "Fuel tank",
+      text: mod.fuelCapacity > 0 ? `+${mod.fuelCapacity}` : "—",
+      value: mod.fuelCapacity,
+    },
+    {
+      label: "Fuel scoop",
+      text: mod.fuelScoop ? "Yes" : "—",
+      value: mod.fuelScoop ? 1 : 0,
     },
   ];
 }

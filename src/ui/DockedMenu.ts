@@ -32,8 +32,8 @@ const MENU_ORDER: readonly ServiceMenu[] = [
 
 /**
  * Shown while the player is docked at a station.
- * Repair + Missions are always available; Bay / Hangar / Market / Black Market
- * come from the station's rolled optional set.
+ * Repair & Refuel + Missions are always available; Bay / Hangar / Market /
+ * Black Market come from the station's rolled optional set.
  */
 export class DockedMenu {
   open = false;
@@ -122,6 +122,7 @@ export class DockedMenu {
     pointerX: number,
     pointerY: number,
     missingHp: number,
+    missingFuel: number,
     credits: number,
   ): void {
     if (!this.open) return;
@@ -138,13 +139,30 @@ export class DockedMenu {
       ctx.fillText(this.standingLine, this.panel.x + 24, this.panel.y + 52);
     }
 
-    const cost = missingHp * ECONOMY.repairCostPerHp;
-    const canRepair = missingHp > 0 && credits >= ECONOMY.repairCostPerHp;
-    const repairLabel =
-      missingHp <= 0 ? "Repair (full)" : `Repair (${cost} cr)`;
+    const repairCost = missingHp * ECONOMY.repairCostPerHp;
+    const needFuel = missingFuel > 0;
+    const refuelCost = needFuel ? ECONOMY.refuelCost : 0;
+    const total = repairCost + refuelCost;
+    const needRepair = missingHp > 0;
+    const canAffordRepair =
+      !needRepair || credits >= ECONOMY.repairCostPerHp;
+    const canAffordRefuel = !needFuel || credits >= ECONOMY.refuelCost;
+    // Allow partial repair even if refuel can't be paid, and vice versa.
+    const canAct =
+      (needRepair && canAffordRepair) || (needFuel && canAffordRefuel);
+    let repairLabel: string;
+    if (!needRepair && !needFuel) {
+      repairLabel = "Repair & Refuel (full)";
+    } else if (needRepair && needFuel) {
+      repairLabel = `Repair & Refuel (${total} cr)`;
+    } else if (needRepair) {
+      repairLabel = `Repair & Refuel (${repairCost} cr)`;
+    } else {
+      repairLabel = `Repair & Refuel (${refuelCost} cr)`;
+    }
     drawButton(ctx, this.repairBtn, repairLabel, {
-      enabled: canRepair,
-      hover: canRepair && hit(this.repairBtn, pointerX, pointerY),
+      enabled: canAct,
+      hover: canAct && hit(this.repairBtn, pointerX, pointerY),
     });
 
     for (const menu of MENU_ORDER) {

@@ -19,7 +19,8 @@ const COMMODITY_IDS = [
   "narcotics",
   "illicit_stimulants",
   "alloys",
-  "fuel_cells",
+  "precious_metals",
+  "organs",
 ] as const;
 
 /** Per-commodity surplus (+) / shortage (−), roughly in [-1, 1]. */
@@ -44,7 +45,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     machinery: -0.55,
     minerals: -0.25,
     alloys: -0.35,
-    fuel_cells: -0.4,
+    organs: -0.4,
     narcotics: -0.15,
     illicit_stimulants: -0.1,
   },
@@ -54,7 +55,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     food: -0.55,
     textiles: -0.35,
     machinery: -0.25,
-    fuel_cells: -0.3,
+    organs: -0.3,
     luxuries: -0.2,
   },
   molten: {
@@ -62,12 +63,12 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     alloys: 0.75,
     food: -0.65,
     textiles: -0.4,
-    fuel_cells: -0.35,
+    organs: -0.35,
     machinery: -0.2,
     luxuries: -0.25,
   },
   gasGiant: {
-    fuel_cells: 0.8,
+    organs: 0.8,
     narcotics: 0.35,
     illicit_stimulants: 0.3,
     food: -0.5,
@@ -78,7 +79,7 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
   },
   ice: {
     minerals: 0.4,
-    fuel_cells: 0.35,
+    organs: 0.35,
     food: -0.6,
     textiles: -0.45,
     luxuries: -0.35,
@@ -88,11 +89,11 @@ const BODY_BIAS: Record<OrbitBodyKind | "star", CommodityBias> = {
     minerals: 0.9,
     alloys: 0.55,
     food: -0.4,
-    fuel_cells: -0.25,
+    organs: -0.25,
   },
   star: {
     machinery: 0.7,
-    fuel_cells: 0.45,
+    organs: 0.45,
     alloys: 0.25,
     food: -0.5,
     textiles: -0.25,
@@ -110,16 +111,16 @@ const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
     luxuries: 0.35,
     machinery: 0.2,
     food: -0.55,
-    fuel_cells: -0.4,
+    organs: -0.4,
   },
   neutronStar: {
     alloys: 0.65,
     machinery: 0.4,
-    fuel_cells: -0.35,
+    organs: -0.35,
     food: -0.45,
   },
   brownDwarf: {
-    fuel_cells: 0.75,
+    organs: 0.75,
     minerals: 0.3,
     food: -0.5,
     textiles: -0.35,
@@ -134,7 +135,7 @@ const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
   roguePlanet: {
     minerals: 0.5,
     food: -0.55,
-    fuel_cells: -0.45,
+    organs: -0.45,
     luxuries: -0.25,
   },
   blackHole: {
@@ -142,7 +143,7 @@ const POI_BIAS: Partial<Record<PoiType, CommodityBias>> = {
     illicit_stimulants: 0.35,
     luxuries: 0.3,
     food: -0.5,
-    fuel_cells: -0.55,
+    organs: -0.55,
   },
 };
 
@@ -159,7 +160,7 @@ function starClassTint(starClass: StarClass): CommodityBias {
     case "K":
       return { food: 0.08, textiles: 0.05 };
     case "M":
-      return { minerals: 0.08, fuel_cells: -0.05 };
+      return { minerals: 0.08, organs: -0.05 };
   }
 }
 

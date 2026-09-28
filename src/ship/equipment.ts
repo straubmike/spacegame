@@ -1,4 +1,4 @@
-import { COMBAT, GALAXY, SHIP } from "../game/config";
+import { COMBAT, SHIP } from "../game/config";
 
 /** Equip categories — one module per slot. */
 export type SlotKind = "weapon" | "drive" | "utility";
@@ -38,8 +38,12 @@ export interface DriveModule extends ModuleBase {
   reverseAccel: number;
   maxSpeed: number;
   drag: number;
-  jumpRange: number;
-  /** null = unlimited jumps between repairs. */
+  /**
+   * Hyperspace / supercruise tank size contributed by this drive.
+   * Chart jump *reach* is fixed (GALAXY.jumpRange); tank size replaced range.
+   */
+  fuelCapacity: number;
+  /** null = unlimited warp charges between repairs (legacy; travel uses fuel). */
   warpChargesMax: number | null;
 }
 
@@ -67,6 +71,10 @@ export interface UtilityModule extends ModuleBase {
    * Belt farming needs scan + scoop equipped together.
    */
   scoopRange: number;
+  /** Bonus fuel tank units while equipped. */
+  fuelCapacity: number;
+  /** Hold F near a main-sequence star to skim fuel. */
+  fuelScoop: boolean;
 }
 
 export type EquipModule = WeaponModule | DriveModule | UtilityModule;
@@ -209,7 +217,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel,
     maxSpeed: SHIP.maxSpeed,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange,
+    fuelCapacity: 24,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -217,7 +225,7 @@ export const MODULES = {
     kind: "drive",
     id: "racing_drive",
     name: "Racing Drive",
-    blurb: "Hot thrusters and crisp turn authority. Shorter jump legs.",
+    blurb: "Hot thrusters and crisp turn authority. Smaller fuel tank.",
     price: 120,
     tier: 1,
     turnRate: SHIP.turnRate * 1.2,
@@ -225,7 +233,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.15,
     maxSpeed: SHIP.maxSpeed * 1.15,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 0.75,
+    fuelCapacity: 18,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -233,7 +241,7 @@ export const MODULES = {
     kind: "drive",
     id: "long_range_drive",
     name: "Long-Range Drive",
-    blurb: "Tuned hyperspace coil. Sluggish in-system, farther jumps.",
+    blurb: "Tuned hyperspace coil. Sluggish in-system, larger fuel tank.",
     price: 130,
     tier: 1,
     turnRate: SHIP.turnRate * 0.9,
@@ -241,7 +249,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.9,
     maxSpeed: SHIP.maxSpeed * 0.95,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 1.35,
+    fuelCapacity: 32,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -249,7 +257,7 @@ export const MODULES = {
     kind: "drive",
     id: "courier_drive",
     name: "Courier Drive",
-    blurb: "Trade-route coil. Solid thrust and a comfortable jump leg.",
+    blurb: "Trade-route coil. Solid thrust and a comfortable fuel tank.",
     price: 260,
     tier: 2,
     turnRate: SHIP.turnRate * 1.05,
@@ -257,7 +265,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.08,
     maxSpeed: SHIP.maxSpeed * 1.08,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 1.15,
+    fuelCapacity: 28,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -265,7 +273,7 @@ export const MODULES = {
     kind: "drive",
     id: "interceptor_drive",
     name: "Interceptor Drive",
-    blurb: "Combat thrusters first. Blistering in-system, stingy on range.",
+    blurb: "Combat thrusters first. Blistering in-system, stingy fuel tank.",
     price: 300,
     tier: 2,
     turnRate: SHIP.turnRate * 1.35,
@@ -273,7 +281,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.25,
     maxSpeed: SHIP.maxSpeed * 1.28,
     drag: SHIP.drag * 0.992,
-    jumpRange: GALAXY.jumpRange * 0.7,
+    fuelCapacity: 17,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -281,7 +289,7 @@ export const MODULES = {
     kind: "drive",
     id: "explorer_coil",
     name: "Explorer Coil",
-    blurb: "Surveyor's jump stack. Soft thrusters, long chart reach.",
+    blurb: "Surveyor's jump stack. Soft thrusters, deep fuel reserves.",
     price: 320,
     tier: 2,
     turnRate: SHIP.turnRate * 0.95,
@@ -289,7 +297,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.95,
     maxSpeed: SHIP.maxSpeed,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 1.55,
+    fuelCapacity: 37,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -297,7 +305,7 @@ export const MODULES = {
     kind: "drive",
     id: "afterburn_core",
     name: "Afterburn Core",
-    blurb: "Late combat coil. Peak thrust and turn — jump legs suffer.",
+    blurb: "Late combat coil. Peak thrust and turn — smaller tank.",
     price: 580,
     tier: 3,
     turnRate: SHIP.turnRate * 1.45,
@@ -305,7 +313,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.35,
     maxSpeed: SHIP.maxSpeed * 1.4,
     drag: SHIP.drag * 0.99,
-    jumpRange: GALAXY.jumpRange * 0.85,
+    fuelCapacity: 20,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -313,7 +321,7 @@ export const MODULES = {
     kind: "drive",
     id: "deep_jump_array",
     name: "Deep Jump Array",
-    blurb: "Long-haul hyperspace lattice. Slow locally, chart-dominating.",
+    blurb: "Long-haul hyperspace lattice. Slow locally, huge fuel tank.",
     price: 600,
     tier: 3,
     turnRate: SHIP.turnRate * 0.85,
@@ -321,7 +329,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.85,
     maxSpeed: SHIP.maxSpeed * 0.9,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 1.85,
+    fuelCapacity: 44,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -329,7 +337,7 @@ export const MODULES = {
     kind: "drive",
     id: "balanced_hyperdrive",
     name: "Balanced Hyperdrive",
-    blurb: "Premium all-rounder. Strong thrust and a long, reliable jump.",
+    blurb: "Premium all-rounder. Strong thrust and a large, reliable tank.",
     price: 650,
     tier: 3,
     turnRate: SHIP.turnRate * 1.15,
@@ -337,7 +345,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.15,
     maxSpeed: SHIP.maxSpeed * 1.18,
     drag: SHIP.drag,
-    jumpRange: GALAXY.jumpRange * 1.4,
+    fuelCapacity: 34,
     warpChargesMax: null,
   } satisfies DriveModule,
 
@@ -357,6 +365,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   hullPlating: {
@@ -374,6 +384,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   cargoRack: {
@@ -391,6 +403,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   mediumShield: {
@@ -408,6 +422,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   reinforcedHull: {
@@ -425,6 +441,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   expandedHold: {
@@ -442,6 +460,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   heavyShield: {
@@ -459,6 +479,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   fortressPlating: {
@@ -476,6 +498,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   freighterBay: {
@@ -493,6 +517,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
 
@@ -512,6 +538,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 110,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   cargoScoop: {
@@ -530,6 +558,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 48,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   passengerBerth: {
@@ -548,6 +578,8 @@ export const MODULES = {
     passengerCapacity: 4,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   prospectingRig: {
@@ -566,6 +598,48 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 100,
     scoopRange: 44,
+    fuelCapacity: 0,
+    fuelScoop: false,
+  } satisfies UtilityModule,
+
+  fuelScoop: {
+    kind: "utility",
+    id: "fuel_scoop",
+    name: "Fuel Scoop",
+    blurb:
+      "Skims hydrogen from main-sequence stars. Hold F near the star to refill the tank.",
+    price: 75,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: true,
+  } satisfies UtilityModule,
+
+  expandedFuelTank: {
+    kind: "utility",
+    id: "expanded_fuel_tank",
+    name: "Expanded Fuel Tank",
+    blurb:
+      "Auxiliary tankage. Raises fuel capacity; installs with the tank topped by the bonus.",
+    price: 85,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 12,
+    fuelScoop: false,
   } satisfies UtilityModule,
 
   dualLattice: {
@@ -583,6 +657,8 @@ export const MODULES = {
     passengerCapacity: 0,
     mineralScanRange: 0,
     scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
   } satisfies UtilityModule,
 } as const;
 
@@ -622,6 +698,8 @@ export const CATALOG: EquipModule[] = [
   MODULES.cargoScoop,
   MODULES.passengerBerth,
   MODULES.prospectingRig,
+  MODULES.fuelScoop,
+  MODULES.expandedFuelTank,
 ];
 
 export function createStarterSlots(): ShipSlot[] {

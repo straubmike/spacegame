@@ -6,6 +6,8 @@ export class Hud {
       maxHealth: number;
       shield: number;
       maxShield: number;
+      fuel: number;
+      maxFuel: number;
       cargoUsed: number;
       cargoCapacity: number;
       credits: number;
@@ -16,8 +18,6 @@ export class Hud {
       menuOpen: boolean;
       inBelt?: boolean;
       canProspect?: boolean;
-      hasScanner?: boolean;
-      hasScoop?: boolean;
     },
   ): void {
     if (info.menuOpen) return;
@@ -47,6 +47,9 @@ export class Hud {
       ...(info.maxShield > 0
         ? [`SH ${Math.ceil(info.shield)}/${info.maxShield}`]
         : []),
+      ...(info.maxFuel > 0
+        ? [`FU ${Math.floor(info.fuel)}/${info.maxFuel}`]
+        : []),
       ...(info.cargoCapacity > 0
         ? [`CU ${info.cargoUsed}/${info.cargoCapacity}`]
         : []),
@@ -59,18 +62,10 @@ export class Hud {
       y += 17;
     }
 
-    if (info.inBelt) {
+    if (info.inBelt && info.canProspect) {
       y += 8;
       ctx.fillStyle = "rgba(200, 210, 170, 0.8)";
-      if (info.canProspect) {
-        ctx.fillText("Belt · hold F to scoop ore", pad, y);
-      } else if (info.hasScanner && !info.hasScoop) {
-        ctx.fillText("Belt · fit Cargo Scoop to farm", pad, y);
-      } else if (info.hasScoop && !info.hasScanner) {
-        ctx.fillText("Belt · fit Ore Scanner to find veins", pad, y);
-      } else {
-        ctx.fillText("Belt · need Ore Scanner + Cargo Scoop", pad, y);
-      }
+      ctx.fillText("Belt · hold F to scoop ore", pad, y);
     }
 
     ctx.fillStyle = "rgba(150, 170, 200, 0.55)";

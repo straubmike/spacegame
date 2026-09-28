@@ -29,8 +29,8 @@ export interface HullDef {
   baseHull: number;
   /** Built-in cargo CU before utility racks. */
   baseCargo: number;
-  /** Added to equipped drive jump range (ly). */
-  jumpRangeBonus: number;
+  /** Added to equipped drive fuel tank. */
+  fuelCapacityBonus: number;
   /** Visual / hit silhouette scale. */
   size: number;
   fill: string;
@@ -55,7 +55,7 @@ export const HULLS = {
     ],
     baseHull: 10,
     baseCargo: 0,
-    jumpRangeBonus: 0,
+    fuelCapacityBonus: 0,
     size: 14,
     fill: "#c8d6e8",
     stroke: "#6a8bb0",
@@ -76,7 +76,7 @@ export const HULLS = {
     ],
     baseHull: 12,
     baseCargo: 8,
-    jumpRangeBonus: 0,
+    fuelCapacityBonus: 0,
     size: 18,
     fill: "#d4c4a8",
     stroke: "#8a7a58",
@@ -99,7 +99,7 @@ export const HULLS = {
     ],
     baseHull: 8,
     baseCargo: 0,
-    jumpRangeBonus: 0,
+    fuelCapacityBonus: 0,
     size: 12,
     fill: "#e8b0a0",
     stroke: "#a06050",
@@ -110,7 +110,7 @@ export const HULLS = {
     id: "pathfinder",
     name: "Pathfinder",
     specialty: "Explorer",
-    blurb: "Survey frame with a hypertuned coil mount. Extra jump reach baked into the hull.",
+    blurb: "Survey frame with a hypertuned coil mount. Extra fuel tankage baked into the hull.",
     price: 180,
     slots: [
       { kind: "weapon", label: "Weapon" },
@@ -119,7 +119,7 @@ export const HULLS = {
     ],
     baseHull: 10,
     baseCargo: 2,
-    jumpRangeBonus: 12,
+    fuelCapacityBonus: 6,
     size: 14,
     fill: "#a8d4c8",
     stroke: "#4a8878",
@@ -140,7 +140,7 @@ export const HULLS = {
     ],
     baseHull: 16,
     baseCargo: 0,
-    jumpRangeBonus: 0,
+    fuelCapacityBonus: 0,
     size: 16,
     fill: "#b0b8c8",
     stroke: "#586878",

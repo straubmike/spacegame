@@ -1,5 +1,6 @@
 import type { LocalView, SystemBodyRef } from "../galaxy/types";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
+import { supercruiseFuelCost } from "../ship/fuel";
 
 export type SystemClickResult = "travel" | "close" | null;
 
@@ -125,6 +126,7 @@ export class SystemPanel {
 
     const canTravel =
       this.selectedBodyId !== null && this.selectedBodyId !== local.bodyId;
+    const supercruiseCost = supercruiseFuelCost();
 
     this.travelBtn = {
       x: panel.x + panel.w - 220,
@@ -144,6 +146,16 @@ export class SystemPanel {
       enabled: canTravel,
       hover: hit(this.travelBtn, pointerX, pointerY),
     });
+    if (canTravel) {
+      ctx.font = FONT;
+      ctx.fillStyle = "rgba(160, 190, 160, 0.85)";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        `Fuel ${supercruiseCost}`,
+        panel.x + 20,
+        panel.y + panel.h - 32,
+      );
+    }
     drawButton(ctx, this.closeBtn, "Close", {
       hover: hit(this.closeBtn, pointerX, pointerY),
     });
