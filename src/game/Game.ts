@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, PLAYTEST, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -12,12 +12,7 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import {
-  cloneModule,
-  MODULES,
-  swapCost,
-  type EquipModule,
-} from "../ship/equipment";
+import { swapCost, type EquipModule } from "../ship/equipment";
 import {
   stationBayStock,
   stationBayWealth,
@@ -323,7 +318,6 @@ export class Game {
       this.ship.jumpRange(),
     );
     this.claimedCartographerVisits.add(GALAXY.startPoiId);
-    this.applyPlaytestAffordances();
     this.enterLocal();
 
     this.loop = new Loop(
@@ -1658,47 +1652,14 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
-    const menus = new Set(rollStationMenus(key));
-    // TEMP: every dock shows Black Market so illegal-route playtest is one dock away.
-    if (PLAYTEST.forceBlackMarket) menus.add("blackMarket");
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
-      menus,
+      rollStationMenus(key),
       this.missionBoardHint(),
       this.dockStandingLine(station),
     );
-  }
-
-  /**
-   * TEMP draft-PR helpers — Mike hits illegal BM routes without farming.
-   * See PLAYTEST in config.ts / workflows/pr-playtest-affordances.md.
-   */
-  private applyPlaytestAffordances(): void {
-    if (PLAYTEST.seedCredits > 0) {
-      this.ship.credits += PLAYTEST.seedCredits;
-    }
-    if (PLAYTEST.seedIllegalCu > 0) {
-      // Sparrow baseCargo is 0 and Utility A is Survey Scanner — need a rack
-      // before stow can succeed (otherwise seed silently no-ops).
-      const emptyUtil = this.ship.loadout.slots.find(
-        (s) => s.kind === "utility" && !s.equipped,
-      );
-      if (emptyUtil) {
-        this.ship.loadout.equip(emptyUtil.id, cloneModule(MODULES.cargoRack));
-        this.ship.syncDerivedStats();
-      }
-      if (this.ship.cargo.freeCu >= PLAYTEST.seedIllegalCu) {
-        this.ship.cargo.stow({
-          id: PLAYTEST.seedIllegalCommodityId,
-          name:
-            commodityById(PLAYTEST.seedIllegalCommodityId)?.name ??
-            PLAYTEST.seedIllegalCommodityId,
-          cu: PLAYTEST.seedIllegalCu,
-        });
-      }
-    }
   }
 
   private stations(): Landmark[] {

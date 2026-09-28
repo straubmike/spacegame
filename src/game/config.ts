@@ -475,23 +475,6 @@ export const BLACK_MARKET = {
 } as const;
 
 /**
- * TEMP draft-PR playtest helpers — strip/gate before merge unless Mike keeps them.
- * See workflows/pr-playtest-affordances.md.
- */
-export const PLAYTEST = {
-  /** Every dock offers Black Market so illegal routes are one dock away. */
-  forceBlackMarket: true,
-  /** Extra starting credits so a first illegal haul is buyable without grinding. */
-  seedCredits: 400,
-  /**
-   * Seed 2 CU Organs on the starter hold for an immediate shortage-fence sell test.
-   * Also TEMP-fits a Cargo Rack in empty Utility B (Sparrow has 0 base cargo).
-   */
-  seedIllegalCu: 2,
-  seedIllegalCommodityId: "organs" as const,
-} as const;
-
-/**
  * Station dock menu variety (Must-have 10).
  * Missions are always on; repair/refuel is complimentary on dock (no button).
  * Optional menus (bay / hangar / market / black market) roll a seed-stable
