@@ -196,8 +196,16 @@ export class Game {
   private readonly acceptedMissionIds = new Set<string>();
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
-  /** POIs the player has entered this session. */
+  /**
+   * POIs the player has entered this session (fog / chart catalog feed).
+   * Cartographer bank redeems newly visited ids not yet in claimedCartographerVisits.
+   */
   private readonly visitedPoiIds = new Set<number>();
+  /**
+   * Visited POIs already cashed in for Cartographer dock rewards.
+   * Start POI is pre-claimed so home does not pay out.
+   */
+  private readonly claimedCartographerVisits = new Set<number>();
   /** POIs scanned via exploration contracts. */
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
@@ -299,7 +307,9 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
+    // Home is visited but already "known" — do not bank Cartographer payout.
     this.visitedPoiIds.add(GALAXY.startPoiId);
+    this.claimedCartographerVisits.add(GALAXY.startPoiId);
     this.enterLocal();
 
     this.loop = new Loop(
@@ -861,6 +871,33 @@ export class Game {
   }
 
   /**
+   * Cash in newly visited POIs (visited catalog − already claimed).
+   * Same dock timing as pirate bounty redemption. Feeds fog visited set.
+   */
+  private redeemCartographerVisits(stationName: string): void {
+    const fresh: number[] = [];
+    for (const id of this.visitedPoiIds) {
+      if (this.claimedCartographerVisits.has(id)) continue;
+      fresh.push(id);
+    }
+    if (fresh.length === 0) return;
+
+    for (const id of fresh) this.claimedCartographerVisits.add(id);
+    const n = fresh.length;
+    const payout = n * ECONOMY.cartographerCreditsPerVisit;
+    const repDelta = n * REPUTATION.cartographerVisitRep;
+    this.ship.addCredits(payout);
+    this.messages.push(
+      `${stationName}: Cartographer data — ${n} new visit${n === 1 ? "" : "s"} (+${payout} cr).`,
+      "station",
+    );
+    if (repDelta !== 0) {
+      const next = this.reputation.adjust(CARTOGRAPHERS_FACTION_ID, repDelta);
+      this.pushRepChange("Cartographers", next, repDelta);
+    }
+  }
+
+  /**
    * One or more pirates left this frame. Credits kills separately;
    * clears the encounter slot when no ships remain.
    */
@@ -918,11 +955,19 @@ export class Game {
   }
 
   /**
-   * On arriving in a local view — mark visited; explore scans need hold-F
-   * with a Survey Scanner (see updateExploreScan). No auto-complete on arrival.
+   * On arriving in a local view — bank first visits for Cartographer dock
+   * rewards; explore scans need hold-F with a Survey Scanner (see
+   * updateExploreScan). No auto-complete on arrival.
    */
   private checkExploreScanProgress(): void {
-    this.visitedPoiIds.add(this.local.poiId);
+    const poiId = this.local.poiId;
+    const firstVisit = !this.visitedPoiIds.has(poiId);
+    this.visitedPoiIds.add(poiId);
+    if (firstVisit && !this.claimedCartographerVisits.has(poiId)) {
+      this.messages.push(
+        "New system charted. Dock at any station to redeem Cartographer data.",
+      );
+    }
     const pending = this.activeMissions.find(
       (m) =>
         m.kind === "explore" &&
@@ -2293,6 +2338,7 @@ export class Game {
     this.ship.y = station.y;
     this.projectiles = [];
     this.redeemPendingKills(station.name);
+    this.redeemCartographerVisits(station.name);
     this.tryCompleteCargoDelivery(station);
     this.syncExploreClaimableAtStation(station);
     const key =
