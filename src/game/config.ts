@@ -343,11 +343,54 @@ export const FUEL = {
   scoopSecondsPerUnit: 1.2,
   /** How close (beyond star radius) the scoop must be. */
   scoopRangePad: 28,
-  /** Distress: chance of pirates vs fuel rat when not forced-rat. */
-  distressPirateChance: 0.55,
-  /** Distress pirate pack size (inclusive). */
-  distressPirateMin: 1,
-  distressPirateMax: 3,
+  /**
+   * L-menu distress: pirate vs Fuel Rat odds scale with Fuel Rats reputation.
+   * Allied (≥ REPUTATION.alliedAtOrAbove) → hard 0% pirates (always Fuel Rat).
+   * Negative → higher pirate chance, larger packs, harder tiers.
+   * See `distressOdds.ts` for the piecewise lerp.
+   */
+  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline). */
+  distressPirateChanceNeutral: 0.55,
+  /** Pirate roll at Fuel Rat Hostile floor (≤ REPUTATION.hostileAtOrBelow). */
+  distressPirateChanceHostile: 0.95,
+  /**
+   * Pirate roll at Fuel Rat Friendly floor (≥ friendlyAtOrAbove, < Allied).
+   * Allied band is always 0 — not a tunable.
+   */
+  distressPirateChanceFriendly: 0.2,
+  /** Pack size (inclusive) at Neutral / Hostile / Friendly Fuel Rat standing. */
+  distressPirateMinNeutral: 1,
+  distressPirateMaxNeutral: 3,
+  distressPirateMinHostile: 3,
+  distressPirateMaxHostile: 5,
+  distressPirateMinFriendly: 1,
+  distressPirateMaxFriendly: 2,
+  /** Pack tribute at Neutral / Hostile / Friendly. */
+  distressFeeNeutral: 12,
+  distressFeeHostile: 28,
+  distressFeeFriendly: 8,
+  /**
+   * Relative tier weights at Neutral / Hostile / Friendly.
+   * Negative standing lerps Neutral→Hostile; positive lerps Neutral→Friendly.
+   */
+  distressTierWeightsNeutral: {
+    scout: 55,
+    raider: 45,
+    gunship: 0,
+    corsair: 0,
+  },
+  distressTierWeightsHostile: {
+    scout: 5,
+    raider: 25,
+    gunship: 40,
+    corsair: 30,
+  },
+  distressTierWeightsFriendly: {
+    scout: 80,
+    raider: 20,
+    gunship: 0,
+    corsair: 0,
+  },
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
   /** Downtime after broadcast before a responder appears (inclusive range). */
