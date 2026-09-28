@@ -31,7 +31,7 @@ Then open the URL Vite prints (usually `http://localhost:5173`).
 | **Esc** | Close menus / cancel approach |
 | Click station | Context menu → hail / dock |
 
-While **docked**: repair, **bay** (equip modules), **market** (buy/sell commodities), pirate clearance quests, launch.
+While **docked**: **Repair** and **Missions** are always available; **Bay**, **Hangar**, **Market**, and **Black Market** vary by station — explore to find specialty docks.
 
 ## Current prototype loop
 
