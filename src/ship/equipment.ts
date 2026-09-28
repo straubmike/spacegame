@@ -767,7 +767,8 @@ export function createStarterSlots(): ShipSlot[] {
       id: "slot_utility_0",
       kind: "utility",
       label: "Utility A",
-      equipped: null,
+      // Match Sparrow defaultLoadout — Survey Scanner for explore on-ramp.
+      equipped: cloneModule(MODULES.surveyScanner),
     },
     {
       id: "slot_utility_1",
