@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, PLAYTEST, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -318,6 +318,7 @@ export class Game {
       this.ship.jumpRange(),
     );
     this.claimedCartographerVisits.add(GALAXY.startPoiId);
+    this.applyPlaytestAffordances();
     this.enterLocal();
 
     this.loop = new Loop(
@@ -1652,14 +1653,36 @@ export class Game {
     const key =
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
+    const menus = new Set(rollStationMenus(key));
+    // TEMP: every dock shows Black Market so illegal-route playtest is one dock away.
+    if (PLAYTEST.forceBlackMarket) menus.add("blackMarket");
     this.dockedMenu.show(
       station.name,
       window.innerWidth,
       window.innerHeight,
-      rollStationMenus(key),
+      menus,
       this.missionBoardHint(),
       this.dockStandingLine(station),
     );
+  }
+
+  /**
+   * TEMP draft-PR helpers — Mike hits illegal BM routes without farming.
+   * See PLAYTEST in config.ts / workflows/pr-playtest-affordances.md.
+   */
+  private applyPlaytestAffordances(): void {
+    if (PLAYTEST.seedCredits > 0) {
+      this.ship.credits += PLAYTEST.seedCredits;
+    }
+    if (PLAYTEST.seedIllegalCu > 0) {
+      this.ship.cargo.stow({
+        id: PLAYTEST.seedIllegalCommodityId,
+        name:
+          commodityById(PLAYTEST.seedIllegalCommodityId)?.name ??
+          PLAYTEST.seedIllegalCommodityId,
+        cu: PLAYTEST.seedIllegalCu,
+      });
+    }
   }
 
   private stations(): Landmark[] {
