@@ -465,6 +465,17 @@ export class Game {
     );
   }
 
+  /**
+   * Every pirate hull in the current local view — seeded pack, distress
+   * responders, and mission bait. Patrols hunt this full list so station
+   * law still answers distress-spawned (and intrusion) pirates.
+   */
+  private localPirateThreats(): Pirate[] {
+    const list: Pirate[] = [...this.pirates, ...this.distressPirates];
+    if (this.baitPirate) list.push(this.baitPirate);
+    return list;
+  }
+
   private packThreatInRange(): boolean {
     return this.pirates.some((p) => {
       if (!p.alive) return false;
@@ -2825,11 +2836,12 @@ export class Game {
     }
 
     const patrolShots: Projectile[] = [];
+    const pirateThreats = this.localPirateThreats();
     for (const patrol of this.patrols) {
       const law = this.patrolLawFor(patrol.stationKey);
       const edge = patrol.update(
         dt,
-        this.pirates,
+        pirateThreats,
         this.ship.x,
         this.ship.y,
         patrolShots,
