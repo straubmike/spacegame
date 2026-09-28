@@ -127,8 +127,25 @@ export class MissionBoardMenu {
       | { kind: "offer"; mission: MissionOffer }
       | { kind: "active"; mission: ActiveMission };
 
+    /** Preferred faction section order on the board. */
+    const factionSectionOrder = [
+      "Fuel Rats",
+      "Merchants Guild",
+      "Cartographers",
+    ];
     const factionOffers = this.offers.filter((m) => !!m.factionId);
     const stationOffers = this.offers.filter((m) => !m.factionId);
+    const byFaction = new Map<string, MissionOffer[]>();
+    for (const m of factionOffers) {
+      const label = m.factionLabel ?? "Faction";
+      const list = byFaction.get(label) ?? [];
+      list.push(m);
+      byFaction.set(label, list);
+    }
+    const factionLabels = [
+      ...factionSectionOrder.filter((l) => byFaction.has(l)),
+      ...[...byFaction.keys()].filter((l) => !factionSectionOrder.includes(l)),
+    ];
 
     const items: ListItem[] = [];
     if (this.active.length > 0) {
@@ -136,10 +153,15 @@ export class MissionBoardMenu {
       for (const m of this.active) items.push({ kind: "active", mission: m });
     }
     items.push({ kind: "section", title: "Faction quests" });
-    if (factionOffers.length === 0) {
+    if (factionLabels.length === 0) {
       items.push({ kind: "section", title: "  (none available)" });
     } else {
-      for (const m of factionOffers) items.push({ kind: "offer", mission: m });
+      for (const label of factionLabels) {
+        items.push({ kind: "section", title: `  ${label}` });
+        for (const m of byFaction.get(label) ?? []) {
+          items.push({ kind: "offer", mission: m });
+        }
+      }
     }
     items.push({ kind: "section", title: "Station contracts" });
     if (stationOffers.length === 0) {
@@ -221,25 +243,20 @@ export class MissionBoardMenu {
     ctx.font = FONT;
     ctx.textBaseline = "top";
     ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
-    const title =
-      mission.factionLabel
-        ? `${mission.title} · ${mission.factionLabel}`
-        : mission.title;
-    ctx.fillText(truncateToWidth(ctx, title, textMaxW), textX, y + 8);
+    // Faction section headers already name the guild; keep title clean.
+    ctx.fillText(truncateToWidth(ctx, mission.title, textMaxW), textX, y + 8);
     ctx.fillStyle = "rgba(150, 175, 210, 0.85)";
     ctx.fillText(truncateToWidth(ctx, mission.blurb, textMaxW), textX, y + 28);
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    ctx.fillText(
-      truncateToWidth(
-        ctx,
-        mission.kind === "distressAnswer"
-          ? "Fuel Rats reputation"
-          : `+${mission.reward} cr`,
-        textMaxW,
-      ),
-      textX,
-      y + 48,
-    );
+    const rewardLine =
+      mission.kind === "distressAnswer"
+        ? "Fuel Rats reputation"
+        : mission.kind === "cargo"
+          ? `+${mission.reward} cr · Merchants Guild`
+          : mission.kind === "explore"
+            ? `+${mission.reward} cr · Cartographers`
+            : `+${mission.reward} cr`;
+    ctx.fillText(truncateToWidth(ctx, rewardLine, textMaxW), textX, y + 48);
 
     const needCu =
       mission.kind === "cargo" || mission.kind === "derelictCargo"
@@ -323,17 +340,15 @@ export class MissionBoardMenu {
       y + 28,
     );
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    ctx.fillText(
-      truncateToWidth(
-        ctx,
-        mission.kind === "distressAnswer"
-          ? "Fuel Rats reputation"
-          : `+${mission.reward} cr`,
-        textMaxW,
-      ),
-      textX,
-      y + 48,
-    );
+    const activeReward =
+      mission.kind === "distressAnswer"
+        ? "Fuel Rats reputation"
+        : mission.kind === "cargo"
+          ? `+${mission.reward} cr · Merchants Guild`
+          : mission.kind === "explore"
+            ? `+${mission.reward} cr · Cartographers`
+            : `+${mission.reward} cr`;
+    ctx.fillText(truncateToWidth(ctx, activeReward, textMaxW), textX, y + 48);
 
     drawButton(ctx, cancelBtn, "Cancel", {
       hover: hit(cancelBtn, pointerX, pointerY),

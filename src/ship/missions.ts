@@ -4,8 +4,9 @@
  * Archetypes:
  * - cargo: accept at A → freight loads into hold → deliver at B → paid at B
  *   (cancel at A's Missions board → cargo returned; cancel elsewhere → stolen;
- *    reputation hit on steal later)
- * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim
+ *    reputation hit on steal later). Faction-tagged **Merchants Guild**.
+ * - explore: accept at A → visit/scan exotic POI (not derelicts) → return to A → claim.
+ *   Faction-tagged **Cartographers**.
  * - derelictCargo: accept at A (needs Cargo Scoop + ≥1 free CU) → scoop Sensitive
  *   Derelict Cargo at a derelict debris field → return to A → claim
  *   Abandon/cancel: mild rep; cargo is NOT stolen (no steal floor / patrol debt from
@@ -26,7 +27,7 @@ import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
 import { hash2, mulberry32 } from "../galaxy/rng";
-import { FUEL_RATS_FACTION_ID } from "./reputation";
+import { FUEL_RATS_FACTION_ID, MERCHANTS_GUILD_FACTION_ID, CARTOGRAPHERS_FACTION_ID } from "./reputation";
 import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
@@ -50,7 +51,7 @@ export interface MissionOffer {
   originStationKey: string;
   originStationName: string;
   originPoiId: number;
-  /** Faction section on the board (Fuel Rats, …). */
+  /** Faction section on the board (Fuel Rats, Merchants Guild, Cartographers, …). */
   factionId?: string;
   factionLabel?: string;
   /** Cargo freight. */
@@ -339,6 +340,8 @@ function makeCargoOffer(
     originStationKey: origin.key,
     originStationName: origin.name,
     originPoiId: origin.poiId,
+    factionId: MERCHANTS_GUILD_FACTION_ID,
+    factionLabel: "Merchants Guild",
     commodityId: commodity.id,
     commodityName: commodity.name,
     cu,
@@ -469,6 +472,8 @@ function makeExploreOffer(
     originStationKey: origin.key,
     originStationName: origin.name,
     originPoiId: origin.poiId,
+    factionId: CARTOGRAPHERS_FACTION_ID,
+    factionLabel: "Cartographers",
     targetPoiId: target.id,
     targetPoiName: target.name,
     targetPoiType: target.type,

@@ -32,8 +32,11 @@ import type { MarketContext } from "../ship/economy";
 import {
   ALWAYS_VISIBLE_FACTIONS,
   applyBayDiscount,
+  CARTOGRAPHERS_FACTION_ID,
   formatStanding,
   FUEL_RATS_FACTION_ID,
+  GUILD_FACTIONS,
+  MERCHANTS_GUILD_FACTION_ID,
   PIRATE_FACTION_ID,
   REBELS_FACTION_ID,
   ReputationTracker,
@@ -184,7 +187,7 @@ export class Game {
   private readonly visitedPoiIds = new Set<number>();
   /** POIs scanned via exploration contracts. */
   private readonly scannedPoiIds = new Set<number>();
-  /** Per-station + pirate / Fuel Rat faction standing (session). */
+  /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
   private readonly reputation = new ReputationTracker();
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
@@ -918,6 +921,7 @@ export class Game {
         mission.destStationName ?? station.name,
         REPUTATION.missionComplete,
       );
+      this.adjustMerchantsRep(REPUTATION.merchantsHaulComplete);
       if (onActive < need) {
         const parked = hits
           .filter((h) => h.instanceId !== this.ship.fleet.activeInstanceId)
@@ -1092,6 +1096,7 @@ export class Game {
         mission.originStationName,
         REPUTATION.missionComplete,
       );
+      this.adjustCartographersRep(REPUTATION.cartographersScanComplete);
       this.messages.push(
         `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
         "station",
@@ -1373,11 +1378,15 @@ export class Game {
 
   private pushRepChange(label: string, next: number, delta: number): void {
     const signed = delta > 0 ? `+${delta}` : `${delta}`;
+    const factionTone =
+      label === "Pirates" ||
+      label === "Rebels" ||
+      label === "Fuel Rats" ||
+      label === "Merchants Guild" ||
+      label === "Cartographers";
     this.messages.push(
       `Standing — ${label}: ${formatStanding(next)} (${signed})`,
-      label === "Pirates" || label === "Rebels" || label === "Fuel Rats"
-        ? "pirate"
-        : "station",
+      factionTone ? "pirate" : "station",
     );
   }
 
@@ -1408,10 +1417,18 @@ export class Game {
         score: this.reputation.rebelsRep(),
       });
     }
-    factions.push(
-      { id: "merchants", label: "Merchants guild", score: 0 },
-      { id: "cartographers", label: "Cartographers", score: 0 },
-    );
+    for (const g of GUILD_FACTIONS) {
+      factions.push({
+        id: g.id,
+        label: g.label,
+        score:
+          g.id === MERCHANTS_GUILD_FACTION_ID
+            ? this.reputation.merchantsRep()
+            : g.id === CARTOGRAPHERS_FACTION_ID
+              ? this.reputation.cartographersRep()
+              : 0,
+      });
+    }
     return {
       factions,
       stations: this.reputation.nonzeroStations(),
@@ -1427,6 +1444,18 @@ export class Game {
   private adjustFuelRatRep(delta: number): number {
     const next = this.reputation.adjust(FUEL_RATS_FACTION_ID, delta);
     this.pushRepChange("Fuel Rats", next, delta);
+    return next;
+  }
+
+  private adjustMerchantsRep(delta: number): number {
+    const next = this.reputation.adjust(MERCHANTS_GUILD_FACTION_ID, delta);
+    this.pushRepChange("Merchants Guild", next, delta);
+    return next;
+  }
+
+  private adjustCartographersRep(delta: number): number {
+    const next = this.reputation.adjust(CARTOGRAPHERS_FACTION_ID, delta);
+    this.pushRepChange("Cartographers", next, delta);
     return next;
   }
 

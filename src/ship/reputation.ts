@@ -1,11 +1,12 @@
 /**
- * Session reputation — per-station standings + pirate / Fuel Rats / Rebels factions.
+ * Session reputation — stations + pirate / Fuel Rats / Rebels / guild factions.
  *
  * Station ladder includes Violation between Unfriendly and Hostile.
- * Federations / guilds are design-only; merchants tariff is a stub.
+ * Merchants Guild + Cartographers stand from faction-tagged generic missions;
+ * merchants tariff multiplier remains a stub (1.0).
  *
  * L-menu visibility:
- * - Pirates + Fuel Rats: always shown (even at 0)
+ * - Pirates + Fuel Rats + Merchants Guild + Cartographers: always shown (even at 0)
  * - Rebels: hidden until revealed (first fence of Sensitive Derelict Cargo, etc.)
  * - Stations: non-zero only
  */
@@ -23,6 +24,8 @@ export type StandingBand =
 export const PIRATE_FACTION_ID = "pirates";
 export const FUEL_RATS_FACTION_ID = "fuel_rats";
 export const REBELS_FACTION_ID = "rebels";
+export const MERCHANTS_GUILD_FACTION_ID = "merchants_guild";
+export const CARTOGRAPHERS_FACTION_ID = "cartographers";
 
 /** Factions always listed on the L Reputation band (even Neutral 0). */
 export const ALWAYS_VISIBLE_FACTIONS: readonly {
@@ -31,6 +34,15 @@ export const ALWAYS_VISIBLE_FACTIONS: readonly {
 }[] = [
   { id: PIRATE_FACTION_ID, label: "Pirates" },
   { id: FUEL_RATS_FACTION_ID, label: "Fuel Rats" },
+];
+
+/** Guild factions — always listed after reveal-gated rows. */
+export const GUILD_FACTIONS: readonly {
+  id: string;
+  label: string;
+}[] = [
+  { id: MERCHANTS_GUILD_FACTION_ID, label: "Merchants Guild" },
+  { id: CARTOGRAPHERS_FACTION_ID, label: "Cartographers" },
 ];
 
 export interface ReputationFactionRow {
@@ -49,11 +61,23 @@ export interface ReputationStationRow {
 export interface ReputationListing {
   /**
    * Always-visible factions first (Pirates, Fuel Rats), then revealed
-   * factions (Rebels), then guild stubs.
+   * factions (Rebels), then guilds (Merchants Guild, Cartographers).
    */
   factions: ReputationFactionRow[];
   /** Only stations with non-zero standing. */
   stations: ReputationStationRow[];
+}
+
+const FACTION_IDS = new Set<string>([
+  PIRATE_FACTION_ID,
+  FUEL_RATS_FACTION_ID,
+  REBELS_FACTION_ID,
+  MERCHANTS_GUILD_FACTION_ID,
+  CARTOGRAPHERS_FACTION_ID,
+]);
+
+export function isFactionReputationId(id: string): boolean {
+  return FACTION_IDS.has(id);
 }
 
 export function clampStanding(score: number): number {
@@ -71,7 +95,7 @@ export function standingBand(score: number): StandingBand {
 }
 
 /**
- * Pirate / Fuel Rats / Rebels — no Violation band; fold that range into Unfriendly.
+ * Pirate / Fuel Rats / Rebels / guilds — no Violation band; fold into Unfriendly.
  */
 export function pirateStandingBand(score: number): StandingBand {
   if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
@@ -118,6 +142,8 @@ export class ReputationTracker {
   private pirateStanding = 0;
   private fuelRatsStanding = 0;
   private rebelsStanding = 0;
+  private merchantsStanding = 0;
+  private cartographersStanding = 0;
   /** Once true, Rebels stay on the L list even if standing returns to 0. */
   private rebelsRevealed = false;
 
@@ -135,6 +161,14 @@ export class ReputationTracker {
 
   rebelsRep(): number {
     return this.rebelsStanding;
+  }
+
+  merchantsRep(): number {
+    return this.merchantsStanding;
+  }
+
+  cartographersRep(): number {
+    return this.cartographersStanding;
   }
 
   rebelsKnown(): boolean {
@@ -161,12 +195,7 @@ export class ReputationTracker {
    * Optional `label` stores a display name for station rows.
    */
   adjust(target: string, delta: number, label?: string): number {
-    if (
-      label &&
-      target !== PIRATE_FACTION_ID &&
-      target !== FUEL_RATS_FACTION_ID &&
-      target !== REBELS_FACTION_ID
-    ) {
+    if (label && !isFactionReputationId(target)) {
       this.stationLabels.set(target, label);
     }
     if (delta === 0) {
@@ -185,6 +214,16 @@ export class ReputationTracker {
       this.rebelsRevealed = true;
       return this.rebelsStanding;
     }
+    if (target === MERCHANTS_GUILD_FACTION_ID) {
+      this.merchantsStanding = clampStanding(this.merchantsStanding + delta);
+      return this.merchantsStanding;
+    }
+    if (target === CARTOGRAPHERS_FACTION_ID) {
+      this.cartographersStanding = clampStanding(
+        this.cartographersStanding + delta,
+      );
+      return this.cartographersStanding;
+    }
     const next = clampStanding(this.stationStanding(target) + delta);
     this.stations.set(target, next);
     return next;
@@ -192,12 +231,7 @@ export class ReputationTracker {
 
   /** Absolute set (fines, attack-patrol / Violation-timeout → Hostile). */
   setStanding(target: string, value: number, label?: string): number {
-    if (
-      label &&
-      target !== PIRATE_FACTION_ID &&
-      target !== FUEL_RATS_FACTION_ID &&
-      target !== REBELS_FACTION_ID
-    ) {
+    if (label && !isFactionReputationId(target)) {
       this.stationLabels.set(target, label);
     }
     const next = clampStanding(value);
@@ -214,6 +248,14 @@ export class ReputationTracker {
       this.rebelsRevealed = true;
       return next;
     }
+    if (target === MERCHANTS_GUILD_FACTION_ID) {
+      this.merchantsStanding = next;
+      return next;
+    }
+    if (target === CARTOGRAPHERS_FACTION_ID) {
+      this.cartographersStanding = next;
+      return next;
+    }
     this.stations.set(target, next);
     return next;
   }
@@ -222,6 +264,8 @@ export class ReputationTracker {
     if (target === PIRATE_FACTION_ID) return this.pirateStanding;
     if (target === FUEL_RATS_FACTION_ID) return this.fuelRatsStanding;
     if (target === REBELS_FACTION_ID) return this.rebelsStanding;
+    if (target === MERCHANTS_GUILD_FACTION_ID) return this.merchantsStanding;
+    if (target === CARTOGRAPHERS_FACTION_ID) return this.cartographersStanding;
     return this.stationStanding(target);
   }
 
