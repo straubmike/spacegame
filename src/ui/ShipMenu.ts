@@ -589,12 +589,14 @@ export class ShipMenu {
 
       ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
       ctx.textBaseline = "top";
+      // Strip legacy "Contract: " prefix if present; keep the commodity name short.
+      const displayName = lot.name.replace(/^Contract:\s*/i, "");
       const nameBit =
-        lot.name.length > 22 ? `${lot.name.slice(0, 21)}…` : lot.name;
-      const flag = mission ? "  [MISSION]" : stolen ? "  [STOLEN]" : "";
-      ctx.fillText(`${nameBit}${flag}`, x + 10, ry + 6);
+        displayName.length > 26 ? `${displayName.slice(0, 25)}…` : displayName;
+      ctx.fillText(nameBit, x + 10, ry + 6);
       ctx.fillStyle = "rgba(150, 170, 200, 0.85)";
-      ctx.fillText(`Hold ${lot.cu} CU`, x + 10, ry + 24);
+      const flag = mission ? "  [MISSION]" : stolen ? "  [STOLEN]" : "";
+      ctx.fillText(`Hold ${lot.cu} CU${flag}`, x + 10, ry + 24);
 
       const minus: Rect = { x: x + w - 210, y: ry + 18, w: 28, h: 22 };
       const plus: Rect = { x: x + w - 146, y: ry + 18, w: 28, h: 22 };

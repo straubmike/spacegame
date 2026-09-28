@@ -98,6 +98,9 @@ export class Renderer {
     ctx.fillRect(0, 0, w, h);
 
     args.starfield.draw(ctx, w, h);
+    // Belts: Ore Scanner range + scan+scoop prospecting.
+    // Derelict debris: Cargo Scoop range only (mission scoop; nearby ring like belts).
+    const atDerelict = args.local.focus.kind === "derelict";
     this.drawLocal(
       args.local,
       args.camera,
@@ -105,8 +108,12 @@ export class Renderer {
       h,
       args.ship.x,
       args.ship.y,
-      args.ship.loadout.mineralScanRange,
-      args.ship.loadout.canProspectBelts,
+      atDerelict
+        ? args.ship.loadout.scoopRange
+        : args.ship.loadout.mineralScanRange,
+      atDerelict
+        ? args.ship.loadout.scoopRange > 0
+        : args.ship.loadout.canProspectBelts,
     );
 
     const pose = args.ship.sample(args.alpha);
@@ -933,17 +940,14 @@ export class Renderer {
       }
 
       const dist = Math.hypot(rock.x - shipX, rock.y - shipY);
-      const isDerelictCargo =
-        rock.yieldId === "derelict_cargo" && rock.remaining > 0;
+      const isDerelictCargo = rock.yieldId === "derelict_cargo";
+      // Same nearby rule as belt veins: ring only within scan/scoop range.
       const scanned =
-        !isDerelictCargo &&
         canScan &&
         rock.yieldId !== null &&
         rock.remaining > 0 &&
         dist <= scanRange;
-      const scoopable =
-        (prospecting && scanned) ||
-        (isDerelictCargo && local.focus.kind === "derelict");
+      const scoopable = prospecting && scanned;
 
       const tone = 100 + ((rock.id * 37) % 55);
       ctx.beginPath();
@@ -964,18 +968,8 @@ export class Renderer {
         ctx.strokeStyle = ring;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        if (isDerelictCargo) {
-          ctx.font =
-            "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-          ctx.fillStyle = "rgba(230, 200, 120, 0.95)";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText("Scoopable", sp.x, sp.y - rock.r - 6);
-          ctx.textAlign = "left";
-          ctx.textBaseline = "alphabetic";
-        }
-      } else if (scanned) {
-        // Scanner alone: dim ping, no scoop ring.
+      } else if (scanned && !isDerelictCargo) {
+        // Scanner alone (belts): dim ping, no scoop ring.
         ctx.beginPath();
         ctx.arc(sp.x, sp.y, rock.r + 2.5, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(180, 200, 220, 0.35)";

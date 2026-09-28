@@ -70,9 +70,10 @@ export class Hud {
       ctx.fillStyle = "rgba(200, 210, 170, 0.8)";
       ctx.fillText("Belt · hold F to scoop ore", pad, y);
     } else if (info.inDerelict && info.derelictScoopHint && info.hasScoop) {
+      // Same HUD band as belt prospecting (not floating on debris).
       y += 8;
       ctx.fillStyle = "rgba(220, 200, 150, 0.85)";
-      ctx.fillText("Derelict · hold F on marked debris", pad, y);
+      ctx.fillText("Derelict · hold F to scoop cargo", pad, y);
     }
 
     ctx.fillStyle = "rgba(150, 170, 200, 0.55)";

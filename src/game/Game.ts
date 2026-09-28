@@ -86,6 +86,7 @@ import {
   distressAnswerMatchesView,
   generateStationMissions,
   generateStationReplenishmentOffer,
+  isMissionCargoId,
   isStolenCargoId,
   makeClearanceOffer,
   missionCargoId,
@@ -1009,7 +1010,7 @@ export class Game {
       if (
         !this.ship.cargo.stow({
           id: missionCargoId(offer.id),
-          name: `Contract: ${name}`,
+          name,
           cu,
         })
       ) {
@@ -1246,11 +1247,15 @@ export class Game {
    * Drop an active contract.
    * - Cancel via origin station's Missions board → return haul freight (no steal).
    * - Cancel elsewhere (L menu, or board away from origin) → keep freight as stolen.
+   * - Derelict cargo Cancel: mild rep; keep lot as ordinary (non-stolen) freight —
+   *   Mike may later chain this (do not convert to stolen / patrol debt).
+   * - Derelict cargo eject (`discardCargo`): force-abandon — cargo discarded, no
+   *   chain retention / hint; same mild rep, not stolen, no patrol fee.
    * Offer stays in acceptedMissionIds so it does not reappear on that station's board.
    */
   private cancelBoardMission(
     missionId: string,
-    opts: { fromBoard?: boolean } = {},
+    opts: { fromBoard?: boolean; discardCargo?: boolean } = {},
   ): void {
     const idx = this.activeMissions.findIndex((m) => m.id === missionId);
     if (idx < 0) return;
@@ -1291,20 +1296,23 @@ export class Game {
         }
       }
     } else if (mission.kind === "derelictCargo") {
-      // Abandon: expected mild rep drop, but cargo is NOT stolen and does NOT
-      // create patrol/station fine/debt. Mike may later chain this into a
-      // follow-up quest — keep the lot as ordinary (non-stolen) freight.
       const lotId = missionCargoId(mission.id);
       this.ship.stashActiveToFleet();
       const held = this.ship.fleet.amountOfCargo(lotId);
       if (held > 0) {
         this.ship.fleet.removeCargo(lotId, held);
-        this.ship.cargo.stow({
-          id: ABANDONED_DERELICT_CARGO_ID,
-          name: DERELICT_CARGO_NAME,
-          cu: held,
-        });
-        keptDerelictCu = held;
+        if (opts.discardCargo) {
+          // Eject path: cargo already dumped / discarded — do not retain for a
+          // future alternate-mission chain.
+        } else {
+          // Cancel path: keep as ordinary non-stolen freight (possible chain later).
+          this.ship.cargo.stow({
+            id: ABANDONED_DERELICT_CARGO_ID,
+            name: DERELICT_CARGO_NAME,
+            cu: held,
+          });
+          keptDerelictCu = held;
+        }
       }
     }
 
@@ -1343,6 +1351,8 @@ export class Game {
       msg = `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`;
     } else if (keptDerelictCu > 0) {
       msg = `Missions: Cancelled "${mission.title}" — kept ${keptDerelictCu} CU ${DERELICT_CARGO_NAME} (not stolen).`;
+    } else if (opts.discardCargo && mission.kind === "derelictCargo") {
+      msg = `Missions: Abandoned "${mission.title}" — cargo dumped.`;
     } else {
       msg = `Missions: Cancelled "${mission.title}".`;
     }
@@ -2376,7 +2386,7 @@ export class Game {
     if (
       !this.ship.cargo.stow({
         id: missionCargoId(mission.id),
-        name: `Contract: ${DERELICT_CARGO_NAME}`,
+        name: DERELICT_CARGO_NAME,
         cu: need,
       })
     ) {
@@ -3562,6 +3572,18 @@ export class Game {
     const removed = this.ship.cargo.remove(commodityId, Math.min(cu, held));
     if (removed <= 0) return;
     this.messages.push(`Cargo: Ejected ${removed} CU ${name}.`);
+
+    // Derelict mission freight: eject force-abandons the contract. Cargo is not
+    // retained — do not start / hint a future alternate-mission chain.
+    if (isMissionCargoId(commodityId)) {
+      const mission = this.activeMissions.find(
+        (m) => missionCargoId(m.id) === commodityId,
+      );
+      if (mission?.kind === "derelictCargo") {
+        this.cancelBoardMission(mission.id, { discardCargo: true });
+        return;
+      }
+    }
 
     // Mid-scan eject of illegal cargo — 50% chance the dump is noticed.
     if (isIllegalCommodityId(commodityId)) {

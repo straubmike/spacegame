@@ -498,7 +498,7 @@ function makeDerelictCargoOffer(
     id: `derelictCargo:${origin.key}:${index}:${target.id}`,
     kind: "derelictCargo",
     title: "Retrieve Derelict Cargo",
-    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}), then return here. Requires Cargo Scoop.`,
+    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Cargo Scoop.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
