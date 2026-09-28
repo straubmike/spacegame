@@ -263,6 +263,13 @@ export class Renderer {
         derelictScoopHint: args.local.beltRocks?.some(
           (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
         ),
+        surveyScanHint: args.activeMissions.some(
+          (m) =>
+            m.kind === "explore" &&
+            !m.scanned &&
+            m.targetPoiId === args.local.poiId,
+        ),
+        hasSurveyScanner: args.ship.loadout.hasPoiScan,
       });
       args.messages.draw(ctx, w, h, args.pointerX, args.pointerY);
       args.stationMenu.draw(

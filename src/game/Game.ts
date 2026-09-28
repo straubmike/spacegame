@@ -248,6 +248,9 @@ export class Game {
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
   private scoopHintCooldown = 0;
+  /** Progress toward completing an explore POI survey (hold F). */
+  private poiScanProgress = 0;
+  private poiScanHintCooldown = 0;
 
   private chartOpen = false;
   private panelOpen = false;
@@ -302,6 +305,7 @@ export class Game {
     this.projectiles = [];
     this.fireCooldown = 0;
     this.scoopProgress = 0;
+    this.poiScanProgress = 0;
     this.pirates = [];
     this.patrols = [];
     this.pack = null;
@@ -873,16 +877,26 @@ export class Game {
     }
   }
 
-  /** On arriving in a local view — complete explore scans when at the target POI. */
+  /**
+   * On arriving in a local view — mark visited; explore scans need hold-F
+   * with a Survey Scanner (see updateExploreScan). No auto-complete on arrival.
+   */
   private checkExploreScanProgress(): void {
     this.visitedPoiIds.add(this.local.poiId);
-    for (const mission of this.activeMissions) {
-      if (mission.kind !== "explore" || mission.scanned) continue;
-      if (mission.targetPoiId !== this.local.poiId) continue;
-      mission.scanned = true;
-      this.scannedPoiIds.add(this.local.poiId);
+    const pending = this.activeMissions.find(
+      (m) =>
+        m.kind === "explore" &&
+        !m.scanned &&
+        m.targetPoiId === this.local.poiId,
+    );
+    if (!pending) return;
+    if (this.ship.loadout.hasPoiScan) {
       this.messages.push(
-        `Scan complete: ${mission.targetPoiName}. Return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
+        `Survey target: ${pending.targetPoiName} — hold F to scan.`,
+      );
+    } else {
+      this.messages.push(
+        `Survey target: ${pending.targetPoiName} — fit a Survey Scanner, then hold F.`,
       );
     }
   }
@@ -1039,6 +1053,16 @@ export class Game {
       }
     }
 
+    if (offer.kind === "explore") {
+      if (!this.hasSurveyScanner()) {
+        this.messages.push(
+          "Missions: Fit a Survey Scanner before accepting exploration work.",
+          "station",
+        );
+        return;
+      }
+    }
+
     const active: ActiveMission = {
       ...offer,
       pirateTargets: offer.pirateTargets
@@ -1189,6 +1213,7 @@ export class Game {
         QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
+      this.hasSurveyScanner(),
     );
   }
 
@@ -1212,6 +1237,7 @@ export class Game {
         QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
+      this.hasSurveyScanner(),
     );
     this.missionBoardOpen = true;
   }
@@ -1422,6 +1448,10 @@ export class Game {
     return this.ship.loadout.hasUtilityId(
       QUEST.distressAnswerRequiredModuleId,
     );
+  }
+
+  private hasSurveyScanner(): boolean {
+    return this.ship.loadout.hasPoiScan;
   }
 
   private adjustFuelRatRep(delta: number): number {
@@ -1640,6 +1670,7 @@ export class Game {
       this.updateCombat(dt);
       this.updateScoop(dt);
       this.updateFuelScoop(dt);
+      this.updateExploreScan(dt);
       this.updateDistress(dt);
     }
 
@@ -2466,6 +2497,64 @@ export class Game {
         `Fuel Scoop: +1 fuel (${Math.floor(this.ship.fuel)}/${this.ship.maxFuel}).`,
       );
     }
+  }
+
+  /**
+   * Hold F at an exploration target POI with Survey Scanner fitted.
+   * Lightweight — no range gate beyond being in the local view.
+   */
+  private updateExploreScan(dt: number): void {
+    this.poiScanHintCooldown = Math.max(0, this.poiScanHintCooldown - dt);
+    if (this.dock.kind !== "free" || !this.ship.alive || this.menuOpen()) {
+      this.poiScanProgress = 0;
+      return;
+    }
+
+    const mission = this.activeMissions.find(
+      (m) =>
+        m.kind === "explore" &&
+        !m.scanned &&
+        m.targetPoiId === this.local.poiId,
+    );
+    if (!mission) {
+      this.poiScanProgress = 0;
+      return;
+    }
+
+    // Belt / derelict F scoop owns the key in those views.
+    if (
+      this.local.focus.kind === "asteroidBelt" ||
+      this.local.focus.kind === "derelict"
+    ) {
+      this.poiScanProgress = 0;
+      return;
+    }
+
+    if (!this.ship.loadout.hasPoiScan) {
+      this.poiScanProgress = 0;
+      if (this.poiScanHintCooldown <= 0) {
+        this.messages.push(
+          "Survey: Fit a Survey Scanner (Bay), then hold F to scan.",
+        );
+        this.poiScanHintCooldown = 4;
+      }
+      return;
+    }
+
+    if (!this.keyboard.state.scoop) {
+      this.poiScanProgress = 0;
+      return;
+    }
+
+    this.poiScanProgress += dt;
+    if (this.poiScanProgress < QUEST.exploreScanSeconds) return;
+    this.poiScanProgress = 0;
+
+    mission.scanned = true;
+    this.scannedPoiIds.add(this.local.poiId);
+    this.messages.push(
+      `Scan complete: ${mission.targetPoiName}. Return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
+    );
   }
 
   /** Distress inbound delay, pirate taunt timer, and fuel rat arrival / refuel. */

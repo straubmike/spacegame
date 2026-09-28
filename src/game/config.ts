@@ -442,6 +442,10 @@ export const QUEST = {
   exploreBaseReward: 45,
   explorePerDistance: 1.6,
   exploreMaxJumpRanges: 2.5,
+  /** Utility module id required to accept exploration / scan missions. */
+  exploreRequiredModuleId: "survey_scanner",
+  /** Seconds holding F at the target POI to complete a survey scan. */
+  exploreScanSeconds: 1.2,
   /** Retrieve Derelict Cargo — scoop 1 CU at a derelict, return to claim. */
   derelictCargoCu: 1,
   derelictCargoBaseReward: 55,
