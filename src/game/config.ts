@@ -632,6 +632,9 @@ export const REPUTATION = {
   /**
    * Steal cargo delta. A single steal also **floors at Unfriendly**
    * (`unfriendlyFloor`) so positive standing cannot land in Neutral.
+   * Abandoning the named kidnap fare uses this same station hit on the
+   * station that offered the fare — not `cancelMissionMild`, and not
+   * every station. Imperial stays `imperialKidnap`.
    */
   stealCargo: -22,
   cancelMissionMild: -5,
@@ -675,7 +678,8 @@ export const REPUTATION = {
    * A few points per incident, not tens.
    * Steal −3: about four steals can Hostile one station (−22 each, plus the
    * Unfriendly floor) while Imperial is only −12, still Neutral.
-   * Kidnap −3: the station still only takes `cancelMissionMild` (−5).
+   * Kidnap −3 on the abandon only. The fare's station takes the steal floor
+   * (`stealCargo` / `unfriendlyFloor`), not this nick, and not −5.
    * Flat per incident, not per CU or per passenger.
    */
   imperialStealCargo: -3,
