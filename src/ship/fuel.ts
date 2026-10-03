@@ -16,6 +16,35 @@ export function galacticFuelCost(distanceLy: number): number {
   );
 }
 
+/**
+ * Farthest chart distance (ly) a galactic jump can cover with `fuel`.
+ * Same gate as Jump: `distance ≤ hardCap` (the old flat `GALAXY.jumpRange`)
+ * and `galacticFuelCost(distance) ≤ fuel`. Zero when the tank cannot pay
+ * the minimum 1-unit hop.
+ */
+export function jumpReachLy(
+  fuel: number,
+  hardCap: number = GALAXY.jumpRange,
+): number {
+  if (!(fuel >= 1) || !(hardCap > 0)) return 0;
+  if (galacticFuelCost(hardCap) <= fuel) return hardCap;
+
+  const affordable = Math.floor(fuel);
+  let reach = Math.min(hardCap, affordable / FUEL.fuelPerLy);
+  // Binary float can nudge `reach * fuelPerLy` a hair over `affordable`.
+  if (galacticFuelCost(reach) > fuel) {
+    let lo = 0;
+    let hi = reach;
+    for (let i = 0; i < 48; i++) {
+      const mid = (lo + hi) / 2;
+      if (galacticFuelCost(mid) <= fuel) lo = mid;
+      else hi = mid;
+    }
+    reach = lo;
+  }
+  return reach;
+}
+
 export interface NearestStationRefuel {
   /** Minimum fuel needed from here to reach a dockable station. */
   fuelNeeded: number;

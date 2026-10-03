@@ -3,6 +3,7 @@ import { POI_CHART_COLORS, STAR_COLORS } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef } from "../galaxy/types";
 import type { ChartReveal } from "../ship/chartCatalog";
+import { jumpReachLy } from "../ship/fuel";
 
 export type GalaxyClickResult = "jump" | "close" | null;
 
@@ -34,11 +35,16 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
+/** Full-tank reach — map-frame steel, a quiet wash behind the current disc. */
+const MAX_REACH_FILL = "rgba(100, 130, 170, 0.32)";
+/** Fuel-now reach — chart cyan (same hue as the old range stroke / selection). */
+const NOW_REACH_FILL = "rgba(100, 180, 255, 0.36)";
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
- * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade,
- * no jump-range circle. Mission targets may be granted identified visibility.
+ * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade.
+ * Two filled discs mark jump reach from the current system: fuel now, and a
+ * full tank. Mission targets may be granted identified visibility.
  * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
@@ -58,8 +64,13 @@ export class GalaxyChart {
     pointerY: number,
     jumpRange: number,
     hints: ChartPoiHints = EMPTY_HINTS,
-    fuelInfo: { fuel: number; costForSelected: number | null } = {
+    fuelInfo: {
+      fuel: number;
+      maxFuel: number;
+      costForSelected: number | null;
+    } = {
       fuel: 0,
+      maxFuel: 0,
       costForSelected: null,
     },
   ): void {
@@ -101,6 +112,15 @@ export class GalaxyChart {
     ctx.fillRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
     ctx.strokeStyle = "rgba(100, 130, 170, 0.25)";
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
+
+    const here = this.toScreen(current.chartX, current.chartY, layout);
+    this.drawReachDiscs(
+      ctx,
+      here.x,
+      here.y,
+      jumpReachLy(fuelInfo.fuel, jumpRange) * layout.scale,
+      jumpReachLy(fuelInfo.maxFuel, jumpRange) * layout.scale,
+    );
 
     for (const poi of galaxy.pois) {
       const reveal = this.revealFor(poi.id, currentId, hints);
@@ -145,6 +165,8 @@ export class GalaxyChart {
         ctx.stroke();
       }
     }
+
+    this.drawReachLegend(ctx);
 
     // Footer
     const footerY = panel.y + panel.h - footerH;
@@ -289,6 +311,67 @@ export class GalaxyChart {
     if (hints.identifiedPoiIds.has(poiId)) return "identified";
     // Mission grants land in identifiedPoiIds; quest ring alone does not reveal.
     return "hidden";
+  }
+
+  /** Filled reach discs, clipped to the map. Max (full tank) under current fuel. */
+  private drawReachDiscs(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    currentR: number,
+    maxR: number,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
+    ctx.clip();
+    if (maxR > 0) {
+      ctx.beginPath();
+      ctx.arc(x, y, maxR, 0, Math.PI * 2);
+      ctx.fillStyle = MAX_REACH_FILL;
+      ctx.fill();
+    }
+    if (currentR > 0) {
+      ctx.beginPath();
+      ctx.arc(x, y, currentR, 0, Math.PI * 2);
+      ctx.fillStyle = NOW_REACH_FILL;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private drawReachLegend(ctx: CanvasRenderingContext2D): void {
+    const rows = [
+      { fill: NOW_REACH_FILL, label: "Fuel now" },
+      { fill: MAX_REACH_FILL, label: "Full tank" },
+    ];
+    const x = this.mapRect.x + 10;
+    const y0 = this.mapRect.y + 8;
+    const rowH = 16;
+    ctx.fillStyle = "rgba(8, 12, 20, 0.88)";
+    ctx.strokeStyle = "rgba(130, 165, 210, 0.35)";
+    ctx.lineWidth = 1;
+    const boxW = 108;
+    const boxH = rowH * rows.length + 6;
+    ctx.fillRect(x, y0, boxW, boxH);
+    ctx.strokeRect(x, y0, boxW, boxH);
+
+    ctx.font = FONT;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    let y = y0 + 4 + rowH / 2;
+    for (const row of rows) {
+      ctx.beginPath();
+      ctx.arc(x + 12, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = row.fill;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(130, 165, 210, 0.55)";
+      ctx.stroke();
+      ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
+      ctx.fillText(row.label, x + 22, y + 0.5);
+      y += rowH;
+    }
+    ctx.textBaseline = "alphabetic";
   }
 
   private drawMarker(
