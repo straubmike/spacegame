@@ -35,10 +35,12 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
-/** Full-tank reach — map-frame steel, a quiet wash behind the current disc. */
-const MAX_REACH_FILL = "rgba(100, 130, 170, 0.32)";
-/** Fuel-now reach — chart cyan (same hue as the old range stroke / selection). */
-const NOW_REACH_FILL = "rgba(100, 180, 255, 0.36)";
+/** Full-tank reach — map-frame steel, clearly lighter than the chart backdrop. */
+const MAX_REACH_FILL = "rgba(90, 140, 200, 0.5)";
+const MAX_REACH_EDGE = "rgba(170, 200, 235, 0.95)";
+/** Fuel-now reach — chart cyan, same hue as the selection ring. */
+const NOW_REACH_FILL = "rgba(90, 185, 255, 0.62)";
+const NOW_REACH_EDGE = "rgba(210, 235, 255, 0.98)";
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
@@ -313,7 +315,13 @@ export class GalaxyChart {
     return "hidden";
   }
 
-  /** Filled reach discs, clipped to the map. Max (full tank) under current fuel. */
+  /**
+   * Filled reach discs in the same user space as the system markers.
+   * Unclipped on purpose: this canvas is scaled with setTransform(devicePixelRatio),
+   * and a map-rect clip was the only operation that could drop just these fills
+   * while the unclipped chart (stars, frame, buttons) still painted.
+   * Full tank first, fuel-now on top. Solid edges mark the two radii.
+   */
   private drawReachDiscs(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -321,23 +329,32 @@ export class GalaxyChart {
     currentR: number,
     maxR: number,
   ): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
-    ctx.clip();
-    if (maxR > 0) {
-      ctx.beginPath();
-      ctx.arc(x, y, maxR, 0, Math.PI * 2);
-      ctx.fillStyle = MAX_REACH_FILL;
-      ctx.fill();
-    }
-    if (currentR > 0) {
-      ctx.beginPath();
-      ctx.arc(x, y, currentR, 0, Math.PI * 2);
-      ctx.fillStyle = NOW_REACH_FILL;
-      ctx.fill();
-    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.setLineDash([]);
+    ctx.lineWidth = 2;
+    this.fillReachDisc(ctx, x, y, maxR, MAX_REACH_FILL, MAX_REACH_EDGE);
+    this.fillReachDisc(ctx, x, y, currentR, NOW_REACH_FILL, NOW_REACH_EDGE);
     ctx.restore();
+  }
+
+  private fillReachDisc(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    fill: string,
+    edge: string,
+  ): void {
+    if (!(radius > 0) || !Number.isFinite(radius)) return;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = edge;
+    ctx.stroke();
   }
 
   private drawReachLegend(ctx: CanvasRenderingContext2D): void {
