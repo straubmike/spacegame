@@ -35,18 +35,20 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
-/** Full-tank reach — map-frame steel, clearly lighter than the chart backdrop. */
-const MAX_REACH_FILL = "rgba(90, 140, 200, 0.5)";
-const MAX_REACH_EDGE = "rgba(170, 200, 235, 0.95)";
-/** Fuel-now reach — chart cyan, same hue as the selection ring. */
-const NOW_REACH_FILL = "rgba(90, 185, 255, 0.62)";
-const NOW_REACH_EDGE = "rgba(210, 235, 255, 0.98)";
+/** Fuel-now reach — bright cyan, short dashes. Not the solid selection ring. */
+const NOW_REACH_STROKE = "rgba(150, 220, 255, 0.95)";
+const NOW_REACH_DASH = [5, 4];
+const NOW_REACH_WIDTH = 2;
+/** Full-tank reach — violet, long dashes. Not the amber mission ring ([3, 3]). */
+const MAX_REACH_STROKE = "rgba(198, 154, 255, 0.95)";
+const MAX_REACH_DASH = [12, 6];
+const MAX_REACH_WIDTH = 1.5;
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
  * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade.
- * Two filled discs mark jump reach from the current system: fuel now, and a
- * full tank. Mission targets may be granted identified visibility.
+ * Two unfilled dashed rings mark jump reach from the current system: fuel now,
+ * and a full tank. Mission targets may be granted identified visibility.
  * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
@@ -116,7 +118,7 @@ export class GalaxyChart {
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
 
     const here = this.toScreen(current.chartX, current.chartY, layout);
-    this.drawReachDiscs(
+    this.drawReachRings(
       ctx,
       here.x,
       here.y,
@@ -316,13 +318,10 @@ export class GalaxyChart {
   }
 
   /**
-   * Filled reach discs in the same user space as the system markers.
-   * Unclipped on purpose: this canvas is scaled with setTransform(devicePixelRatio),
-   * and a map-rect clip was the only operation that could drop just these fills
-   * while the unclipped chart (stars, frame, buttons) still painted.
-   * Full tank first, fuel-now on top. Solid edges mark the two radii.
+   * Unfilled dashed reach rings, same center and radii as the jump check.
+   * Full tank first, fuel-now on top. No fill, so POIs stay readable.
    */
-  private drawReachDiscs(
+  private drawReachRings(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
@@ -333,34 +332,61 @@ export class GalaxyChart {
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
-    ctx.setLineDash([]);
-    ctx.lineWidth = 2;
-    this.fillReachDisc(ctx, x, y, maxR, MAX_REACH_FILL, MAX_REACH_EDGE);
-    this.fillReachDisc(ctx, x, y, currentR, NOW_REACH_FILL, NOW_REACH_EDGE);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "butt";
+    this.strokeReachRing(
+      ctx,
+      x,
+      y,
+      maxR,
+      MAX_REACH_STROKE,
+      MAX_REACH_DASH,
+      MAX_REACH_WIDTH,
+    );
+    this.strokeReachRing(
+      ctx,
+      x,
+      y,
+      currentR,
+      NOW_REACH_STROKE,
+      NOW_REACH_DASH,
+      NOW_REACH_WIDTH,
+    );
     ctx.restore();
   }
 
-  private fillReachDisc(
+  private strokeReachRing(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
     radius: number,
-    fill: string,
-    edge: string,
+    stroke: string,
+    dash: readonly number[],
+    width: number,
   ): void {
     if (!(radius > 0) || !Number.isFinite(radius)) return;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.strokeStyle = edge;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash.slice());
     ctx.stroke();
   }
 
   private drawReachLegend(ctx: CanvasRenderingContext2D): void {
     const rows = [
-      { fill: NOW_REACH_FILL, label: "Fuel now" },
-      { fill: MAX_REACH_FILL, label: "Full tank" },
+      {
+        stroke: NOW_REACH_STROKE,
+        dash: NOW_REACH_DASH,
+        width: NOW_REACH_WIDTH,
+        label: "Fuel now",
+      },
+      {
+        stroke: MAX_REACH_STROKE,
+        dash: MAX_REACH_DASH,
+        width: MAX_REACH_WIDTH,
+        label: "Full tank",
+      },
     ];
     const x = this.mapRect.x + 10;
     const y0 = this.mapRect.y + 8;
@@ -368,6 +394,7 @@ export class GalaxyChart {
     ctx.fillStyle = "rgba(8, 12, 20, 0.88)";
     ctx.strokeStyle = "rgba(130, 165, 210, 0.35)";
     ctx.lineWidth = 1;
+    ctx.setLineDash([]);
     const boxW = 108;
     const boxH = rowH * rows.length + 6;
     ctx.fillRect(x, y0, boxW, boxH);
@@ -379,16 +406,19 @@ export class GalaxyChart {
     let y = y0 + 4 + rowH / 2;
     for (const row of rows) {
       ctx.beginPath();
-      ctx.arc(x + 12, y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = row.fill;
-      ctx.fill();
-      ctx.strokeStyle = "rgba(130, 165, 210, 0.55)";
+      ctx.moveTo(x + 6, y);
+      ctx.lineTo(x + 22, y);
+      ctx.strokeStyle = row.stroke;
+      ctx.lineWidth = row.width;
+      ctx.setLineDash(row.dash.slice());
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
-      ctx.fillText(row.label, x + 22, y + 0.5);
+      ctx.fillText(row.label, x + 28, y + 0.5);
       y += rowH;
     }
     ctx.textBaseline = "alphabetic";
+    ctx.setLineDash([]);
   }
 
   private drawMarker(
