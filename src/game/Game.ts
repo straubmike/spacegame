@@ -516,7 +516,8 @@ export class Game {
    * law still answers distress-spawned (and intrusion) pirates.
    */
   private localPirateThreats(): Pirate[] {
-    const list: Pirate[] = [...this.pirates, ...this.distressPirates];
+    const list: Pirate[] = [...this.pirates];
+    list.push(...this.distressPirates);
     if (this.baitPirate) list.push(this.baitPirate);
     return list;
   }
@@ -631,15 +632,32 @@ export class Game {
     return justDemanded;
   }
 
-  /** Sneak attack or timeout fight — whole pack goes hostile once. */
+  /**
+   * Sneak attack, fee-window timeout, or a broken tribute truce.
+   * Paying (or allied free passage) keeps the pack peaceful until the
+   * player fires — then the whole pack defends itself.
+   */
   private makePackHostile(): void {
-    if (!this.pack || this.pack.phase === "paid") return;
+    if (!this.pack || this.pack.phase === "hostile") return;
+    const brokeTruce = this.pack.phase === "paid";
     this.pack.phase = "hostile";
     this.pack.demanded = true;
     this.pack.timer = 0;
     this.pirateMenu.hide();
+    if (brokeTruce) {
+      // Don't restore a passive pack if the player leaves and comes back.
+      this.paidPirateViews.delete(this.pirateKey());
+    }
     for (const p of this.pirates) {
       if (p.alive) p.goAggro();
+    }
+    if (brokeTruce) {
+      this.messages.push(
+        this.pack.shipCount > 1
+          ? "Pirate pack: Truce broken — weapons free!"
+          : "Pirate: Truce broken — weapons free!",
+        "pirate",
+      );
     }
   }
 
@@ -684,10 +702,36 @@ export class Game {
     return open > 0 ? `${open} open` : "";
   }
 
-  private visibleMissionOffers(): MissionOffer[] {
+  /** Offers still posted here. Accepted ids stay off this station's board. */
+  private postedMissionOffers(): MissionOffer[] {
     return this.dockMissionOffers.filter(
       (o) => !this.acceptedMissionIds.has(o.id),
     );
+  }
+
+  /** Derelict POIs tied up by a contract the player has not finished or dropped. */
+  private activeDerelictTargetIds(): Set<number> {
+    const ids = new Set<number>();
+    for (const m of this.activeMissions) {
+      if (m.kind === "derelictCargo" && m.targetPoiId !== undefined) {
+        ids.add(m.targetPoiId);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Board listing. Same-station haul/explore uniqueness is in the generator.
+   * A derelict another contract already accepted is hidden everywhere until
+   * that contract is abandoned or completed — then other stations may list it
+   * again. Cross-station hauls, passenger fares, and POI scans stay listed.
+   */
+  private visibleMissionOffers(): MissionOffer[] {
+    const locked = this.activeDerelictTargetIds();
+    return this.postedMissionOffers().filter((o) => {
+      if (o.kind !== "derelictCargo" || o.targetPoiId === undefined) return true;
+      return !locked.has(o.targetPoiId);
+    });
   }
 
   private chartHints(): ChartPoiHints {
@@ -813,10 +857,13 @@ export class Game {
   /**
    * Must-have 8: empty offer boards refill with exactly one quest — but only
    * after the player leaves this local view and returns. Do not top up while
-   * any offer remains; cancelled / accepted ids stay removed.
+   * any offer remains, including a derelict hidden because another station's
+   * contract for that wreck is still active. Cancelled / accepted ids stay
+   * removed. A refill may repeat a finished haul, scan, or scoop — completed
+   * work is not consumed. A derelict refill waits while that wreck is active.
    */
   private ensureMissionBoardReplenished(station: Landmark): void {
-    if (this.visibleMissionOffers().length > 0) return;
+    if (this.postedMissionOffers().length > 0) return;
 
     const ref = stationRefFromLocal(
       this.galaxy,
@@ -857,6 +904,14 @@ export class Game {
       posted.length,
     );
     if (!offer || this.acceptedMissionIds.has(offer.id)) return;
+    if (
+      offer.kind === "derelictCargo" &&
+      offer.targetPoiId !== undefined &&
+      this.activeDerelictTargetIds().has(offer.targetPoiId)
+    ) {
+      // Stay ready. After abandon or complete, the same refill can post.
+      return;
+    }
 
     this.stationReplenishOffers.set(ref.key, [...posted, offer]);
     this.dockMissionOffers.push(offer);
@@ -1144,7 +1199,7 @@ export class Game {
       const name = offer.commodityName ?? "Freight";
       if (!this.ship.cargo.canStow(cu)) {
         this.messages.push(
-          `Missions: Need ${cu} free CU (equip a cargo rack in the Bay).`,
+          `Missions: Requires ${cu} free CU (equip a cargo rack in the Bay).`,
           "station",
         );
         return;
@@ -1172,7 +1227,7 @@ export class Game {
       }
       if (this.ship.cargo.freeCu < need) {
         this.messages.push(
-          `Missions: Need ${need} free CU for the recovered lot.`,
+          `Missions: Requires ${need} free CU for the recovered lot.`,
           "station",
         );
         return;
@@ -1194,7 +1249,7 @@ export class Game {
       }
       if (free < need) {
         this.messages.push(
-          `Missions: Need ${need} free berth${need === 1 ? "" : "s"} (have ${free}).`,
+          `Missions: Requires ${need} unoccupied passenger berth${need === 1 ? "" : "s"} (have ${free}).`,
           "station",
         );
         return;
@@ -1701,6 +1756,10 @@ export class Game {
       return;
     }
 
+    // Beacon is already out — menus, dock, and the fuel-warn modal must not
+    // freeze the wait. Combat itself still pauses while those are up.
+    this.tickDistressInbound(dt);
+
     if (this.fuelWarnTravel) {
       if (this.keyboard.consume("Escape")) {
         this.fuelWarnTravel = null;
@@ -1852,6 +1911,8 @@ export class Game {
         this.dock.station.y,
       );
       this.updateCombat(dt);
+      // World is still live on approach — rats, stranded, and taunts keep going.
+      this.updateDistress(dt);
       if (arrived) {
         this.completeDock(this.dock.station);
       }
@@ -2748,22 +2809,25 @@ export class Game {
     );
   }
 
-  /** Distress inbound delay, pirate taunt timer, and fuel rat arrival / refuel. */
-  private updateDistress(dt: number): void {
-    if (this.distressInbound) {
-      // Docked / menu time still counts — the beacon is already out.
-      this.distressInbound.elapsed += dt;
-      if (this.distressInbound.elapsed >= this.distressInbound.delay) {
-        const kind = this.distressInbound.kind;
-        this.distressInbound = null;
-        if (kind === "pirates") {
-          this.spawnDistressPirates();
-        } else {
-          this.spawnFuelRat();
-        }
-      }
+  /**
+   * Distress response delay. Runs even while menus / dock pause the world —
+   * the beacon is already out. Spawning here is safe; AI ticks in updateDistress.
+   */
+  private tickDistressInbound(dt: number): void {
+    if (!this.distressInbound) return;
+    this.distressInbound.elapsed += dt;
+    if (this.distressInbound.elapsed < this.distressInbound.delay) return;
+    const kind = this.distressInbound.kind;
+    this.distressInbound = null;
+    if (kind === "pirates") {
+      this.spawnDistressPirates();
+    } else {
+      this.spawnFuelRat();
     }
+  }
 
+  /** Pirate taunt timer, stranded scoot, and fuel rat arrival / refuel. */
+  private updateDistress(dt: number): void {
     if (this.distressPack && this.distressPirates.some((p) => p.alive)) {
       if (this.distressPack.phase === "comms") {
         this.distressPack.timer = Math.max(0, this.distressPack.timer - dt);
@@ -3240,14 +3304,18 @@ export class Game {
         continue;
       }
 
+      // Player shots blame the player. Patrol shots only damage pirate hulls —
+      // they must not break a tribute truce or mark the station Hostile.
+      const fromPlayer = p.source === "player";
+      const retaliate = fromPlayer;
       let hit = false;
       for (const pirate of this.pirates) {
         if (!pirate.alive) continue;
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
         if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage);
-          // Sneak attack during fee window → one pack fight, not per-ship fees.
-          if (this.pack && this.pack.phase !== "paid") {
+          pirate.takeDamage(p.damage, retaliate);
+          // Sneak attack, or fire after tribute — one pack fight.
+          if (fromPlayer && this.pack) {
             this.makePackHostile();
           }
           hit = true;
@@ -3259,8 +3327,12 @@ export class Game {
           if (!pirate.alive) continue;
           const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
           if (dist <= pirate.radius + COMBAT.projectileRadius) {
-            pirate.takeDamage(p.damage);
-            if (this.distressPack && this.distressPack.phase === "comms") {
+            pirate.takeDamage(p.damage, retaliate);
+            if (
+              fromPlayer &&
+              this.distressPack &&
+              this.distressPack.phase === "comms"
+            ) {
               this.distressPack.phase = "hostile";
               this.distressPack.timer = 0;
               for (const d of this.distressPirates) {
@@ -3276,8 +3348,8 @@ export class Game {
         const pirate = this.baitPirate;
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
         if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage);
-          if (this.baitPack && this.baitPack.phase === "comms") {
+          pirate.takeDamage(p.damage, retaliate);
+          if (fromPlayer && this.baitPack && this.baitPack.phase === "comms") {
             this.baitPack.phase = "hostile";
             this.baitPack.timer = 0;
             pirate.goAggro();
@@ -3285,7 +3357,7 @@ export class Game {
           hit = true;
         }
       }
-      if (!hit) {
+      if (!hit && fromPlayer) {
         for (const patrol of this.patrols) {
           if (!patrol.alive) continue;
           const dist = Math.hypot(p.x - patrol.x, p.y - patrol.y);

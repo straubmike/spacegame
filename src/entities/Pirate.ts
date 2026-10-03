@@ -54,12 +54,18 @@ export class Pirate {
     return PIRATE_TIERS[this.tier].radius;
   }
 
-  takeDamage(amount: number): void {
+  /**
+   * @param retaliateAgainstPlayer false when a patrol (not the player) landed
+   * the hit — don't turn a law-enforcement shot into a grudge against the player.
+   * Near-death still flees either way.
+   */
+  takeDamage(amount: number, retaliateAgainstPlayer = true): void {
     this.health = Math.max(0, this.health - amount);
     if (this.health <= 1 && this.health > 0) {
       this.mode = "retreat";
       return;
     }
+    if (!retaliateAgainstPlayer) return;
     if (this.mode !== "retreat") {
       this.mode = "aggro";
     }
@@ -148,6 +154,7 @@ export class Pirate {
           stats.size,
           true,
           stats.damage,
+          "pirate",
         ),
       );
       this.fireCooldown = COMBAT.pirateFireCooldown * stats.fireCooldownMul;

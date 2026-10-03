@@ -294,9 +294,9 @@ export class MissionBoardMenu {
 
     // Leave a clear gutter before the Accept column so long blurbs never overlap.
     const acceptBtn: Rect = {
-      x: panelX + panelW - 130,
+      x: panelX + panelW - 182,
       y: y + 26,
-      w: 96,
+      w: 148,
       h: 32,
     };
     const textX = panelX + 24;
@@ -350,16 +350,16 @@ export class MissionBoardMenu {
       ? clearanceBusy
         ? "Active"
         : !scannerOk
-          ? "Need Scanner"
+          ? "Requires Scanner"
           : !tankOk
-            ? "Need tank"
+            ? "Requires tank"
             : !scoopOk
-              ? "Need Scoop"
+              ? "Requires Scoop"
               : !berthOk
-                ? "Need berths"
+                ? "Requires berths"
                 : cargoOk
                   ? "Full"
-                  : "Need CU"
+                  : "Requires CU"
       : "Accept";
     drawButton(ctx, acceptBtn, label, {
       enabled,

@@ -18,6 +18,15 @@
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
+ *
+ * Offer rules:
+ * - One station: cargo slots never share commodity + destination; explore slots
+ *   never share a target POI; at most one derelict scoop.
+ * - Across stations: haul, passenger, and POI-scan duplicates are allowed.
+ *   Derelict scoops may list the same wreck until one is accepted (Game hides
+ *   it elsewhere until abandon or complete). Each distress site is assigned
+ *   to at most one station so bait vs stranded cannot conflict.
+ * - Refills may repeat completed work. Finished scans and hauls are not consumed.
  */
 
 import { ECONOMY, GALAXY, QUEST } from "../game/config";
@@ -168,7 +177,7 @@ export function missionStatusLine(mission: ActiveMission): string {
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
   }
-  return `Travel to ${mission.targetPoiName ?? "target"} and hold F to scan`;
+  return `Travel to ${mission.targetPoiName ?? "target"}`;
 }
 
 /** Berths occupied by active passenger fare contracts. */
@@ -251,15 +260,24 @@ export function generateStationMissions(
   const cargoCount = 1 + ((rng() * 2) | 0); // 1–2
   const exploreCount = 1 + ((rng() * 2) | 0); // 1–2
 
+  const usedHauls = new Set<string>();
   for (let i = 0; i < cargoCount; i += 1) {
-    const cargo = makeCargoOffer(galaxy, station, rng, i);
-    if (cargo) offers.push(cargo);
+    const cargo = makeCargoOffer(galaxy, station, rng, i, usedHauls);
+    if (!cargo) continue;
+    offers.push(cargo);
+    if (cargo.commodityId && cargo.destStationKey) {
+      usedHauls.add(haulPairKey(cargo.commodityId, cargo.destStationKey));
+    }
   }
+  const usedExplore = new Set<number>();
   for (let i = 0; i < exploreCount; i += 1) {
-    const explore = makeExploreOffer(galaxy, station, rng, i);
-    if (explore) offers.push(explore);
+    const explore = makeExploreOffer(galaxy, station, rng, i, usedExplore);
+    if (!explore || explore.targetPoiId === undefined) continue;
+    offers.push(explore);
+    usedExplore.add(explore.targetPoiId);
   }
   // Replaces the old “scan derelict” explore flavor — scoop retrieval instead.
+  // At most one scoop on this board.
   if (rng() < 0.7) {
     const derelict = makeDerelictCargoOffer(galaxy, station, rng, 0);
     if (derelict) offers.push(derelict);
@@ -270,7 +288,7 @@ export function generateStationMissions(
     if (fare) offers.push(fare);
   }
 
-  const distress = makeDistressAnswerOffer(galaxy, station, rng);
+  const distress = distressOfferForStation(galaxy, station);
   if (distress) offers.push(distress);
 
   return offers;
@@ -297,33 +315,33 @@ export function generateStationReplenishmentOffer(
   const roll = rng();
   if (roll < 0.3) {
     return (
-      makeCargoOffer(galaxy, station, rng, index) ??
+      makeCargoOffer(galaxy, station, rng, index, NO_BLOCKED_HAULS) ??
       makePassengerOffer(galaxy, station, rng, index) ??
       makeDerelictCargoOffer(galaxy, station, rng, index) ??
-      makeExploreOffer(galaxy, station, rng, index)
+      makeExploreOffer(galaxy, station, rng, index, NO_BLOCKED_EXPLORE)
     );
   }
   if (roll < 0.55) {
     return (
       makePassengerOffer(galaxy, station, rng, index) ??
-      makeCargoOffer(galaxy, station, rng, index) ??
-      makeExploreOffer(galaxy, station, rng, index) ??
+      makeCargoOffer(galaxy, station, rng, index, NO_BLOCKED_HAULS) ??
+      makeExploreOffer(galaxy, station, rng, index, NO_BLOCKED_EXPLORE) ??
       makeDerelictCargoOffer(galaxy, station, rng, index)
     );
   }
   if (roll < 0.8) {
     return (
       makeDerelictCargoOffer(galaxy, station, rng, index) ??
-      makeExploreOffer(galaxy, station, rng, index) ??
+      makeExploreOffer(galaxy, station, rng, index, NO_BLOCKED_EXPLORE) ??
       makePassengerOffer(galaxy, station, rng, index) ??
-      makeCargoOffer(galaxy, station, rng, index)
+      makeCargoOffer(galaxy, station, rng, index, NO_BLOCKED_HAULS)
     );
   }
   return (
-    makeExploreOffer(galaxy, station, rng, index) ??
+    makeExploreOffer(galaxy, station, rng, index, NO_BLOCKED_EXPLORE) ??
     makeDerelictCargoOffer(galaxy, station, rng, index) ??
     makePassengerOffer(galaxy, station, rng, index) ??
-    makeCargoOffer(galaxy, station, rng, index)
+    makeCargoOffer(galaxy, station, rng, index, NO_BLOCKED_HAULS)
   );
 }
 
@@ -350,17 +368,40 @@ export function makeClearanceOffer(
   };
 }
 
+/** commodity id + destination station. Same good to two stations is a different haul. */
+function haulPairKey(commodityId: string, destStationKey: string): string {
+  return `${commodityId}|${destStationKey}`;
+}
+
+const NO_BLOCKED_HAULS: ReadonlySet<string> = new Set();
+const NO_BLOCKED_EXPLORE: ReadonlySet<number> = new Set();
+
 function makeCargoOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,
   rng: () => number,
   index: number,
+  blocked: ReadonlySet<string>,
 ): MissionOffer | null {
-  const dest = pickCargoDestination(galaxy, origin, rng);
-  if (!dest) return null;
+  // A few redraws so a second slot can be a different good or destination.
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const dest = pickCargoDestination(galaxy, origin, rng);
+    if (!dest) return null;
+    const commodity = LEGAL_COMMODITIES[(rng() * LEGAL_COMMODITIES.length) | 0]!;
+    if (blocked.has(haulPairKey(commodity.id, dest.key))) continue;
+    return buildCargoOffer(galaxy, origin, rng, index, dest, commodity);
+  }
+  return null;
+}
 
-  // Legal freight only — illegals are Black Market (Must-have 9), not board hauls.
-  const commodity = LEGAL_COMMODITIES[(rng() * LEGAL_COMMODITIES.length) | 0]!;
+function buildCargoOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+  index: number,
+  dest: SystemStationRef,
+  commodity: (typeof LEGAL_COMMODITIES)[number],
+): MissionOffer {
   const cu = QUEST.cargoCuMin + ((rng() * (QUEST.cargoCuMax - QUEST.cargoCuMin + 1)) | 0);
   const originPoi = galaxy.get(origin.poiId);
   const destPoi = galaxy.get(dest.poiId);
@@ -433,7 +474,7 @@ function makePassengerOffer(
     id: `passenger:${origin.key}:${index}`,
     kind: "passenger",
     title: `Fare: ${partyLabel}`,
-    blurb: `Deliver to ${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs ${passengers} free berth${passengers === 1 ? "" : "s"}.`,
+    blurb: `Deliver to ${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires ${passengers} unoccupied passenger berth${passengers === 1 ? "" : "s"}.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -449,10 +490,9 @@ function makePassengerOffer(
 function makeDistressAnswerOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,
-  rng: () => number,
-): MissionOffer | null {
-  const dest = pickDistressAnswerDestination(galaxy, origin.poiId, rng);
-  if (!dest) return null;
+  dest: DistressDest,
+  outcome: DistressAnswerOutcome,
+): MissionOffer {
 
   const originPoi = galaxy.get(origin.poiId);
   const destPoi = galaxy.get(dest.poiId);
@@ -467,7 +507,7 @@ function makeDistressAnswerOffer(
     id: `distressAnswer:${origin.key}`,
     kind: "distressAnswer",
     title: "Answer distress signal",
-    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Expanded Fuel Tank · rep only.`,
+    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Expanded Fuel Tank · rep only.`,
     reward: 0,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -479,7 +519,7 @@ function makeDistressAnswerOffer(
     targetPoiType: destPoi.type,
     targetBodyId: dest.bodyId,
     targetBodyName: dest.bodyName,
-    distressOutcome: rng() < QUEST.distressAnswerBaitChance ? "bait" : "stranded",
+    distressOutcome: outcome,
   };
 }
 
@@ -489,14 +529,27 @@ interface DistressDest {
   bodyName: string;
 }
 
+function distressSiteKey(dest: DistressDest): string {
+  return `${dest.poiId}:${dest.bodyId ?? "poi"}`;
+}
+
+interface AssignedDistress {
+  dest: DistressDest;
+  outcome: DistressAnswerOutcome;
+}
+
+/** One assignment per galaxy so two boards never list the same distress site. */
+const distressAssignmentCache = new WeakMap<Galaxy, Map<string, AssignedDistress | null>>();
+
 /**
- * Stationless local view outside the origin system — star, orbital, or exotic POI.
+ * Stationless local views outside the origin system — star, orbital, or exotic POI.
+ * Nearest first. Boards roll inside the nearest 14; a site already assigned to
+ * another station falls through to the next free candidate in range.
  */
-function pickDistressAnswerDestination(
+function listDistressCandidates(
   galaxy: Galaxy,
   originPoiId: number,
-  rng: () => number,
-): DistressDest | null {
+): DistressDest[] {
   const origin = galaxy.get(originPoiId);
   const candidates: { dest: DistressDest; dist: number }[] = [];
 
@@ -536,10 +589,83 @@ function pickDistressAnswerDestination(
     }
   }
 
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.dist - b.dist);
-  const pool = candidates.slice(0, Math.min(14, candidates.length));
-  return pool[(rng() * pool.length) | 0]!.dest;
+  candidates.sort(
+    (a, b) =>
+      a.dist - b.dist ||
+      a.dest.poiId - b.dest.poiId ||
+      (a.dest.bodyId ?? -1) - (b.dest.bodyId ?? -1),
+  );
+  return candidates.map((row) => row.dest);
+}
+
+function allStarStations(galaxy: Galaxy): SystemStationRef[] {
+  const stations: SystemStationRef[] = [];
+  for (const poi of galaxy.pois) {
+    if (poi.type !== "starSystem") continue;
+    stations.push(...listSystemStations(galaxy, poi.id));
+  }
+  stations.sort(
+    (a, b) => a.poiId - b.poiId || a.bodyId - b.bodyId || a.stationId - b.stationId,
+  );
+  return stations;
+}
+
+function ensureDistressAssignments(
+  galaxy: Galaxy,
+): Map<string, AssignedDistress | null> {
+  const cached = distressAssignmentCache.get(galaxy);
+  if (cached) return cached;
+
+  const assigned = new Map<string, AssignedDistress | null>();
+  const taken = new Set<string>();
+  const pools = new Map<number, DistressDest[]>();
+
+  for (const station of allStarStations(galaxy)) {
+    let pool = pools.get(station.poiId);
+    if (!pool) {
+      pool = listDistressCandidates(galaxy, station.poiId);
+      pools.set(station.poiId, pool);
+    }
+    const rng = mulberry32(
+      hash2(GALAXY.seed ^ 0xd15e55, hashStationKey(station.key)),
+    );
+    const nearest = pool.slice(0, Math.min(14, pool.length));
+    if (nearest.length === 0) {
+      assigned.set(station.key, null);
+      continue;
+    }
+    const natural = nearest[(rng() * nearest.length) | 0]!;
+    let dest = natural;
+    if (taken.has(distressSiteKey(natural))) {
+      const openNear = nearest.filter((d) => !taken.has(distressSiteKey(d)));
+      if (openNear.length > 0) {
+        dest = openNear[(rng() * openNear.length) | 0]!;
+      } else {
+        const farther = pool.find((d) => !taken.has(distressSiteKey(d)));
+        if (!farther) {
+          assigned.set(station.key, null);
+          continue;
+        }
+        dest = farther;
+      }
+    }
+    const outcome: DistressAnswerOutcome =
+      rng() < QUEST.distressAnswerBaitChance ? "bait" : "stranded";
+    taken.add(distressSiteKey(dest));
+    assigned.set(station.key, { dest, outcome });
+  }
+
+  distressAssignmentCache.set(galaxy, assigned);
+  return assigned;
+}
+
+function distressOfferForStation(
+  galaxy: Galaxy,
+  station: SystemStationRef,
+): MissionOffer | null {
+  const row = ensureDistressAssignments(galaxy).get(station.key);
+  if (!row) return null;
+  return makeDistressAnswerOffer(galaxy, station, row.dest, row.outcome);
 }
 
 function makeExploreOffer(
@@ -547,8 +673,9 @@ function makeExploreOffer(
   origin: SystemStationRef,
   rng: () => number,
   index: number,
+  blocked: ReadonlySet<number>,
 ): MissionOffer | null {
-  const target = pickExploreTarget(galaxy, origin.poiId, rng);
+  const target = pickExploreTarget(galaxy, origin.poiId, rng, blocked);
   if (!target) return null;
 
   const originPoi = galaxy.get(origin.poiId);
@@ -561,7 +688,7 @@ function makeExploreOffer(
     id: `explore:${origin.key}:${index}:${target.id}`,
     kind: "explore",
     title: `Scan ${formatPoiType(target.type)}`,
-    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Survey Scanner — hold F at the target, then return.`,
+    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Survey Scanner.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -599,7 +726,7 @@ function makeDerelictCargoOffer(
     id: `derelictCargo:${origin.key}:${index}:${target.id}`,
     kind: "derelictCargo",
     title: "Retrieve Derelict Cargo",
-    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Cargo Scoop.`,
+    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Cargo Scoop.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -682,12 +809,14 @@ function pickExploreTarget(
   galaxy: Galaxy,
   originPoiId: number,
   rng: () => number,
+  blocked: ReadonlySet<number>,
 ): PoiRef | null {
   const origin = galaxy.get(originPoiId);
   const ranked = galaxy.pois
     .filter(
       (p) =>
         p.id !== originPoiId &&
+        !blocked.has(p.id) &&
         EXPLORE_TYPES.includes(p.type) &&
         galaxy.distance(origin, p) <= GALAXY.jumpRange * QUEST.exploreMaxJumpRanges,
     )
@@ -696,7 +825,9 @@ function pickExploreTarget(
 
   if (ranked.length === 0) {
     // Fallback: any exotic in the chart (still no derelicts).
-    const any = galaxy.pois.filter((p) => EXPLORE_TYPES.includes(p.type));
+    const any = galaxy.pois.filter(
+      (p) => EXPLORE_TYPES.includes(p.type) && !blocked.has(p.id),
+    );
     if (any.length === 0) return null;
     return any[(rng() * any.length) | 0]!;
   }

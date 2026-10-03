@@ -91,7 +91,7 @@ export class Hud {
     } else if (info.surveyScanHint && !info.hasSurveyScanner) {
       y += 8;
       ctx.fillStyle = "rgba(200, 160, 140, 0.85)";
-      ctx.fillText("Survey · need Survey Scanner", pad, y);
+      ctx.fillText("Survey · Requires Survey Scanner", pad, y);
     }
 
     ctx.fillStyle = "rgba(150, 170, 200, 0.55)";

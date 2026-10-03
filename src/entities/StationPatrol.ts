@@ -360,6 +360,7 @@ export class StationPatrol {
           PATROL.size,
           hostileShot,
           PATROL.damage,
+          "patrol",
         ),
       );
       this.fireCooldown = PATROL.fireCooldown;
