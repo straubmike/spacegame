@@ -35,12 +35,12 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
-/** Fuel-now reach — bright cyan, short dashes. Not the solid selection ring. */
-const NOW_REACH_STROKE = "rgba(150, 220, 255, 0.95)";
+/** Fuel-now reach — light grey, short dashes. Not the solid white selection ring. */
+const NOW_REACH_STROKE = "rgba(226, 226, 226, 0.95)";
 const NOW_REACH_DASH = [5, 4];
 const NOW_REACH_WIDTH = 2;
-/** Full-tank reach — violet, long dashes. Not the amber mission ring ([3, 3]). */
-const MAX_REACH_STROKE = "rgba(198, 154, 255, 0.95)";
+/** Full-tank reach — medium grey, long dashes. Not the amber mission ring ([3, 3]). */
+const MAX_REACH_STROKE = "rgba(148, 148, 148, 0.95)";
 const MAX_REACH_DASH = [12, 6];
 const MAX_REACH_WIDTH = 1.5;
 
