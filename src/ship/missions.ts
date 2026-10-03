@@ -7,6 +7,8 @@
  *    reputation hit on steal later). Faction-tagged **Merchants Guild**.
  * - passenger: accept at A (free berths ≥ party) → occupy berths → deliver at B → paid at B
  *   Long-range preferred; ~10% pirate intercept on pre-destination jumps (Game).
+ *   Abandon while passengers are still aboard: mild origin hit plus a severe
+ *   Imperial kidnapping drop (not berth-clear with only the mild cancel).
  * - explore: accept at A (needs Survey Scanner) → jump to exotic POI
  *   (non-derelict) → hold F to scan → return to A → claim.
  *   Faction-tagged **Cartographers**.
@@ -18,6 +20,11 @@
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
+ * - bmDestroyPatrol (Black Market, after Rebels revealed): destroy the patrol
+ *   at a destination station, then claim back at the giver
+ * - bmKidnap (Black Market, after Rebels revealed): divert an active fare and
+ *   turn those passengers in at a black market
+ * Secret rebel mission line is not implemented.
  *
  * Offer rules:
  * - One station: cargo slots never share commodity + destination; explore slots
@@ -35,7 +42,8 @@ import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef, PoiType } from "../galaxy/types";
 import { hash2, mulberry32 } from "../galaxy/rng";
-import { FUEL_RATS_FACTION_ID, MERCHANTS_GUILD_FACTION_ID, CARTOGRAPHERS_FACTION_ID } from "./reputation";
+import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
+import { FUEL_RATS_FACTION_ID, MERCHANTS_GUILD_FACTION_ID, CARTOGRAPHERS_FACTION_ID, REBELS_FACTION_ID } from "./reputation";
 import { LEGAL_COMMODITIES } from "./market";
 import { hashStationKey } from "./stationKey";
 
@@ -45,7 +53,9 @@ export type MissionKind =
   | "explore"
   | "derelictCargo"
   | "clearance"
-  | "distressAnswer";
+  | "distressAnswer"
+  | "bmDestroyPatrol"
+  | "bmKidnap";
 
 /** Rolled when the player arrives at a Fuel Rat distress site. */
 export type DistressAnswerOutcome = "stranded" | "bait";
@@ -69,6 +79,11 @@ export interface MissionOffer {
   cu?: number;
   /** Passenger fare party size (berths occupied, not CU). */
   passengers?: number;
+  /**
+   * Black-market kidnap: the active passenger fare to divert.
+   * Passengers stay on that fare until turn-in.
+   */
+  linkedMissionId?: string;
   destStationKey?: string;
   destStationName?: string;
   destPoiId?: number;
@@ -174,6 +189,16 @@ export function missionStatusLine(mission: ActiveMission): string {
       "distress site";
     return `Answer distress at ${where}`;
   }
+  if (mission.kind === "bmDestroyPatrol") {
+    if (mission.scanned || mission.status === "readyToClaim") {
+      return `Patrol down — claim at ${mission.originStationName}`;
+    }
+    return `Destroy the patrol at ${mission.destStationName ?? "destination"}`;
+  }
+  if (mission.kind === "bmKidnap") {
+    const n = mission.passengers ?? 0;
+    return `Turn in ${n} kidnapped passenger${n === 1 ? "" : "s"} at a black market`;
+  }
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
   }
@@ -224,6 +249,12 @@ export function questChartPoiIds(
       m.targetPoiId !== undefined
     ) {
       ids.add(m.targetPoiId);
+    } else if (m.kind === "bmDestroyPatrol") {
+      if (scanned) {
+        ids.add(m.originPoiId);
+      } else if (m.destPoiId !== undefined) {
+        ids.add(m.destPoiId);
+      }
     }
   }
   return ids;
@@ -879,6 +910,137 @@ function formatPoiType(t: PoiType): string {
     default:
       return "anomaly";
   }
+}
+
+/**
+ * Black-market jobs for one dock. Caller must already know Rebels are
+ * revealed and this station has a black market.
+ * One destroy-patrol offer (seeded) plus one divert per active fare.
+ */
+export function blackMarketMissionOffers(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  active: readonly ActiveMission[],
+  acceptedIds: ReadonlySet<string>,
+): MissionOffer[] {
+  const offers: MissionOffer[] = [];
+  const destroyActive = active.some((m) => m.kind === "bmDestroyPatrol");
+  const destroy = makeBmDestroyPatrolOffer(galaxy, origin);
+  if (destroy && !destroyActive && !acceptedIds.has(destroy.id)) {
+    offers.push(destroy);
+  }
+
+  const taken = new Set(
+    active
+      .filter((m) => m.kind === "bmKidnap" && m.linkedMissionId)
+      .map((m) => m.linkedMissionId!),
+  );
+  for (const fare of active) {
+    if (fare.kind !== "passenger") continue;
+    if ((fare.passengers ?? 0) <= 0) continue;
+    if (taken.has(fare.id)) continue;
+    const kidnap = makeBmKidnapOffer(origin, fare);
+    if (!kidnap || acceptedIds.has(kidnap.id)) continue;
+    offers.push(kidnap);
+  }
+  return offers;
+}
+
+function makeBmDestroyPatrolOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+): MissionOffer | null {
+  const rng = mulberry32(
+    hash2(GALAXY.seed ^ 0xb1ac, hashStationKey(origin.key)),
+  );
+  const dest = pickPatrolHuntDestination(galaxy, origin, rng);
+  if (!dest) return null;
+
+  const originPoi = galaxy.get(origin.poiId);
+  const destPoi = galaxy.get(dest.poiId);
+  const sameSystem = dest.poiId === origin.poiId;
+  const dist = sameSystem ? 0 : galaxy.distance(originPoi, destPoi);
+  const jumpsHint = sameSystem
+    ? 0
+    : Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const reward =
+    QUEST.bmDestroyPatrolBaseReward +
+    Math.round(dist * QUEST.bmDestroyPatrolPerDistance);
+  const where = sameSystem
+    ? `${dest.name} in this system`
+    : `${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"})`;
+
+  return {
+    id: `bmDestroyPatrol:${origin.key}`,
+    kind: "bmDestroyPatrol",
+    title: "Destroy station patrol",
+    blurb: `Destroy the patrol at ${where}, then return here. Shooting a patrol makes you Hostile there.`,
+    reward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    factionId: REBELS_FACTION_ID,
+    factionLabel: "Black Market",
+    destStationKey: dest.key,
+    destStationName: `${dest.name} (${destPoi.name})`,
+    destPoiId: dest.poiId,
+    destBodyId: dest.bodyId,
+  };
+}
+
+function makeBmKidnapOffer(
+  origin: SystemStationRef,
+  fare: ActiveMission,
+): MissionOffer | null {
+  const n = fare.passengers ?? 0;
+  if (n <= 0) return null;
+  const party = n === 1 ? "1 passenger" : `${n} passengers`;
+  return {
+    id: `bmKidnap:${origin.key}:${fare.id}`,
+    kind: "bmKidnap",
+    title: `Divert ${party}`,
+    blurb: `Take the fare for ${party} off its route and turn them in at any black market that is not their destination. Pays the fare plus ${QUEST.bmKidnapPremium} cr. Severe Imperial hit.`,
+    reward: fare.reward + QUEST.bmKidnapPremium,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    factionId: REBELS_FACTION_ID,
+    factionLabel: "Black Market",
+    passengers: n,
+    linkedMissionId: fare.id,
+    destStationName: fare.destStationName,
+  };
+}
+
+/**
+ * A station that will spawn a patrol, other than the giver.
+ * Nearest pool so the hunt is reachable.
+ */
+function pickPatrolHuntDestination(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+): SystemStationRef | null {
+  const originPoi = galaxy.get(origin.poiId);
+  const maxDist = GALAXY.jumpRange * QUEST.bmDestroyPatrolMaxJumpRanges;
+  const candidates: { station: SystemStationRef; dist: number }[] = [];
+
+  for (const poi of galaxy.pois) {
+    if (poi.type !== "starSystem") continue;
+    const dist =
+      poi.id === origin.poiId ? 0 : galaxy.distance(originPoi, poi);
+    if (poi.id !== origin.poiId && dist > maxDist) continue;
+    for (const station of listSystemStations(galaxy, poi.id)) {
+      if (station.key === origin.key) continue;
+      if (!patrolWouldSpawn(station.key)) continue;
+      candidates.push({ station, dist });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.dist - b.dist);
+  const pool = candidates.slice(0, Math.min(12, candidates.length));
+  return pool[(rng() * pool.length) | 0]!.station;
 }
 
 /** Current station ref from local dock context, or null outside star systems. */

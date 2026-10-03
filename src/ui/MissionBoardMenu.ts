@@ -175,6 +175,7 @@ export class MissionBoardMenu {
       "Fuel Rats",
       "Merchants Guild",
       "Cartographers",
+      "Black Market",
     ];
     const factionOffers = this.offers.filter((m) => !!m.factionId);
     const stationOffers = this.offers.filter((m) => !m.factionId);
@@ -314,15 +315,11 @@ export class MissionBoardMenu {
       ctx.fillText(blurbLines[1], textX, y + 40);
     }
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    const rewardLine =
-      mission.kind === "distressAnswer"
-        ? "Fuel Rats reputation"
-        : mission.kind === "cargo"
-          ? `+${mission.reward} cr · Merchants Guild`
-          : mission.kind === "explore"
-            ? `+${mission.reward} cr · Cartographers`
-            : `+${mission.reward} cr`;
-    ctx.fillText(truncateToWidth(ctx, rewardLine, textMaxW), textX, y + 60);
+    ctx.fillText(
+      truncateToWidth(ctx, missionRewardLine(mission), textMaxW),
+      textX,
+      y + 60,
+    );
 
     const needCu =
       mission.kind === "cargo" || mission.kind === "derelictCargo"
@@ -415,15 +412,11 @@ export class MissionBoardMenu {
       ctx.fillText(statusLines[1], textX, y + 40);
     }
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    const activeReward =
-      mission.kind === "distressAnswer"
-        ? "Fuel Rats reputation"
-        : mission.kind === "cargo"
-          ? `+${mission.reward} cr · Merchants Guild`
-          : mission.kind === "explore"
-            ? `+${mission.reward} cr · Cartographers`
-            : `+${mission.reward} cr`;
-    ctx.fillText(truncateToWidth(ctx, activeReward, textMaxW), textX, y + 60);
+    ctx.fillText(
+      truncateToWidth(ctx, missionRewardLine(mission), textMaxW),
+      textX,
+      y + 60,
+    );
 
     drawButton(ctx, cancelBtn, "Cancel", {
       hover: hit(cancelBtn, pointerX, pointerY),
@@ -459,6 +452,25 @@ export class MissionBoardMenu {
       }
     }
     return null;
+  }
+}
+
+function missionRewardLine(mission: {
+  kind: string;
+  reward: number;
+}): string {
+  switch (mission.kind) {
+    case "distressAnswer":
+      return "Fuel Rats reputation";
+    case "cargo":
+      return `+${mission.reward} cr · Merchants Guild`;
+    case "explore":
+      return `+${mission.reward} cr · Cartographers`;
+    case "bmDestroyPatrol":
+    case "bmKidnap":
+      return `+${mission.reward} cr · Black Market`;
+    default:
+      return `+${mission.reward} cr`;
   }
 }
 

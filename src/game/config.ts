@@ -398,9 +398,13 @@ export const FUEL = {
   },
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
-  /** Downtime after broadcast before a responder appears (inclusive range). */
-  distressResponseDelayMin: 15,
-  distressResponseDelayMax: 30,
+  /**
+   * L-menu distress only: seconds after broadcast before a Fuel Rat or
+   * pirate pack appears. Answer-distress sites spawn their contact on
+   * arrival — that wait is not this timer.
+   */
+  distressResponseDelayMin: 8,
+  distressResponseDelayMax: 15,
   /** Fuel rat visual + arrival tuning. */
   ratFill: "#9fd9a8",
   ratStroke: "#4a9a5c",
@@ -529,6 +533,16 @@ export const QUEST = {
   passengerInterceptChance: 0.1,
   /** Seconds of taunt before intercept pack goes hostile (no fee demand). */
   passengerInterceptAggroSeconds: 2.5,
+  /**
+   * Black-market jobs — posted only after Rebels are revealed, and only at
+   * a station that has a black market. Not the secret rebel mission line.
+   * Destroy-patrol: kill that station's patrol, return to the giver to claim.
+   * Kidnap: divert an active fare; payout is the fare reward plus this premium.
+   */
+  bmDestroyPatrolBaseReward: 120,
+  bmDestroyPatrolPerDistance: 2,
+  bmDestroyPatrolMaxJumpRanges: 2.5,
+  bmKidnapPremium: 80,
   /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
   distressAnswerBaitChance: 0.4,
   /** Seconds of bait taunt before aggro (no fee demand). */
@@ -585,8 +599,9 @@ export const DOCK = {
 } as const;
 
 /**
- * Reputation — stations + pirate / Fuel Rats / Rebels / guild factions.
+ * Reputation — stations + Imperial / pirate / Fuel Rats / Rebels / guild factions.
  * Station ladder includes Violation between Unfriendly and Hostile.
+ * Imperial uses the non-station bands (no Violation), same as pirates.
  * See docs/reputation-system.md in the project Context store.
  */
 export const REPUTATION = {
@@ -634,6 +649,14 @@ export const REPUTATION = {
   merchantsHaulComplete: 8,
   /** Cartographers — complete scan / exploration mission (plus station Δ). */
   cartographersScanComplete: 8,
+  /**
+   * Imperial — always visible. Broad standing for order among stations.
+   * Applied once per fare when passengers are still aboard and the fare is
+   * abandoned, or when that fare is turned in at a black market.
+   * Flat (not per head). Harsh next to cancelMissionMild (−5):
+   * Neutral 0 → −40 Unfriendly. A second hit from there → −80 Hostile.
+   */
+  imperialKidnap: -40,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
