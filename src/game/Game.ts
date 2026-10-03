@@ -99,21 +99,26 @@ import { HangarMenu } from "../ui/HangarMenu";
 import { factoryPassengerCapacity, hullById } from "../ship/hulls";
 import {
   ABANDONED_DERELICT_CARGO_ID,
-  blackMarketMissionOffers,
   DERELICT_CARGO_NAME,
   distressAnswerMatchesView,
   generateStationMissions,
   generateStationReplenishmentOffer,
   freePassengerBerths,
+  isDerelictRetrievalKind,
   isMissionCargoId,
+  isRebelMissionKind,
   isStolenCargoId,
+  isSurveyMissionKind,
   makeClearanceOffer,
   missionCargoId,
   occupiedPassengerBerths,
   questChartPoiIds,
+  rebelCoverNeedsRegularSlot,
+  rebelMissionOffers,
   stolenCargoId,
   stationRefFromLocal,
   type ActiveMission,
+  type MissionKind,
   type MissionOffer,
 } from "../ship/missions";
 
@@ -415,7 +420,7 @@ export class Game {
     if (this.local.focus.kind !== "derelict" || !this.local.beltRocks) return;
     const pending = this.activeMissions.find(
       (m) =>
-        m.kind === "derelictCargo" &&
+        isDerelictRetrievalKind(m.kind) &&
         m.targetPoiId === this.local.poiId &&
         !m.scanned,
     );
@@ -769,23 +774,20 @@ export class Game {
         ? this.currentStationKey(this.dock.station)
         : null;
     return this.activeMissions.map((m) => {
-      if (m.kind === "explore") {
-        if (
-          m.scanned &&
-          here === m.originStationKey &&
-          m.status !== "readyToClaim"
-        ) {
+      if (
+        isSurveyMissionKind(m.kind) ||
+        isDerelictRetrievalKind(m.kind) ||
+        m.kind === "rebelSteal" ||
+        m.kind === "rebelKidnap" ||
+        m.kind === "bmDestroyPatrol"
+      ) {
+        const ready =
+          m.scanned && here === m.originStationKey;
+        if (ready && m.status !== "readyToClaim") {
           return { ...m, status: "readyToClaim" as const };
         }
-        return m;
-      }
-      if (m.kind === "derelictCargo") {
-        if (
-          m.scanned &&
-          here === m.originStationKey &&
-          m.status !== "readyToClaim"
-        ) {
-          return { ...m, status: "readyToClaim" as const };
+        if (!ready && m.status === "readyToClaim") {
+          return { ...m, status: "inProgress" as const };
         }
         return m;
       }
@@ -802,28 +804,6 @@ export class Game {
             done && atGiver
               ? ("readyToClaim" as const)
               : ("inProgress" as const),
-        };
-      }
-      if (m.kind === "bmDestroyPatrol") {
-        const atGiver = here === m.originStationKey;
-        return {
-          ...m,
-          status:
-            m.scanned && atGiver
-              ? ("readyToClaim" as const)
-              : ("inProgress" as const),
-        };
-      }
-      if (m.kind === "bmKidnap") {
-        const fare = this.activeMissions.find(
-          (f) => f.id === m.linkedMissionId && f.kind === "passenger",
-        );
-        const atBlack = here !== null && stationOffersBlackMarket(here);
-        const ready =
-          atBlack && !!fare && (fare.passengers ?? 0) > 0;
-        return {
-          ...m,
-          status: ready ? ("readyToClaim" as const) : ("inProgress" as const),
         };
       }
       return m;
@@ -863,9 +843,9 @@ export class Game {
   }
 
   /**
-   * Black-market jobs appear only after Rebels are revealed, and only at a
-   * dock that has a black market. Refreshed when the board changes so a fare
-   * accepted this visit can be diverted without undocking.
+   * Rebel jobs appear only after Rebels are revealed, and only at a dock that
+   * has a black market. Up to two offers; kidnap and patrol-destroy join the
+   * pool at Friendly Rebel standing. Accepted kinds stay off the board.
    */
   private syncBlackMarketOffers(station: Landmark): void {
     const ref = stationRefFromLocal(
@@ -879,16 +859,16 @@ export class Game {
       ref &&
       this.reputation.rebelsKnown() &&
       stationOffersBlackMarket(ref.key)
-        ? blackMarketMissionOffers(
+        ? rebelMissionOffers(
             this.galaxy,
             ref,
-            this.activeMissions,
+            this.reputation.rebelsRep(),
             this.acceptedMissionIds,
           )
         : [];
     const freshIds = new Set(fresh.map((o) => o.id));
     this.dockMissionOffers = this.dockMissionOffers.filter((o) => {
-      if (o.kind !== "bmDestroyPatrol" && o.kind !== "bmKidnap") return true;
+      if (!isRebelMissionKind(o.kind)) return true;
       return freshIds.has(o.id);
     });
     for (const offer of fresh) {
@@ -1111,7 +1091,7 @@ export class Game {
     }
     const pending = this.activeMissions.find(
       (m) =>
-        m.kind === "explore" &&
+        isSurveyMissionKind(m.kind) &&
         !m.scanned &&
         m.targetPoiId === this.local.poiId,
     );
@@ -1194,11 +1174,8 @@ export class Game {
     for (const m of delivered) {
       const i = this.activeMissions.indexOf(m);
       if (i >= 0) this.activeMissions.splice(i, 1);
-      if (m.kind === "passenger") {
-        this.dropKidnapForFare(
-          m.id,
-          "Black Market: Divert dropped — those passengers were delivered.",
-        );
+      if (m.kind === "passenger" || m.kind === "cargo") {
+        this.unlinkUnfinishedCover(m.id, m.kind);
       }
     }
   }
@@ -1207,7 +1184,7 @@ export class Game {
     const here = this.currentStationKey(station);
     if (!here) return;
     for (const mission of this.activeMissions) {
-      if (mission.kind === "explore" || mission.kind === "derelictCargo") {
+      if (isSurveyMissionKind(mission.kind) || isDerelictRetrievalKind(mission.kind)) {
         if (!mission.scanned) continue;
         if (mission.originStationKey !== here) continue;
         mission.status = "readyToClaim";
@@ -1237,7 +1214,25 @@ export class Game {
         );
         return;
       }
-    } else if (this.activeMissions.length >= QUEST.maxActive) {
+    } else if (isRebelMissionKind(offer.kind)) {
+      if (this.rebelMissionCount() >= QUEST.maxRebelActive) {
+        this.messages.push(
+          `Missions: Already holding ${QUEST.maxRebelActive} rebel contracts — complete one first.`,
+          "station",
+        );
+        return;
+      }
+      if (
+        rebelCoverNeedsRegularSlot(offer.kind) &&
+        this.coverSlotsFree() < 1
+      ) {
+        this.messages.push(
+          "Missions: Need a free mission slot to accept the cover haul or fare.",
+          "station",
+        );
+        return;
+      }
+    } else if (this.regularMissionCount() >= QUEST.maxActive) {
       this.messages.push(
         `Missions: Already holding ${QUEST.maxActive} contracts — complete one first.`,
         "station",
@@ -1284,7 +1279,7 @@ export class Game {
       }
     }
 
-    if (offer.kind === "derelictCargo") {
+    if (isDerelictRetrievalKind(offer.kind)) {
       const need = offer.cu ?? QUEST.derelictCargoCu;
       if (this.ship.loadout.scoopRange <= 0) {
         this.messages.push(
@@ -1324,30 +1319,10 @@ export class Game {
       }
     }
 
-    if (offer.kind === "explore") {
+    if (isSurveyMissionKind(offer.kind)) {
       if (!this.hasSurveyScanner()) {
         this.messages.push(
           "Missions: Fit a Survey Scanner before accepting exploration work.",
-          "station",
-        );
-        return;
-      }
-    }
-
-    if (offer.kind === "bmKidnap") {
-      const fare = this.activeMissions.find(
-        (m) => m.id === offer.linkedMissionId && m.kind === "passenger",
-      );
-      if (!fare || (fare.passengers ?? 0) <= 0) {
-        this.messages.push(
-          "Missions: That fare is no longer aboard.",
-          "station",
-        );
-        return;
-      }
-      if (this.activeMissions.some((m) => m.kind === "bmKidnap")) {
-        this.messages.push(
-          "Missions: Already running a black-market divert.",
           "station",
         );
         return;
@@ -1365,6 +1340,8 @@ export class Game {
     this.activeMissions.push(active);
     this.acceptedMissionIds.add(offer.id);
     this.revealMissionChartTargets(active);
+    if (offer.kind === "cargo") this.linkNewCover("rebelSteal", offer.id);
+    if (offer.kind === "passenger") this.linkNewCover("rebelKidnap", offer.id);
 
     let msg: string;
     if (offer.kind === "cargo") {
@@ -1377,15 +1354,20 @@ export class Game {
       msg = `Missions: Accepted — clear ${n} pirate${n === 1 ? "" : "s"} in this system (+${offer.reward} cr).`;
     } else if (offer.kind === "derelictCargo") {
       msg = `Missions: Accepted — scoop cargo at ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
+    } else if (offer.kind === "rebelDerelict") {
+      msg = `Missions: Accepted — scoop cargo at ${offer.targetPoiName}, then turn it in here (+${offer.reward} cr, Rebels).`;
+    } else if (offer.kind === "rebelScan") {
+      msg = `Missions: Accepted — scan ${offer.targetPoiName}, then claim here (Rebel reputation, +${offer.reward} cr).`;
+    } else if (offer.kind === "rebelSteal") {
+      msg = `Missions: Accepted — steal a haul and deliver it here (+${offer.reward} cr, Rebels).`;
+    } else if (offer.kind === "rebelKidnap") {
+      msg = `Missions: Accepted — kidnap a fare and turn them in here (+${offer.reward} cr, Rebels).`;
     } else if (offer.kind === "distressAnswer") {
       const where =
         offer.targetBodyName ?? offer.targetPoiName ?? "the distress site";
       msg = `Missions: Accepted — answer distress at ${where} (Fuel Rats reputation).`;
     } else if (offer.kind === "bmDestroyPatrol") {
-      msg = `Missions: Accepted — destroy the patrol at ${offer.destStationName}, then return here (+${offer.reward} cr).`;
-    } else if (offer.kind === "bmKidnap") {
-      const n = offer.passengers ?? 0;
-      msg = `Missions: Accepted — divert ${n} passenger${n === 1 ? "" : "s"} to a black market (+${offer.reward} cr).`;
+      msg = `Missions: Accepted — destroy the patrol at ${offer.destStationName}, then return here (+${offer.reward} cr, Rebels).`;
     } else {
       msg = `Missions: Accepted — scan ${offer.targetPoiName}, then return here (+${offer.reward} cr).`;
     }
@@ -1401,7 +1383,7 @@ export class Game {
     if (idx < 0) return;
     const mission = this.activeMissions[idx]!;
 
-    if (mission.kind === "explore") {
+    if (isSurveyMissionKind(mission.kind)) {
       if (!mission.scanned || here !== mission.originStationKey) {
         this.messages.push(
           `Missions: Finish the scan and return to ${mission.originStationName}.`,
@@ -1409,23 +1391,31 @@ export class Game {
         );
         return;
       }
-      this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
-      this.adjustStationRep(
-        mission.originStationKey,
-        mission.originStationName,
-        REPUTATION.missionComplete,
-      );
-      this.adjustCartographersRep(REPUTATION.cartographersScanComplete);
-      this.messages.push(
-        `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
-        "station",
-      );
+      if (mission.kind === "rebelScan") {
+        this.payRebelContract(
+          mission,
+          station.name,
+          `Survey filed for the Rebels — ${mission.title}`,
+        );
+      } else {
+        this.ship.addCredits(mission.reward);
+        this.adjustStationRep(
+          mission.originStationKey,
+          mission.originStationName,
+          REPUTATION.missionComplete,
+        );
+        this.adjustCartographersRep(REPUTATION.cartographersScanComplete);
+        this.messages.push(
+          `${station.name}: Survey filed — ${mission.title} (+${mission.reward} cr).`,
+          "station",
+        );
+      }
       this.refreshMissionBoardUi();
       return;
     }
 
-    if (mission.kind === "derelictCargo") {
+    if (isDerelictRetrievalKind(mission.kind)) {
       if (!mission.scanned || here !== mission.originStationKey) {
         this.messages.push(
           `Missions: Scoop the cargo and return to ${mission.originStationName}.`,
@@ -1445,17 +1435,25 @@ export class Game {
         return;
       }
       this.ship.fleet.removeCargo(lotId, need);
-      this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
-      this.adjustStationRep(
-        mission.originStationKey,
-        mission.originStationName,
-        REPUTATION.missionComplete,
-      );
-      this.messages.push(
-        `${station.name}: Derelict cargo recovered — ${mission.title} (+${mission.reward} cr).`,
-        "station",
-      );
+      if (mission.kind === "rebelDerelict") {
+        this.payRebelContract(
+          mission,
+          station.name,
+          `Derelict cargo turned in — ${mission.title}`,
+        );
+      } else {
+        this.ship.addCredits(mission.reward);
+        this.adjustStationRep(
+          mission.originStationKey,
+          mission.originStationName,
+          REPUTATION.missionComplete,
+        );
+        this.messages.push(
+          `${station.name}: Derelict cargo recovered — ${mission.title} (+${mission.reward} cr).`,
+          "station",
+        );
+      }
       this.refreshMissionBoardUi();
       return;
     }
@@ -1504,51 +1502,64 @@ export class Game {
         );
         return;
       }
-      this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
-      this.messages.push(
-        `${station.name}: Patrol contract paid — ${mission.title} (+${mission.reward} cr).`,
-        "station",
+      this.payRebelContract(
+        mission,
+        station.name,
+        `Patrol contract paid — ${mission.title}`,
       );
       this.refreshMissionBoardUi();
       return;
     }
 
-    if (mission.kind === "bmKidnap") {
-      if (here === null || !stationOffersBlackMarket(here)) {
+    if (mission.kind === "rebelSteal") {
+      if (!mission.scanned || here !== mission.originStationKey) {
         this.messages.push(
-          "Missions: Turn the passengers in at a black market.",
+          mission.scanned
+            ? `Missions: Deliver the stolen freight to ${mission.originStationName}.`
+            : "Missions: Steal a haul first — abandon it away from the giver.",
           "station",
         );
         return;
       }
-      const fareIdx = this.activeMissions.findIndex(
-        (m) => m.id === mission.linkedMissionId && m.kind === "passenger",
-      );
-      const fare = fareIdx >= 0 ? this.activeMissions[fareIdx] : undefined;
-      const n = fare?.passengers ?? 0;
-      if (!fare || n <= 0) {
-        this.activeMissions.splice(idx, 1);
+      const commodityId = mission.commodityId ?? "goods";
+      const need = mission.cu ?? 0;
+      this.ship.stashActiveToFleet();
+      const held = this.ship.fleet.amountOfCargo(stolenCargoId(commodityId));
+      if (held < need) {
         this.messages.push(
-          "Missions: The fare is already gone — divert dropped.",
+          `Missions: Missing ${need} CU stolen ${mission.commodityName ?? "freight"}.`,
           "station",
         );
-        this.refreshMissionBoardUi();
         return;
       }
-      for (const i of [idx, fareIdx].sort((a, b) => b - a)) {
-        this.activeMissions.splice(i, 1);
-      }
-      this.ship.addCredits(mission.reward);
-      this.adjustStationRep(
-        fare.originStationKey,
-        fare.originStationName,
-        REPUTATION.cancelMissionMild,
+      this.ship.fleet.removeCargo(stolenCargoId(commodityId), need);
+      this.activeMissions.splice(idx, 1);
+      this.payRebelContract(
+        mission,
+        station.name,
+        `Stolen haul delivered — ${mission.title}`,
       );
-      this.adjustImperialRep(REPUTATION.imperialKidnap);
-      this.messages.push(
-        `${station.name}: Turned in ${n} kidnapped passenger${n === 1 ? "" : "s"} (+${mission.reward} cr).`,
-        "station",
+      this.refreshMissionBoardUi();
+      return;
+    }
+
+    if (mission.kind === "rebelKidnap") {
+      if (!mission.scanned || here !== mission.originStationKey) {
+        this.messages.push(
+          mission.scanned
+            ? `Missions: Turn the passengers in at ${mission.originStationName}.`
+            : "Missions: Abandon a fare while the passengers are still aboard.",
+          "station",
+        );
+        return;
+      }
+      const n = mission.passengers ?? 0;
+      this.activeMissions.splice(idx, 1);
+      this.payRebelContract(
+        mission,
+        station.name,
+        `Turned in ${n} kidnapped passenger${n === 1 ? "" : "s"}`,
       );
       this.refreshMissionBoardUi();
       return;
@@ -1579,12 +1590,13 @@ export class Game {
       this.visibleMissionOffers(),
       this.missionsForBoardUi(),
       this.ship.cargo.freeCu,
-      this.activeMissions.filter((m) => m.kind !== "clearance").length <
-        QUEST.maxActive,
+      this.regularMissionCount() < QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
       this.freeBerthsForUi(),
       this.hasSurveyScanner(),
+      this.rebelMissionCount() < QUEST.maxRebelActive,
+      this.coverSlotsFree() >= 1,
     );
   }
 
@@ -1604,12 +1616,13 @@ export class Game {
       this.visibleMissionOffers(),
       this.missionsForBoardUi(),
       this.ship.cargo.freeCu,
-      this.activeMissions.filter((m) => m.kind !== "clearance").length <
-        QUEST.maxActive,
+      this.regularMissionCount() < QUEST.maxActive,
       this.ship.loadout.scoopRange > 0,
       this.hasExpandedFuelTank(),
       this.freeBerthsForUi(),
       this.hasSurveyScanner(),
+      this.rebelMissionCount() < QUEST.maxRebelActive,
+      this.coverSlotsFree() >= 1,
     );
     this.missionBoardOpen = true;
   }
@@ -1651,8 +1664,9 @@ export class Game {
    *   fenceable on Black Market for Rebels +rep (not stolen / no steal floor).
    * - Derelict cargo eject (`discardCargo`): force-abandon — cargo discarded, no
    *   BM fence / Rebels reveal; same mild rep, not stolen, no patrol fee.
-   * - Passenger fare with people still aboard: mild origin hit plus severe
-   *   Imperial kidnapping drop. Passengers leave with the contract.
+   * - Passenger fare with people still aboard: mild origin hit (−5) plus a
+   *   small Imperial nick (`imperialKidnap`, no floor). Passengers leave the
+   *   ship. An open rebel kidnap contract holds them for turn-in at its market.
    * Offer stays in acceptedMissionIds so it does not reappear on that station's board.
    */
   private cancelBoardMission(
@@ -1697,7 +1711,7 @@ export class Game {
           stoleCu = held;
         }
       }
-    } else if (mission.kind === "derelictCargo") {
+    } else if (isDerelictRetrievalKind(mission.kind)) {
       const lotId = missionCargoId(mission.id);
       this.ship.stashActiveToFleet();
       const held = this.ship.fleet.amountOfCargo(lotId);
@@ -1731,6 +1745,7 @@ export class Game {
       mission.kind === "passenger" && (mission.passengers ?? 0) > 0;
 
     if (stoleCu > 0) {
+      this.fulfillStealContract(mission, stoleCu);
       const before = this.reputation.stationStanding(mission.originStationKey);
       const next = this.reputation.applyCargoSteal(
         mission.originStationKey,
@@ -1741,18 +1756,19 @@ export class Game {
         next,
         next - before,
       );
+      this.adjustImperialRep(REPUTATION.imperialStealCargo);
     } else if (kidnapped) {
+      this.fulfillKidnapContract(mission);
       this.adjustStationRep(
         mission.originStationKey,
         mission.originStationName,
         REPUTATION.cancelMissionMild,
       );
       this.adjustImperialRep(REPUTATION.imperialKidnap);
-      this.dropKidnapForFare(
-        mission.id,
-        "Black Market: Divert dropped — the fare was abandoned.",
-      );
     } else if (mission.kind !== "cargo" || returnedCu > 0) {
+      if (mission.kind === "cargo" || mission.kind === "passenger") {
+        this.unlinkUnfinishedCover(mission.id, mission.kind);
+      }
       this.adjustStationRep(
         mission.originStationKey,
         mission.originStationName,
@@ -1767,11 +1783,11 @@ export class Game {
       msg = `Missions: Cancelled "${mission.title}" — kept ${stoleCu} CU as stolen freight.`;
     } else if (keptDerelictCu > 0) {
       msg = `Missions: Cancelled "${mission.title}" — kept ${keptDerelictCu} CU ${DERELICT_CARGO_NAME} (not stolen).`;
-    } else if (opts.discardCargo && mission.kind === "derelictCargo") {
+    } else if (opts.discardCargo && isDerelictRetrievalKind(mission.kind)) {
       msg = `Missions: Abandoned "${mission.title}" — cargo dumped.`;
     } else if (kidnapped) {
       const n = mission.passengers ?? 0;
-      msg = `Missions: Cancelled "${mission.title}" — ${n} passenger${n === 1 ? "" : "s"} still aboard. Logged as kidnapping.`;
+      msg = `Missions: Cancelled "${mission.title}" — ${n} passenger${n === 1 ? "" : "s"} taken off the ship. Logged as kidnapping.`;
     } else {
       msg = `Missions: Cancelled "${mission.title}".`;
     }
@@ -1874,20 +1890,130 @@ export class Game {
     return next;
   }
 
+  private regularMissionCount(): number {
+    return this.activeMissions.filter(
+      (m) => m.kind !== "clearance" && !isRebelMissionKind(m.kind),
+    ).length;
+  }
+
+  private rebelMissionCount(): number {
+    return this.activeMissions.filter((m) => isRebelMissionKind(m.kind)).length;
+  }
+
+  /** Cover contracts that still need a haul or fare accepted into a regular slot. */
+  private unfilledCoverCount(): number {
+    return this.activeMissions.filter(
+      (m) =>
+        rebelCoverNeedsRegularSlot(m.kind) &&
+        !m.linkedMissionId &&
+        !m.scanned,
+    ).length;
+  }
+
+  /** Free regular seats minus seats already reserved by unfilled steal/kidnap jobs. */
+  private coverSlotsFree(): number {
+    return (
+      QUEST.maxActive -
+      this.regularMissionCount() -
+      this.unfilledCoverCount()
+    );
+  }
+
+  private linkNewCover(
+    rebelKind: "rebelSteal" | "rebelKidnap",
+    coverId: string,
+  ): void {
+    const waiting = this.activeMissions.find(
+      (m) => m.kind === rebelKind && !m.linkedMissionId && !m.scanned,
+    );
+    if (!waiting) return;
+    waiting.linkedMissionId = coverId;
+  }
+
+  /** Legal delivery or origin-board abort — the cover can be tried again. */
+  private unlinkUnfinishedCover(missionId: string, kind: MissionKind): void {
+    const rebelKind =
+      kind === "cargo" ? "rebelSteal" : kind === "passenger" ? "rebelKidnap" : null;
+    if (!rebelKind) return;
+    const cover = this.activeMissions.find(
+      (m) =>
+        m.kind === rebelKind &&
+        m.linkedMissionId === missionId &&
+        !m.scanned,
+    );
+    if (!cover) return;
+    cover.linkedMissionId = undefined;
+    this.messages.push(
+      kind === "cargo"
+        ? "Rebels: That haul was not stolen — the steal contract is still open."
+        : "Rebels: That fare was not kidnapped — the kidnap contract is still open.",
+      "station",
+    );
+  }
+
+  /** Stolen haul (keep freight) fills the oldest open steal contract. No extra Imperial hit. */
+  private fulfillStealContract(haul: ActiveMission, cu: number): void {
+    const cover =
+      this.activeMissions.find(
+        (m) =>
+          m.kind === "rebelSteal" &&
+          m.linkedMissionId === haul.id &&
+          !m.scanned,
+      ) ??
+      this.activeMissions.find(
+        (m) => m.kind === "rebelSteal" && !m.scanned && !m.linkedMissionId,
+      );
+    if (!cover) return;
+    cover.linkedMissionId = haul.id;
+    cover.commodityId = haul.commodityId;
+    cover.commodityName = haul.commodityName;
+    cover.cu = cu;
+    cover.scanned = true;
+    this.messages.push(
+      `Rebels: Stolen freight held — deliver it to ${cover.originStationName}.`,
+      "station",
+    );
+  }
+
   /**
-   * Remove a black-market divert tied to a fare that is no longer aboard.
-   * Does not apply Imperial standing — the caller already resolved the fare.
+   * Abandon-with-passengers fills the oldest open kidnap contract.
+   * Imperial is applied by the caller, once, for the act itself.
    */
-  private dropKidnapForFare(fareId: string, message: string): void {
-    let dropped = false;
-    for (let i = this.activeMissions.length - 1; i >= 0; i -= 1) {
-      const m = this.activeMissions[i]!;
-      if (m.kind === "bmKidnap" && m.linkedMissionId === fareId) {
-        this.activeMissions.splice(i, 1);
-        dropped = true;
-      }
-    }
-    if (dropped) this.messages.push(message, "station");
+  private fulfillKidnapContract(fare: ActiveMission): void {
+    const n = fare.passengers ?? 0;
+    const cover =
+      this.activeMissions.find(
+        (m) =>
+          m.kind === "rebelKidnap" &&
+          m.linkedMissionId === fare.id &&
+          !m.scanned,
+      ) ??
+      this.activeMissions.find(
+        (m) => m.kind === "rebelKidnap" && !m.scanned && !m.linkedMissionId,
+      );
+    if (!cover || n <= 0) return;
+    cover.linkedMissionId = fare.id;
+    cover.passengers = n;
+    cover.scanned = true;
+    this.messages.push(
+      `Rebels: ${n} passenger${n === 1 ? "" : "s"} held — turn them in at ${cover.originStationName}.`,
+      "station",
+    );
+  }
+
+  private payRebelContract(
+    mission: ActiveMission,
+    stationName: string,
+    detail: string,
+  ): void {
+    this.ship.addCredits(mission.reward);
+    const delta = REPUTATION.rebelsContractComplete;
+    const next = this.reputation.adjust(REBELS_FACTION_ID, delta);
+    this.pushRepChange("Rebels", next, delta);
+    this.messages.push(
+      `${stationName}: ${detail} (+${mission.reward} cr).`,
+      "station",
+    );
   }
 
   /** Hangar hull swap must not drop berths below passengers already aboard. */
@@ -1909,7 +2035,7 @@ export class Game {
       if (mission.destStationKey !== stationKey) continue;
       mission.scanned = true;
       this.messages.push(
-        `Black Market: ${stationName} patrol is down — return to ${mission.originStationName} to claim.`,
+        `Rebels: ${stationName} patrol is down — return to ${mission.originStationName} to claim.`,
         "station",
       );
     }
@@ -2864,7 +2990,7 @@ export class Game {
 
     const mission = this.activeMissions.find(
       (m) =>
-        m.kind === "derelictCargo" &&
+        isDerelictRetrievalKind(m.kind) &&
         m.targetPoiId === this.local.poiId &&
         !m.scanned,
     );
@@ -2994,7 +3120,7 @@ export class Game {
 
     const mission = this.activeMissions.find(
       (m) =>
-        m.kind === "explore" &&
+        isSurveyMissionKind(m.kind) &&
         !m.scanned &&
         m.targetPoiId === this.local.poiId,
     );
@@ -4307,7 +4433,7 @@ export class Game {
       const mission = this.activeMissions.find(
         (m) => missionCargoId(m.id) === commodityId,
       );
-      if (mission?.kind === "derelictCargo") {
+      if (mission && isDerelictRetrievalKind(mission.kind)) {
         this.cancelBoardMission(mission.id, { discardCargo: true });
         return;
       }

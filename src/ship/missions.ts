@@ -7,8 +7,8 @@
  *    reputation hit on steal later). Faction-tagged **Merchants Guild**.
  * - passenger: accept at A (free berths ≥ party) → occupy berths → deliver at B → paid at B
  *   Long-range preferred; ~10% pirate intercept on pre-destination jumps (Game).
- *   Abandon while passengers are still aboard: mild origin hit plus a severe
- *   Imperial kidnapping drop (not berth-clear with only the mild cancel).
+ *   Abandon while passengers are still aboard: mild origin hit plus a small
+ *   Imperial nick (station penalty stays; Imperial does not floor).
  * - explore: accept at A (needs Survey Scanner) → jump to exotic POI
  *   (non-derelict) → hold F to scan → return to A → claim.
  *   Faction-tagged **Cartographers**.
@@ -20,11 +20,10 @@
  * - clearance: accept at giver → clear system pirates → return → claim pay
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
- * - bmDestroyPatrol (Black Market, after Rebels revealed): destroy the patrol
- *   at a destination station, then claim back at the giver
- * - bmKidnap (Black Market, after Rebels revealed): divert an active fare and
- *   turn those passengers in at a black market
- * Secret rebel mission line is not implemented.
+ * Rebel jobs (black-market board only, after Rebels are revealed). Up to 2
+ * offers. Starter set: derelict turn-in at that market, POI scan for Rebel
+ * rep, steal a normal haul and deliver it there. At Friendly Rebel standing
+ * also: kidnap a normal fare and turn them in there, destroy a nearby patrol.
  *
  * Offer rules:
  * - One station: cargo slots never share commodity + destination; explore slots
@@ -36,7 +35,7 @@
  * - Refills may repeat completed work. Finished scans and hauls are not consumed.
  */
 
-import { ECONOMY, GALAXY, QUEST } from "../game/config";
+import { ECONOMY, GALAXY, QUEST, REPUTATION } from "../game/config";
 import { listSystemStations, type SystemStationRef } from "../galaxy/pirates";
 import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
@@ -54,8 +53,11 @@ export type MissionKind =
   | "derelictCargo"
   | "clearance"
   | "distressAnswer"
-  | "bmDestroyPatrol"
-  | "bmKidnap";
+  | "rebelDerelict"
+  | "rebelScan"
+  | "rebelSteal"
+  | "rebelKidnap"
+  | "bmDestroyPatrol";
 
 /** Rolled when the player arrives at a Fuel Rat distress site. */
 export type DistressAnswerOutcome = "stranded" | "bait";
@@ -80,8 +82,9 @@ export interface MissionOffer {
   /** Passenger fare party size (berths occupied, not CU). */
   passengers?: number;
   /**
-   * Black-market kidnap: the active passenger fare to divert.
-   * Passengers stay on that fare until turn-in.
+   * Rebel steal / kidnap: the cover haul or fare this contract is using.
+   * Set when that cover is accepted. `scanned` means the goods or passengers
+   * are ready to turn in at the offering black market.
    */
   linkedMissionId?: string;
   destStationKey?: string;
@@ -176,9 +179,11 @@ export function missionStatusLine(mission: ActiveMission): string {
       ? `Return to ${mission.originStationName} to claim`
       : `${left} pirate${left === 1 ? "" : "s"} left in ${mission.targetPoiName ?? "system"}`;
   }
-  if (mission.kind === "derelictCargo") {
+  if (mission.kind === "derelictCargo" || mission.kind === "rebelDerelict") {
     if (mission.scanned || mission.status === "readyToClaim") {
-      return `Cargo secured — return to ${mission.originStationName}`;
+      return mission.kind === "rebelDerelict"
+        ? `Cargo secured — turn in at ${mission.originStationName}`
+        : `Cargo secured — return to ${mission.originStationName}`;
     }
     return `Scoop cargo at ${mission.targetPoiName ?? "derelict"}`;
   }
@@ -195,9 +200,30 @@ export function missionStatusLine(mission: ActiveMission): string {
     }
     return `Destroy the patrol at ${mission.destStationName ?? "destination"}`;
   }
-  if (mission.kind === "bmKidnap") {
-    const n = mission.passengers ?? 0;
-    return `Turn in ${n} kidnapped passenger${n === 1 ? "" : "s"} at a black market`;
+  if (mission.kind === "rebelSteal") {
+    if (mission.scanned || mission.status === "readyToClaim") {
+      return `Deliver stolen freight to ${mission.originStationName}`;
+    }
+    if (mission.linkedMissionId) {
+      return "Abandon the linked haul away from its giver";
+    }
+    return "Accept a normal haul, then abandon it off-station";
+  }
+  if (mission.kind === "rebelKidnap") {
+    if (mission.scanned || mission.status === "readyToClaim") {
+      const n = mission.passengers ?? 0;
+      return `Turn in ${n} kidnapped passenger${n === 1 ? "" : "s"} at ${mission.originStationName}`;
+    }
+    if (mission.linkedMissionId) {
+      return "Abandon the linked fare while passengers are aboard";
+    }
+    return "Accept a normal fare, then abandon it with passengers aboard";
+  }
+  if (mission.kind === "rebelScan") {
+    if (mission.scanned || mission.status === "readyToClaim") {
+      return `Scan complete — claim at ${mission.originStationName}`;
+    }
+    return `Survey ${mission.targetPoiName ?? "target"} — hold F, then claim here`;
   }
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
@@ -233,7 +259,12 @@ export function questChartPoiIds(
   const ids = new Set<number>();
   for (const m of missions) {
     const scanned = "scanned" in m && m.scanned;
-    if (m.kind === "explore" || m.kind === "derelictCargo") {
+    if (
+      m.kind === "explore" ||
+      m.kind === "derelictCargo" ||
+      m.kind === "rebelScan" ||
+      m.kind === "rebelDerelict"
+    ) {
       if (scanned) {
         ids.add(m.originPoiId);
       } else if (m.targetPoiId !== undefined) {
@@ -912,47 +943,215 @@ function formatPoiType(t: PoiType): string {
   }
 }
 
+const REBEL_STARTER_KINDS = [
+  "rebelDerelict",
+  "rebelScan",
+  "rebelSteal",
+] as const satisfies readonly MissionKind[];
+
+const REBEL_FRIENDLY_KINDS = [
+  "rebelKidnap",
+  "bmDestroyPatrol",
+] as const satisfies readonly MissionKind[];
+
+export function isRebelMissionKind(kind: MissionKind): boolean {
+  return (
+    kind === "rebelDerelict" ||
+    kind === "rebelScan" ||
+    kind === "rebelSteal" ||
+    kind === "rebelKidnap" ||
+    kind === "bmDestroyPatrol"
+  );
+}
+
+/** Steal and kidnap need a free regular slot for the cover haul or fare. */
+export function rebelCoverNeedsRegularSlot(kind: MissionKind): boolean {
+  return kind === "rebelSteal" || kind === "rebelKidnap";
+}
+
+export function isDerelictRetrievalKind(kind: MissionKind): boolean {
+  return kind === "derelictCargo" || kind === "rebelDerelict";
+}
+
+export function isSurveyMissionKind(kind: MissionKind): boolean {
+  return kind === "explore" || kind === "rebelScan";
+}
+
+/** Friendly+ Rebel standing unlocks kidnap and patrol-destroy offers. */
+export function rebelsFriendlyJobsUnlocked(standing: number): boolean {
+  return standing >= REPUTATION.rebelsFriendlyJobStanding;
+}
+
 /**
- * Black-market jobs for one dock. Caller must already know Rebels are
- * revealed and this station has a black market.
- * One destroy-patrol offer (seeded) plus one divert per active fare.
+ * Up to `QUEST.rebelOfferCount` rebel jobs for one black-market dock.
+ * Caller must already know Rebels are revealed and this station has a market.
+ * Seeded per station and tier so the pair stays put until accepted.
+ * Accepted kinds drop out and the next seeded kind fills the open seat.
  */
-export function blackMarketMissionOffers(
+export function rebelMissionOffers(
   galaxy: Galaxy,
   origin: SystemStationRef,
-  active: readonly ActiveMission[],
+  rebelsStanding: number,
   acceptedIds: ReadonlySet<string>,
 ): MissionOffer[] {
-  const offers: MissionOffer[] = [];
-  const destroyActive = active.some((m) => m.kind === "bmDestroyPatrol");
-  const destroy = makeBmDestroyPatrolOffer(galaxy, origin);
-  if (destroy && !destroyActive && !acceptedIds.has(destroy.id)) {
-    offers.push(destroy);
+  const friendly = rebelsFriendlyJobsUnlocked(rebelsStanding);
+  const pool: MissionKind[] = [...REBEL_STARTER_KINDS];
+  if (friendly) pool.push(...REBEL_FRIENDLY_KINDS);
+
+  const rng = mulberry32(
+    hash2(
+      GALAXY.seed ^ (friendly ? 0x71ee : 0x51ae),
+      hashStationKey(origin.key),
+    ),
+  );
+  const ranked = [...pool];
+  for (let i = ranked.length - 1; i > 0; i -= 1) {
+    const j = (rng() * (i + 1)) | 0;
+    const tmp = ranked[i]!;
+    ranked[i] = ranked[j]!;
+    ranked[j] = tmp;
   }
 
-  const taken = new Set(
-    active
-      .filter((m) => m.kind === "bmKidnap" && m.linkedMissionId)
-      .map((m) => m.linkedMissionId!),
-  );
-  for (const fare of active) {
-    if (fare.kind !== "passenger") continue;
-    if ((fare.passengers ?? 0) <= 0) continue;
-    if (taken.has(fare.id)) continue;
-    const kidnap = makeBmKidnapOffer(origin, fare);
-    if (!kidnap || acceptedIds.has(kidnap.id)) continue;
-    offers.push(kidnap);
+  const offers: MissionOffer[] = [];
+  for (const kind of ranked) {
+    if (offers.length >= QUEST.rebelOfferCount) break;
+    const offer = makeRebelOffer(galaxy, origin, kind, rng);
+    if (!offer || acceptedIds.has(offer.id)) continue;
+    offers.push(offer);
   }
   return offers;
+}
+
+function makeRebelOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  kind: MissionKind,
+  rng: () => number,
+): MissionOffer | null {
+  switch (kind) {
+    case "rebelDerelict":
+      return makeRebelDerelictOffer(galaxy, origin, rng);
+    case "rebelScan":
+      return makeRebelScanOffer(galaxy, origin, rng);
+    case "rebelSteal":
+      return makeRebelStealOffer(origin);
+    case "rebelKidnap":
+      return makeRebelKidnapOffer(origin);
+    case "bmDestroyPatrol":
+      return makeBmDestroyPatrolOffer(galaxy, origin, rng);
+    default:
+      return null;
+  }
+}
+
+function rebelFaction(offer: {
+  factionId?: string;
+  factionLabel?: string;
+}): void {
+  offer.factionId = REBELS_FACTION_ID;
+  offer.factionLabel = "Rebels";
+}
+
+function makeRebelDerelictOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+): MissionOffer | null {
+  const target = pickDerelictTarget(galaxy, origin.poiId, rng);
+  if (!target) return null;
+  const originPoi = galaxy.get(origin.poiId);
+  const dist = galaxy.distance(originPoi, target);
+  const jumpsHint = Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const cu = QUEST.derelictCargoCu;
+  const reward =
+    QUEST.derelictCargoBaseReward +
+    Math.round(dist * QUEST.derelictCargoPerDistance);
+  const offer: MissionOffer = {
+    id: `rebelDerelict:${origin.key}`,
+    kind: "rebelDerelict",
+    title: "Retrieve derelict cargo",
+    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Turn it in at this black market. Needs Cargo Scoop.`,
+    reward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    commodityId: ABANDONED_DERELICT_CARGO_ID,
+    commodityName: DERELICT_CARGO_NAME,
+    cu,
+    targetPoiId: target.id,
+    targetPoiName: target.name,
+    targetPoiType: "derelict",
+  };
+  rebelFaction(offer);
+  return offer;
+}
+
+function makeRebelScanOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rng: () => number,
+): MissionOffer | null {
+  const target = pickExploreTarget(galaxy, origin.poiId, rng);
+  if (!target) return null;
+  const originPoi = galaxy.get(origin.poiId);
+  const dist = galaxy.distance(originPoi, target);
+  const jumpsHint = Math.max(1, Math.ceil(dist / GALAXY.jumpRange));
+  const reward =
+    QUEST.exploreBaseReward + Math.round(dist * QUEST.explorePerDistance);
+  const offer: MissionOffer = {
+    id: `rebelScan:${origin.key}`,
+    kind: "rebelScan",
+    title: `Scan ${formatPoiType(target.type)}`,
+    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Hold F, then claim here. Rebel reputation, not Cartographers.`,
+    reward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+    targetPoiId: target.id,
+    targetPoiName: target.name,
+    targetPoiType: target.type,
+  };
+  rebelFaction(offer);
+  return offer;
+}
+
+function makeRebelStealOffer(origin: SystemStationRef): MissionOffer {
+  const offer: MissionOffer = {
+    id: `rebelSteal:${origin.key}`,
+    kind: "rebelSteal",
+    title: "Steal a haul",
+    blurb:
+      "Accept a normal haul, abandon it away from the giver so you keep the freight, then deliver that cargo here. Needs a free mission slot.",
+    reward: QUEST.rebelStealReward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+  };
+  rebelFaction(offer);
+  return offer;
+}
+
+function makeRebelKidnapOffer(origin: SystemStationRef): MissionOffer {
+  const offer: MissionOffer = {
+    id: `rebelKidnap:${origin.key}`,
+    kind: "rebelKidnap",
+    title: "Kidnap a fare",
+    blurb:
+      "Accept a normal fare, abandon it while the passengers are aboard, then turn them in here. Needs a free mission slot.",
+    reward: QUEST.rebelKidnapReward,
+    originStationKey: origin.key,
+    originStationName: origin.name,
+    originPoiId: origin.poiId,
+  };
+  rebelFaction(offer);
+  return offer;
 }
 
 function makeBmDestroyPatrolOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,
+  rng: () => number,
 ): MissionOffer | null {
-  const rng = mulberry32(
-    hash2(GALAXY.seed ^ 0xb1ac, hashStationKey(origin.key)),
-  );
   const dest = pickPatrolHuntDestination(galaxy, origin, rng);
   if (!dest) return null;
 
@@ -980,35 +1179,11 @@ function makeBmDestroyPatrolOffer(
     originStationName: origin.name,
     originPoiId: origin.poiId,
     factionId: REBELS_FACTION_ID,
-    factionLabel: "Black Market",
+    factionLabel: "Rebels",
     destStationKey: dest.key,
     destStationName: `${dest.name} (${destPoi.name})`,
     destPoiId: dest.poiId,
     destBodyId: dest.bodyId,
-  };
-}
-
-function makeBmKidnapOffer(
-  origin: SystemStationRef,
-  fare: ActiveMission,
-): MissionOffer | null {
-  const n = fare.passengers ?? 0;
-  if (n <= 0) return null;
-  const party = n === 1 ? "1 passenger" : `${n} passengers`;
-  return {
-    id: `bmKidnap:${origin.key}:${fare.id}`,
-    kind: "bmKidnap",
-    title: `Divert ${party}`,
-    blurb: `Take the fare for ${party} off its route and turn them in at any black market that is not their destination. Pays the fare plus ${QUEST.bmKidnapPremium} cr. Severe Imperial hit.`,
-    reward: fare.reward + QUEST.bmKidnapPremium,
-    originStationKey: origin.key,
-    originStationName: origin.name,
-    originPoiId: origin.poiId,
-    factionId: REBELS_FACTION_ID,
-    factionLabel: "Black Market",
-    passengers: n,
-    linkedMissionId: fare.id,
-    destStationName: fare.destStationName,
   };
 }
 

@@ -497,8 +497,15 @@ export const STATION_MENU_VARIETY = {
  * Passenger fares need a Passenger Berth equipped (Must-have 5–6).
  */
 export const QUEST = {
-  /** Max concurrent accepted board missions. */
+  /** Max concurrent regular board missions (rebel jobs have their own cap). */
   maxActive: 2,
+  /**
+   * Rebel contracts held at once, in addition to `maxActive` regular missions.
+   * Offered only at a black market after Rebels are revealed.
+   */
+  maxRebelActive: 2,
+  /** How many rebel offers a black-market board lists at once. */
+  rebelOfferCount: 2,
   cargoCuMin: 2,
   cargoCuMax: 5,
   cargoBaseReward: 25,
@@ -534,15 +541,17 @@ export const QUEST = {
   /** Seconds of taunt before intercept pack goes hostile (no fee demand). */
   passengerInterceptAggroSeconds: 2.5,
   /**
-   * Black-market jobs — posted only after Rebels are revealed, and only at
-   * a station that has a black market. Not the secret rebel mission line.
-   * Destroy-patrol: kill that station's patrol, return to the giver to claim.
-   * Kidnap: divert an active fare; payout is the fare reward plus this premium.
+   * Rebel jobs at a black market (after Rebels are revealed).
+   * Standing gate for the second tier is `REPUTATION.rebelsFriendlyJobStanding`.
+   * Steal / kidnap credit payouts are flat — the cover haul or fare is chosen later.
+   * Derelict and scan jobs reuse the normal distance formulas.
+   * Patrol destroy: kill that station's patrol, claim back at the offering market.
    */
+  rebelStealReward: 110,
+  rebelKidnapReward: 160,
   bmDestroyPatrolBaseReward: 120,
   bmDestroyPatrolPerDistance: 2,
   bmDestroyPatrolMaxJumpRanges: 2.5,
-  bmKidnapPremium: 80,
   /** Fuel Rat “Answer distress” — chance the site is pirate bait. */
   distressAnswerBaitChance: 0.4,
   /** Seconds of bait taunt before aggro (no fee demand). */
@@ -650,13 +659,27 @@ export const REPUTATION = {
   /** Cartographers — complete scan / exploration mission (plus station Δ). */
   cartographersScanComplete: 8,
   /**
-   * Imperial — always visible. Broad standing for order among stations.
-   * Applied once per fare when passengers are still aboard and the fare is
-   * abandoned, or when that fare is turned in at a black market.
-   * Flat (not per head). Harsh next to cancelMissionMild (−5):
-   * Neutral 0 → −40 Unfriendly. A second hit from there → −80 Hostile.
+   * Rebel black-market contract claimed (credits are on the job).
+   * Does not apply a station delta. Fence of derelict cargo is separate.
    */
-  imperialKidnap: -40,
+  rebelsContractComplete: 8,
+  /**
+   * Rebel job tier. Below this (but revealed): derelict turn-in, rebel scan,
+   * steal a haul. At or above (Friendly, same threshold as `friendlyAtOrAbove`):
+   * also kidnap a fare and destroy a nearby patrol.
+   */
+  rebelsFriendlyJobStanding: 20,
+  /**
+   * Imperial is the slow galaxy-wide echo of station crimes. No floor and
+   * no Hostile snap — one station going Hostile does not drag Imperial.
+   * A few points per incident, not tens.
+   * Steal −3: about four steals can Hostile one station (−22 each, plus the
+   * Unfriendly floor) while Imperial is only −12, still Neutral.
+   * Kidnap −3: the station still only takes `cancelMissionMild` (−5).
+   * Flat per incident, not per CU or per passenger.
+   */
+  imperialStealCargo: -3,
+  imperialKidnap: -3,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
