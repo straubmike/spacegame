@@ -144,12 +144,6 @@ interface PackEncounter {
    * Starts in "comms" with demanded already true.
    */
   noFeeAggro?: boolean;
-  /**
-   * TEMP(playtest): strip before merge.
-   * Starting-body fee pirate is hidden from patrols until the truce breaks,
-   * so a station patrol can't delete the playtest target first.
-   */
-  tempExemptFromPatrol?: boolean;
 }
 
 export class Game {
@@ -408,71 +402,6 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
-    // TEMP(playtest): strip before merge. Fee pirate within hail range
-    // on the starting body so fee-then-attack can be tried immediately.
-    this.applyTempStartFeePirate();
-  }
-
-  /**
-   * TEMP(playtest): strip before merge.
-   * Starting body always has a tribute pirate inside hail range so
-   * fee-then-attack can be tried on a new game without hunting RNG.
-   * Does not respawn a view the player already cleared, and leaves
-   * passenger-intercept packs alone.
-   */
-  private applyTempStartFeePirate(): void {
-    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) {
-      return;
-    }
-    if (this.clearedPirateViews.has(this.pirateKey())) return;
-    if (this.pack?.noFeeAggro) return;
-
-    const near = 180;
-    const px = this.ship.x;
-    const py = this.ship.y;
-    const ang = 0.6;
-    // The start body has a patrol, so the seeded pack never spawns. Remember
-    // a tribute paid on this temporary pirate across leave/return.
-    const feePaid = this.paidPirateViews.has(this.pirateKey());
-
-    if (!this.pack || this.pirates.every((p) => !p.alive)) {
-      const pirate = new Pirate(
-        px + Math.cos(ang) * near,
-        py + Math.sin(ang) * near,
-        ang + Math.PI,
-        "raider",
-        10,
-      );
-      if (feePaid) pirate.setPeaceful();
-      this.pirates = [pirate];
-      this.pack = {
-        phase: feePaid ? "paid" : "idle",
-        fee: 10,
-        timer: 0,
-        demanded: feePaid,
-        shipCount: 1,
-        tempExemptFromPatrol: true,
-      };
-    } else {
-      if (this.pack) this.pack.tempExemptFromPatrol = true;
-      const alive = this.pirates.filter((p) => p.alive);
-      alive.forEach((p, i) => {
-        const spread = (i - (alive.length - 1) / 2) * 46;
-        p.x = px + Math.cos(ang) * near + Math.cos(ang + Math.PI / 2) * spread;
-        p.y = py + Math.sin(ang) * near + Math.sin(ang + Math.PI / 2) * spread;
-        p.heading = ang + Math.PI;
-        p.vx = 0;
-        p.vy = 0;
-      });
-    }
-
-    const alreadyPaid = this.pack?.phase === "paid";
-    this.messages.push(
-      alreadyPaid
-        ? "TEMP: Tribute already paid — shoot the nearby pirate. They should fight back."
-        : "TEMP: Fee pirate nearby — pay the tribute, then shoot. They should fight back.",
-      "pirate",
-    );
   }
 
   /**
@@ -587,12 +516,7 @@ export class Game {
    * law still answers distress-spawned (and intrusion) pirates.
    */
   private localPirateThreats(): Pirate[] {
-    const list: Pirate[] = [];
-    // TEMP(playtest): don't let a patrol erase the start-body fee pirate
-    // before the player can pay and then shoot.
-    const hideTemp =
-      this.pack?.tempExemptFromPatrol === true && this.pack.phase !== "hostile";
-    if (!hideTemp) list.push(...this.pirates);
+    const list: Pirate[] = [...this.pirates];
     list.push(...this.distressPirates);
     if (this.baitPirate) list.push(this.baitPirate);
     return list;
@@ -778,10 +702,36 @@ export class Game {
     return open > 0 ? `${open} open` : "";
   }
 
-  private visibleMissionOffers(): MissionOffer[] {
+  /** Offers still posted here. Accepted ids stay off this station's board. */
+  private postedMissionOffers(): MissionOffer[] {
     return this.dockMissionOffers.filter(
       (o) => !this.acceptedMissionIds.has(o.id),
     );
+  }
+
+  /** Derelict POIs tied up by a contract the player has not finished or dropped. */
+  private activeDerelictTargetIds(): Set<number> {
+    const ids = new Set<number>();
+    for (const m of this.activeMissions) {
+      if (m.kind === "derelictCargo" && m.targetPoiId !== undefined) {
+        ids.add(m.targetPoiId);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Board listing. Same-station haul/explore uniqueness is in the generator.
+   * A derelict another contract already accepted is hidden everywhere until
+   * that contract is abandoned or completed — then other stations may list it
+   * again. Cross-station hauls, passenger fares, and POI scans stay listed.
+   */
+  private visibleMissionOffers(): MissionOffer[] {
+    const locked = this.activeDerelictTargetIds();
+    return this.postedMissionOffers().filter((o) => {
+      if (o.kind !== "derelictCargo" || o.targetPoiId === undefined) return true;
+      return !locked.has(o.targetPoiId);
+    });
   }
 
   private chartHints(): ChartPoiHints {
@@ -907,10 +857,13 @@ export class Game {
   /**
    * Must-have 8: empty offer boards refill with exactly one quest — but only
    * after the player leaves this local view and returns. Do not top up while
-   * any offer remains; cancelled / accepted ids stay removed.
+   * any offer remains, including a derelict hidden because another station's
+   * contract for that wreck is still active. Cancelled / accepted ids stay
+   * removed. A refill may repeat a finished haul, scan, or scoop — completed
+   * work is not consumed. A derelict refill waits while that wreck is active.
    */
   private ensureMissionBoardReplenished(station: Landmark): void {
-    if (this.visibleMissionOffers().length > 0) return;
+    if (this.postedMissionOffers().length > 0) return;
 
     const ref = stationRefFromLocal(
       this.galaxy,
@@ -951,6 +904,14 @@ export class Game {
       posted.length,
     );
     if (!offer || this.acceptedMissionIds.has(offer.id)) return;
+    if (
+      offer.kind === "derelictCargo" &&
+      offer.targetPoiId !== undefined &&
+      this.activeDerelictTargetIds().has(offer.targetPoiId)
+    ) {
+      // Stay ready. After abandon or complete, the same refill can post.
+      return;
+    }
 
     this.stationReplenishOffers.set(ref.key, [...posted, offer]);
     this.dockMissionOffers.push(offer);
