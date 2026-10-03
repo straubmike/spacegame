@@ -1199,7 +1199,7 @@ export class Game {
       const name = offer.commodityName ?? "Freight";
       if (!this.ship.cargo.canStow(cu)) {
         this.messages.push(
-          `Missions: Need ${cu} free CU (equip a cargo rack in the Bay).`,
+          `Missions: Requires ${cu} free CU (equip a cargo rack in the Bay).`,
           "station",
         );
         return;
@@ -1227,7 +1227,7 @@ export class Game {
       }
       if (this.ship.cargo.freeCu < need) {
         this.messages.push(
-          `Missions: Need ${need} free CU for the recovered lot.`,
+          `Missions: Requires ${need} free CU for the recovered lot.`,
           "station",
         );
         return;
@@ -1249,7 +1249,7 @@ export class Game {
       }
       if (free < need) {
         this.messages.push(
-          `Missions: Need ${need} free berth${need === 1 ? "" : "s"} (have ${free}).`,
+          `Missions: Requires ${need} unoccupied passenger berth${need === 1 ? "" : "s"} (have ${free}).`,
           "station",
         );
         return;

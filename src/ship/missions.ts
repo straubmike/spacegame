@@ -177,7 +177,7 @@ export function missionStatusLine(mission: ActiveMission): string {
   if (mission.scanned) {
     return `Scan complete — return to ${mission.originStationName}`;
   }
-  return `Travel to ${mission.targetPoiName ?? "target"} and hold F to scan`;
+  return `Travel to ${mission.targetPoiName ?? "target"}`;
 }
 
 /** Berths occupied by active passenger fare contracts. */
@@ -474,7 +474,7 @@ function makePassengerOffer(
     id: `passenger:${origin.key}:${index}`,
     kind: "passenger",
     title: `Fare: ${partyLabel}`,
-    blurb: `Deliver to ${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs ${passengers} free berth${passengers === 1 ? "" : "s"}.`,
+    blurb: `Deliver to ${dest.name} in ${destPoi.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires ${passengers} unoccupied passenger berth${passengers === 1 ? "" : "s"}.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -507,7 +507,7 @@ function makeDistressAnswerOffer(
     id: `distressAnswer:${origin.key}`,
     kind: "distressAnswer",
     title: "Answer distress signal",
-    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Expanded Fuel Tank · rep only.`,
+    blurb: `Respond at ${where} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Expanded Fuel Tank · rep only.`,
     reward: 0,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -688,7 +688,7 @@ function makeExploreOffer(
     id: `explore:${origin.key}:${index}:${target.id}`,
     kind: "explore",
     title: `Scan ${formatPoiType(target.type)}`,
-    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Survey Scanner — hold F at the target, then return.`,
+    blurb: `Survey ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Survey Scanner.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -726,7 +726,7 @@ function makeDerelictCargoOffer(
     id: `derelictCargo:${origin.key}:${index}:${target.id}`,
     kind: "derelictCargo",
     title: "Retrieve Derelict Cargo",
-    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Needs Cargo Scoop.`,
+    blurb: `Scoop ${cu} CU at ${target.name} (~${jumpsHint} jump${jumpsHint === 1 ? "" : "s"}). Requires Cargo Scoop.`,
     reward,
     originStationKey: origin.key,
     originStationName: origin.name,
