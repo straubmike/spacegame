@@ -47,8 +47,9 @@ const MAX_REACH_WIDTH = 1.5;
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
  * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade.
- * Two unfilled dashed rings mark jump reach from the current system: fuel now,
- * and a full tank. Mission targets may be granted identified visibility.
+ * Two unfilled dashed rings mark jump reach from the current system: current
+ * fuel, and the equipped drive's max jump. Mission targets may be granted
+ * identified visibility.
  * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
@@ -68,13 +69,8 @@ export class GalaxyChart {
     pointerY: number,
     jumpRange: number,
     hints: ChartPoiHints = EMPTY_HINTS,
-    fuelInfo: {
-      fuel: number;
-      maxFuel: number;
-      costForSelected: number | null;
-    } = {
+    fuelInfo: { fuel: number; costForSelected: number | null } = {
       fuel: 0,
-      maxFuel: 0,
       costForSelected: null,
     },
   ): void {
@@ -123,7 +119,7 @@ export class GalaxyChart {
       here.x,
       here.y,
       jumpReachLy(fuelInfo.fuel, jumpRange) * layout.scale,
-      jumpReachLy(fuelInfo.maxFuel, jumpRange) * layout.scale,
+      jumpRange * layout.scale,
     );
 
     for (const poi of galaxy.pois) {
@@ -379,13 +375,13 @@ export class GalaxyChart {
         stroke: NOW_REACH_STROKE,
         dash: NOW_REACH_DASH,
         width: NOW_REACH_WIDTH,
-        label: "Fuel now",
+        label: "Current fuel",
       },
       {
         stroke: MAX_REACH_STROKE,
         dash: MAX_REACH_DASH,
         width: MAX_REACH_WIDTH,
-        label: "Full tank",
+        label: "Ship max",
       },
     ];
     const x = this.mapRect.x + 10;
@@ -395,7 +391,7 @@ export class GalaxyChart {
     ctx.strokeStyle = "rgba(130, 165, 210, 0.35)";
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
-    const boxW = 108;
+    const boxW = 140;
     const boxH = rowH * rows.length + 6;
     ctx.fillRect(x, y0, boxW, boxH);
     ctx.strokeRect(x, y0, boxW, boxH);

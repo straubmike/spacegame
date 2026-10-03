@@ -3292,6 +3292,7 @@ export class Game {
           this.local.poiId,
           this.local.bodyId,
           this.ship.fuel,
+          this.ship.jumpRange(),
         );
         if (reach.canReach) {
           const place = reach.target.poiName;
@@ -3315,6 +3316,7 @@ export class Game {
           this.galaxy,
           this.local.poiId,
           this.local.bodyId,
+          this.ship.jumpRange(),
         );
         const needed = Math.max(target.fuelNeeded, supercruiseFuelCost());
         this.ship.ensureFuelAtLeast(needed);

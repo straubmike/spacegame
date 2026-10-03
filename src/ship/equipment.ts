@@ -39,8 +39,13 @@ export interface DriveModule extends ModuleBase {
   maxSpeed: number;
   drag: number;
   /**
+   * Farthest single galactic jump this drive can make (chart ly).
+   * Fuel cannot extend past this. A larger tank only pays for the same hop.
+   */
+  maxJumpRange: number;
+  /**
    * Hyperspace / supercruise tank size contributed by this drive.
-   * Chart jump *reach* is fixed (GALAXY.jumpRange); tank size replaced range.
+   * Extra fuel past one max jump does not increase maxJumpRange.
    */
   fuelCapacity: number;
   /** null = unlimited warp charges between repairs (legacy; travel uses fuel). */
@@ -222,6 +227,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel,
     maxSpeed: SHIP.maxSpeed,
     drag: SHIP.drag,
+    maxJumpRange: 48,
     fuelCapacity: 24,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -238,6 +244,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.15,
     maxSpeed: SHIP.maxSpeed * 1.15,
     drag: SHIP.drag,
+    maxJumpRange: 32,
     fuelCapacity: 18,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -254,6 +261,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.9,
     maxSpeed: SHIP.maxSpeed * 0.95,
     drag: SHIP.drag,
+    maxJumpRange: 64,
     fuelCapacity: 32,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -270,6 +278,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.08,
     maxSpeed: SHIP.maxSpeed * 1.08,
     drag: SHIP.drag,
+    maxJumpRange: 56,
     fuelCapacity: 28,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -286,6 +295,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.25,
     maxSpeed: SHIP.maxSpeed * 1.28,
     drag: SHIP.drag * 0.992,
+    maxJumpRange: 36,
     fuelCapacity: 17,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -302,6 +312,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.95,
     maxSpeed: SHIP.maxSpeed,
     drag: SHIP.drag,
+    maxJumpRange: 80,
     fuelCapacity: 37,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -318,6 +329,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.35,
     maxSpeed: SHIP.maxSpeed * 1.4,
     drag: SHIP.drag * 0.99,
+    maxJumpRange: 40,
     fuelCapacity: 20,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -334,6 +346,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 0.85,
     maxSpeed: SHIP.maxSpeed * 0.9,
     drag: SHIP.drag,
+    maxJumpRange: 96,
     fuelCapacity: 44,
     warpChargesMax: null,
   } satisfies DriveModule,
@@ -350,6 +363,7 @@ export const MODULES = {
     reverseAccel: SHIP.reverseAccel * 1.15,
     maxSpeed: SHIP.maxSpeed * 1.18,
     drag: SHIP.drag,
+    maxJumpRange: 72,
     fuelCapacity: 34,
     warpChargesMax: null,
   } satisfies DriveModule,

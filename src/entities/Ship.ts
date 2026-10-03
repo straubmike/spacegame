@@ -1,4 +1,4 @@
-import { SHIP, COMBAT, DOCK, ECONOMY, GALAXY } from "../game/config";
+import { SHIP, COMBAT, DOCK, ECONOMY } from "../game/config";
 import type { InputState } from "../input/Keyboard";
 import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
@@ -71,9 +71,12 @@ export class Ship {
       .reduce((sum, u) => sum + u.passengerCapacity, 0);
   }
 
-  /** Chart reach — fixed for all hulls; fuel tank is the differentiator. */
+  /**
+   * Equipped drive's max jump (chart ly). Fuel cannot extend past this.
+   * No drive → 0.
+   */
   jumpRange(): number {
-    return GALAXY.jumpRange;
+    return this.loadout.drive?.maxJumpRange ?? 0;
   }
 
   /** Drive + hull + utility tank size. */

@@ -18,9 +18,9 @@ export function galacticFuelCost(distanceLy: number): number {
 
 /**
  * Farthest chart distance (ly) a galactic jump can cover with `fuel`.
- * Same gate as Jump: `distance ≤ hardCap` (the old flat `GALAXY.jumpRange`)
- * and `galacticFuelCost(distance) ≤ fuel`. Zero when the tank cannot pay
- * the minimum 1-unit hop.
+ * Same gate as Jump: `distance ≤ hardCap` (the equipped drive's max jump)
+ * and `galacticFuelCost(distance) ≤ fuel`. Extra fuel does not extend past
+ * `hardCap`. Zero when the tank cannot pay the minimum 1-unit hop.
  */
 export function jumpReachLy(
   fuel: number,
@@ -62,6 +62,7 @@ export function nearestStationRefuel(
   galaxy: Galaxy,
   fromPoiId: number,
   fromBodyId: number | null,
+  maxJumpLy: number = GALAXY.jumpRange,
 ): NearestStationRefuel {
   const from = galaxy.get(fromPoiId);
   const sc = supercruiseFuelCost();
@@ -96,7 +97,7 @@ export function nearestStationRefuel(
     const withStation = blueprint.bodies.find((b) => b.stationCount > 0);
     if (!withStation) continue;
     const dist = galaxy.distance(from, poi);
-    if (dist > GALAXY.jumpRange) continue;
+    if (dist > maxJumpLy) continue;
     const cost = galacticFuelCost(dist) + sc;
     if (!best || cost < best.fuelNeeded) {
       best = {
@@ -145,8 +146,14 @@ export function canReachNearestStation(
   fromPoiId: number,
   fromBodyId: number | null,
   fuel: number,
+  maxJumpLy: number = GALAXY.jumpRange,
 ): { canReach: boolean; target: NearestStationRefuel; needed: number } {
-  const target = nearestStationRefuel(galaxy, fromPoiId, fromBodyId);
+  const target = nearestStationRefuel(
+    galaxy,
+    fromPoiId,
+    fromBodyId,
+    maxJumpLy,
+  );
   if (target.fuelNeeded <= 0) {
     return { canReach: true, target, needed: 0 };
   }

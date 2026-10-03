@@ -192,11 +192,7 @@ export class Renderer {
           args.pointerY,
           args.ship.jumpRange(),
           args.chartHints,
-          {
-            fuel: args.ship.fuel,
-            maxFuel: args.ship.maxFuel,
-            costForSelected,
-          },
+          { fuel: args.ship.fuel, costForSelected },
         );
       }
     } else if (args.panelOpen) {
