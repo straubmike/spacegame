@@ -516,7 +516,7 @@ export const QUEST = {
   derelictCargoMaxJumpRanges: 2.5,
   /**
    * Passenger fares — berths (not CU); payouts beat cargo of similar distance.
-   * Party sizes match berth module marks (1 / 2 / 4).
+   * Party sizes match berth capacities — Single / Twin / Quad (1 / 2 / 4).
    */
   passengerPartySizes: [1, 2, 4] as const,
   passengerBaseReward: 70,

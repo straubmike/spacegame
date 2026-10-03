@@ -442,7 +442,7 @@ function buildCargoOffer(
 
 /**
  * Long-range passenger fare — occupy berths (not CU) until delivery.
- * Party size is 1 / 2 / 4 to match berth module marks.
+ * Party size is 1 / 2 / 4 to match berth capacities (Single / Twin / Quad).
  */
 function makePassengerOffer(
   galaxy: Galaxy,
