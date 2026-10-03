@@ -3,7 +3,8 @@ import {
   rateOfFire,
   slotKindLabel,
   swapCost,
-  tierLabel,
+  moduleDetailTitle,
+  moduleStockLabel,
   type EquipModule,
   type ShipSlot,
 } from "../ship/equipment";
@@ -948,7 +949,7 @@ export class ShipMenu {
 
     ctx.font = FONT;
     ctx.fillStyle = "rgba(200, 220, 245, 0.95)";
-    ctx.fillText(`${mod.name}  (${tierLabel(mod.tier)})`, x, y + 28);
+    ctx.fillText(moduleDetailTitle(mod), x, y + 28);
 
     ctx.fillStyle = "rgba(140, 160, 190, 0.85)";
     const blurbLines = wrapText(mod.blurb, Math.max(18, Math.floor(w / 7)));
@@ -1052,10 +1053,9 @@ export class ShipMenu {
       ctx.font = FONT;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
       ctx.textBaseline = "middle";
-      const mark = tierLabel(offer.tier);
-      const base =
-        offer.name.length > 12 ? `${offer.name.slice(0, 11)}…` : offer.name;
-      const name = installed ? `${base} ✓` : `${base} ${mark}`;
+      const raw = moduleStockLabel(offer);
+      const base = raw.length > 18 ? `${raw.slice(0, 17)}…` : raw;
+      const name = installed ? `${base} ✓` : base;
       ctx.fillText(name, row.x + 8, row.y + row.h / 2);
       oy += rowH;
     });

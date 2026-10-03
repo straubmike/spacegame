@@ -15,7 +15,7 @@ interface ModuleBase {
   blurb: string;
   /** Station list price (credits). */
   price: number;
-  /** Ladder rung — used for stock gating and UI. */
+  /** Ladder rung — gates station stock and price; Mk label only on stat-ladder SKUs. */
   tier: ModuleTier;
 }
 
@@ -358,7 +358,7 @@ export const MODULES = {
   lightShield: {
     kind: "utility",
     id: "light_shield",
-    name: "Light Shield",
+    name: "Shield",
     blurb: "Thin deflector lattice. Absorbs hits first; recharges after a quiet spell.",
     price: 70,
     tier: 1,
@@ -398,7 +398,7 @@ export const MODULES = {
   cargoRack: {
     kind: "utility",
     id: "cargo_rack",
-    name: "Cargo Rack",
+    name: "Cargo Hold",
     blurb: "External holds measured in cargo units (CU). Value lives in the market, not the mass.",
     price: 55,
     tier: 1,
@@ -418,7 +418,7 @@ export const MODULES = {
   mediumShield: {
     kind: "utility",
     id: "medium_shield",
-    name: "Medium Shield",
+    name: "Shield",
     blurb: "Thicker lattice and quicker recover. Mid-route self-defense.",
     price: 230,
     tier: 2,
@@ -438,7 +438,7 @@ export const MODULES = {
   reinforcedHull: {
     kind: "utility",
     id: "reinforced_hull",
-    name: "Reinforced Hull",
+    name: "Hull Plating",
     blurb: "Layered plating. Survives longer once shields are gone.",
     price: 210,
     tier: 2,
@@ -458,7 +458,7 @@ export const MODULES = {
   expandedHold: {
     kind: "utility",
     id: "expanded_hold",
-    name: "Expanded Hold",
+    name: "Cargo Hold",
     blurb: "Deeper racks for longer trade runs. Still no shields.",
     price: 200,
     tier: 2,
@@ -478,7 +478,7 @@ export const MODULES = {
   heavyShield: {
     kind: "utility",
     id: "heavy_shield",
-    name: "Heavy Shield",
+    name: "Shield",
     blurb: "Late deflector bank. Fat buffer and aggressive regen.",
     price: 500,
     tier: 3,
@@ -498,7 +498,7 @@ export const MODULES = {
   fortressPlating: {
     kind: "utility",
     id: "fortress_plating",
-    name: "Fortress Plating",
+    name: "Hull Plating",
     blurb: "Brutal armor kit. Hull-first survival for close fights.",
     price: 480,
     tier: 3,
@@ -518,7 +518,7 @@ export const MODULES = {
   freighterBay: {
     kind: "utility",
     id: "freighter_bay",
-    name: "Freighter Bay",
+    name: "Cargo Hold",
     blurb: "Deep cargo spine. Built for multi-hop bulk runs.",
     price: 460,
     tier: 3,
@@ -872,6 +872,39 @@ export function tierLabel(tier: ModuleTier): string {
     case 3:
       return "Mk III";
   }
+}
+
+/** Stat-ladder SKUs only — same role, better numbers (shield / hull / cargo hold). */
+const TIER_MARK_MODULE_IDS = new Set<string>([
+  "light_shield",
+  "medium_shield",
+  "heavy_shield",
+  "hull_plating",
+  "reinforced_hull",
+  "fortress_plating",
+  "cargo_rack",
+  "expanded_hold",
+  "freighter_bay",
+]);
+
+export function moduleShowsTierMark(mod: EquipModule): boolean {
+  return TIER_MARK_MODULE_IDS.has(mod.id);
+}
+
+/** Bay detail pane — e.g. `Shield (Mk II)` or `Survey Scanner`. */
+export function moduleDetailTitle(mod: EquipModule): string {
+  if (moduleShowsTierMark(mod)) {
+    return `${mod.name} (${tierLabel(mod.tier)})`;
+  }
+  return mod.name;
+}
+
+/** Compact stock row — e.g. `Shield Mk II` or `Ore Scanner`. */
+export function moduleStockLabel(mod: EquipModule): string {
+  if (moduleShowsTierMark(mod)) {
+    return `${mod.name} ${tierLabel(mod.tier)}`;
+  }
+  return mod.name;
 }
 
 export function formatAmmo(ammoMax: number | null, ammo: number): string {
