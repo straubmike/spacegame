@@ -1,15 +1,22 @@
 import { COMBAT } from "../game/config";
 
+/** Who fired. Patrol rounds must not be treated as the player's. */
+export type ProjectileSource = "player" | "pirate" | "patrol";
+
 export class Projectile {
   constructor(
     public x: number,
     public y: number,
     public vx: number,
     public vy: number,
-    /** true = pirate shot (hurts player) */
+    /**
+     * true = hurts the player (pirate fire, or a patrol shooting the player).
+     * Lawful patrol fire at pirates is false — same color family as player shots.
+     */
     public readonly hostile: boolean = false,
     /** Hit damage — defaults to COMBAT.projectileDamage. */
     public readonly damage: number = COMBAT.projectileDamage,
+    public readonly source: ProjectileSource = "player",
   ) {}
 
   update(dt: number): void {
@@ -38,6 +45,7 @@ export function spawnProjectile(
   muzzle: number,
   hostile = false,
   damage: number = COMBAT.projectileDamage,
+  source: ProjectileSource = "player",
 ): Projectile {
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
@@ -48,5 +56,6 @@ export function spawnProjectile(
     sin * COMBAT.projectileSpeed,
     hostile,
     damage,
+    source,
   );
 }

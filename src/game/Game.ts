@@ -144,6 +144,12 @@ interface PackEncounter {
    * Starts in "comms" with demanded already true.
    */
   noFeeAggro?: boolean;
+  /**
+   * TEMP(playtest): strip before merge.
+   * Starting-body fee pirate is hidden from patrols until the truce breaks,
+   * so a station patrol can't delete the playtest target first.
+   */
+  tempExemptFromPatrol?: boolean;
 }
 
 export class Game {
@@ -402,6 +408,71 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
+    // TEMP(playtest): strip before merge. Fee pirate within hail range
+    // on the starting body so fee-then-attack can be tried immediately.
+    this.applyTempStartFeePirate();
+  }
+
+  /**
+   * TEMP(playtest): strip before merge.
+   * Starting body always has a tribute pirate inside hail range so
+   * fee-then-attack can be tried on a new game without hunting RNG.
+   * Does not respawn a view the player already cleared, and leaves
+   * passenger-intercept packs alone.
+   */
+  private applyTempStartFeePirate(): void {
+    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) {
+      return;
+    }
+    if (this.clearedPirateViews.has(this.pirateKey())) return;
+    if (this.pack?.noFeeAggro) return;
+
+    const near = 180;
+    const px = this.ship.x;
+    const py = this.ship.y;
+    const ang = 0.6;
+    // The start body has a patrol, so the seeded pack never spawns. Remember
+    // a tribute paid on this temporary pirate across leave/return.
+    const feePaid = this.paidPirateViews.has(this.pirateKey());
+
+    if (!this.pack || this.pirates.every((p) => !p.alive)) {
+      const pirate = new Pirate(
+        px + Math.cos(ang) * near,
+        py + Math.sin(ang) * near,
+        ang + Math.PI,
+        "raider",
+        10,
+      );
+      if (feePaid) pirate.setPeaceful();
+      this.pirates = [pirate];
+      this.pack = {
+        phase: feePaid ? "paid" : "idle",
+        fee: 10,
+        timer: 0,
+        demanded: feePaid,
+        shipCount: 1,
+        tempExemptFromPatrol: true,
+      };
+    } else {
+      if (this.pack) this.pack.tempExemptFromPatrol = true;
+      const alive = this.pirates.filter((p) => p.alive);
+      alive.forEach((p, i) => {
+        const spread = (i - (alive.length - 1) / 2) * 46;
+        p.x = px + Math.cos(ang) * near + Math.cos(ang + Math.PI / 2) * spread;
+        p.y = py + Math.sin(ang) * near + Math.sin(ang + Math.PI / 2) * spread;
+        p.heading = ang + Math.PI;
+        p.vx = 0;
+        p.vy = 0;
+      });
+    }
+
+    const alreadyPaid = this.pack?.phase === "paid";
+    this.messages.push(
+      alreadyPaid
+        ? "TEMP: Tribute already paid — shoot the nearby pirate. They should fight back."
+        : "TEMP: Fee pirate nearby — pay the tribute, then shoot. They should fight back.",
+      "pirate",
+    );
   }
 
   /**
@@ -516,7 +587,13 @@ export class Game {
    * law still answers distress-spawned (and intrusion) pirates.
    */
   private localPirateThreats(): Pirate[] {
-    const list: Pirate[] = [...this.pirates, ...this.distressPirates];
+    const list: Pirate[] = [];
+    // TEMP(playtest): don't let a patrol erase the start-body fee pirate
+    // before the player can pay and then shoot.
+    const hideTemp =
+      this.pack?.tempExemptFromPatrol === true && this.pack.phase !== "hostile";
+    if (!hideTemp) list.push(...this.pirates);
+    list.push(...this.distressPirates);
     if (this.baitPirate) list.push(this.baitPirate);
     return list;
   }
@@ -631,15 +708,32 @@ export class Game {
     return justDemanded;
   }
 
-  /** Sneak attack or timeout fight — whole pack goes hostile once. */
+  /**
+   * Sneak attack, fee-window timeout, or a broken tribute truce.
+   * Paying (or allied free passage) keeps the pack peaceful until the
+   * player fires — then the whole pack defends itself.
+   */
   private makePackHostile(): void {
-    if (!this.pack || this.pack.phase === "paid") return;
+    if (!this.pack || this.pack.phase === "hostile") return;
+    const brokeTruce = this.pack.phase === "paid";
     this.pack.phase = "hostile";
     this.pack.demanded = true;
     this.pack.timer = 0;
     this.pirateMenu.hide();
+    if (brokeTruce) {
+      // Don't restore a passive pack if the player leaves and comes back.
+      this.paidPirateViews.delete(this.pirateKey());
+    }
     for (const p of this.pirates) {
       if (p.alive) p.goAggro();
+    }
+    if (brokeTruce) {
+      this.messages.push(
+        this.pack.shipCount > 1
+          ? "Pirate pack: Truce broken — weapons free!"
+          : "Pirate: Truce broken — weapons free!",
+        "pirate",
+      );
     }
   }
 
@@ -1701,6 +1795,10 @@ export class Game {
       return;
     }
 
+    // Beacon is already out — menus, dock, and the fuel-warn modal must not
+    // freeze the wait. Combat itself still pauses while those are up.
+    this.tickDistressInbound(dt);
+
     if (this.fuelWarnTravel) {
       if (this.keyboard.consume("Escape")) {
         this.fuelWarnTravel = null;
@@ -1852,6 +1950,8 @@ export class Game {
         this.dock.station.y,
       );
       this.updateCombat(dt);
+      // World is still live on approach — rats, stranded, and taunts keep going.
+      this.updateDistress(dt);
       if (arrived) {
         this.completeDock(this.dock.station);
       }
@@ -2748,22 +2848,25 @@ export class Game {
     );
   }
 
-  /** Distress inbound delay, pirate taunt timer, and fuel rat arrival / refuel. */
-  private updateDistress(dt: number): void {
-    if (this.distressInbound) {
-      // Docked / menu time still counts — the beacon is already out.
-      this.distressInbound.elapsed += dt;
-      if (this.distressInbound.elapsed >= this.distressInbound.delay) {
-        const kind = this.distressInbound.kind;
-        this.distressInbound = null;
-        if (kind === "pirates") {
-          this.spawnDistressPirates();
-        } else {
-          this.spawnFuelRat();
-        }
-      }
+  /**
+   * Distress response delay. Runs even while menus / dock pause the world —
+   * the beacon is already out. Spawning here is safe; AI ticks in updateDistress.
+   */
+  private tickDistressInbound(dt: number): void {
+    if (!this.distressInbound) return;
+    this.distressInbound.elapsed += dt;
+    if (this.distressInbound.elapsed < this.distressInbound.delay) return;
+    const kind = this.distressInbound.kind;
+    this.distressInbound = null;
+    if (kind === "pirates") {
+      this.spawnDistressPirates();
+    } else {
+      this.spawnFuelRat();
     }
+  }
 
+  /** Pirate taunt timer, stranded scoot, and fuel rat arrival / refuel. */
+  private updateDistress(dt: number): void {
     if (this.distressPack && this.distressPirates.some((p) => p.alive)) {
       if (this.distressPack.phase === "comms") {
         this.distressPack.timer = Math.max(0, this.distressPack.timer - dt);
@@ -3240,14 +3343,18 @@ export class Game {
         continue;
       }
 
+      // Player shots blame the player. Patrol shots only damage pirate hulls —
+      // they must not break a tribute truce or mark the station Hostile.
+      const fromPlayer = p.source === "player";
+      const retaliate = fromPlayer;
       let hit = false;
       for (const pirate of this.pirates) {
         if (!pirate.alive) continue;
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
         if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage);
-          // Sneak attack during fee window → one pack fight, not per-ship fees.
-          if (this.pack && this.pack.phase !== "paid") {
+          pirate.takeDamage(p.damage, retaliate);
+          // Sneak attack, or fire after tribute — one pack fight.
+          if (fromPlayer && this.pack) {
             this.makePackHostile();
           }
           hit = true;
@@ -3259,8 +3366,12 @@ export class Game {
           if (!pirate.alive) continue;
           const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
           if (dist <= pirate.radius + COMBAT.projectileRadius) {
-            pirate.takeDamage(p.damage);
-            if (this.distressPack && this.distressPack.phase === "comms") {
+            pirate.takeDamage(p.damage, retaliate);
+            if (
+              fromPlayer &&
+              this.distressPack &&
+              this.distressPack.phase === "comms"
+            ) {
               this.distressPack.phase = "hostile";
               this.distressPack.timer = 0;
               for (const d of this.distressPirates) {
@@ -3276,8 +3387,8 @@ export class Game {
         const pirate = this.baitPirate;
         const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
         if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage);
-          if (this.baitPack && this.baitPack.phase === "comms") {
+          pirate.takeDamage(p.damage, retaliate);
+          if (fromPlayer && this.baitPack && this.baitPack.phase === "comms") {
             this.baitPack.phase = "hostile";
             this.baitPack.timer = 0;
             pirate.goAggro();
@@ -3285,7 +3396,7 @@ export class Game {
           hit = true;
         }
       }
-      if (!hit) {
+      if (!hit && fromPlayer) {
         for (const patrol of this.patrols) {
           if (!patrol.alive) continue;
           const dist = Math.hypot(p.x - patrol.x, p.y - patrol.y);
