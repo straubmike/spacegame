@@ -1,5 +1,6 @@
-import { SHIP, COMBAT, DOCK, ECONOMY } from "../game/config";
+import { SHIP, COMBAT, DOCK, ECONOMY, WEAPONS } from "../game/config";
 import type { InputState } from "../input/Keyboard";
+import { applyKineticHit, tickShieldRegen } from "../ship/defense";
 import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
 import { Fleet, type OwnedShipSnapshot } from "../ship/Fleet";
@@ -16,12 +17,17 @@ export class Ship {
   heading = -Math.PI / 2;
   vx = 0;
   vy = 0;
+  /** Core hull HP. Plating and shields are separate banks. */
   health: number = COMBAT.maxHealth;
-  /** Current shield HP (0 when no shield module). */
+  /** Current plating bank (0 when no plating module). */
+  plating = 0;
+  /** Current shield bank (0 when no shield module, or while broken). */
   shield = 0;
+  /** Seconds before a broken shield may start recharging. */
+  shieldBreakRemaining = 0;
   /** Current hyperspace / supercruise fuel. */
   fuel = 0;
-  /** Seconds since last hull or shield damage. */
+  /** Seconds since a hit that dealt shield, plating, or core damage. */
   private timeSinceDamage = Number.POSITIVE_INFINITY;
   credits: number = ECONOMY.startingCredits;
   loadout = new ShipLoadout();
@@ -60,19 +66,26 @@ export class Ship {
     return this.health > 0;
   }
 
+  /** Core hull only — plating is `maxPlating`, not bonus HP. */
   get maxHull(): number {
-    const bonus = this.loadout
-      .utilities()
-      .reduce((sum, u) => sum + u.hullBonus, 0);
-    return this.hull.baseHull + bonus;
+    return this.hull.baseHull;
+  }
+
+  get maxPlating(): number {
+    return this.loadout.utilities().reduce((sum, u) => sum + u.hullBonus, 0);
   }
 
   get maxShield(): number {
     return this.loadout.utilities().reduce((sum, u) => sum + u.shieldMax, 0);
   }
 
+  /** Missing core + plating + shield, for the complimentary dock repair. */
   get missingHealth(): number {
-    return Math.max(0, this.maxHull - this.health);
+    return (
+      Math.max(0, this.maxHull - this.health) +
+      Math.max(0, this.maxPlating - this.plating) +
+      Math.max(0, this.maxShield - this.shield)
+    );
   }
 
   get passengerCapacity(): number {
@@ -147,7 +160,9 @@ export class Ship {
     snap.loadout = this.loadout;
     snap.cargo = this.cargo;
     snap.health = this.health;
+    snap.plating = this.plating;
     snap.shield = this.shield;
+    snap.shieldBreakRemaining = this.shieldBreakRemaining;
     snap.fuel = this.fuel;
   }
 
@@ -194,16 +209,19 @@ export class Ship {
     this.fuel = snap.fuel;
     this.syncDerivedStats({
       refillShield: opts.refillShield,
-      previousMaxHull: opts.fullHealth ? 0 : undefined,
       previousMaxFuel: opts.fullHealth ? 0 : undefined,
       refillFuel: opts.fullHealth,
     });
     if (opts.fullHealth) {
       this.health = this.maxHull;
+      this.plating = this.maxPlating;
       this.fuel = this.maxFuel;
+      this.shieldBreakRemaining = 0;
     } else {
       this.health = Math.min(snap.health, this.maxHull);
+      this.plating = Math.min(snap.plating, this.maxPlating);
       this.fuel = Math.min(snap.fuel, this.maxFuel);
+      this.shieldBreakRemaining = snap.shieldBreakRemaining;
       if (!opts.refillShield) {
         this.shield = Math.min(snap.shield, this.maxShield);
       }
@@ -211,27 +229,28 @@ export class Ship {
   }
 
   /**
-   * Recompute hull/shield/cargo/fuel caps from hull + utility slots.
+   * Recompute plating/shield/cargo/fuel caps from hull + utility slots.
    * Call after any utility equip change or hull swap.
-   * Hull max gains raise current HP by the same amount (no free full heal).
+   * Core HP is the hull's base and is only clamped here.
+   * A larger plating bank raises current plating by the gain (not a full refill
+   * unless the caller also refills shields on a fresh install).
    * Fuel tank gains raise current fuel the same way (Expanded Fuel Tank).
    */
   syncDerivedStats(
     opts: {
       refillShield?: boolean;
-      previousMaxHull?: number;
+      previousMaxPlating?: number;
       previousMaxFuel?: number;
       refillFuel?: boolean;
     } = {},
   ): void {
-    const prevMaxHull = opts.previousMaxHull ?? this.maxHull;
-    const nextMaxHull = this.maxHull;
-    const hullGain = Math.max(0, nextMaxHull - prevMaxHull);
+    this.health = Math.min(this.health, this.maxHull);
 
-    if (hullGain > 0) {
-      this.health += hullGain;
-    }
-    this.health = Math.min(this.health, nextMaxHull);
+    const prevPlating = opts.previousMaxPlating ?? this.maxPlating;
+    const nextPlating = this.maxPlating;
+    const platingGain = Math.max(0, nextPlating - prevPlating);
+    if (platingGain > 0) this.plating += platingGain;
+    this.plating = Math.min(this.plating, nextPlating);
 
     const prevMaxFuel = opts.previousMaxFuel ?? this.maxFuel;
     // Recompute after loadout already changed — maxFuel reads new modules.
@@ -255,8 +274,10 @@ export class Ship {
     const shieldMax = this.maxShield;
     if (shieldMax <= 0) {
       this.shield = 0;
+      this.shieldBreakRemaining = 0;
     } else if (opts.refillShield) {
       this.shield = shieldMax;
+      this.shieldBreakRemaining = 0;
     } else {
       this.shield = Math.min(this.shield, shieldMax);
     }
@@ -275,16 +296,19 @@ export class Ship {
   }
 
   /**
-   * Free station courtesy on dock — full hull repair + tank top-off.
-   * Successful repair also refills weapon ammo, warp charges, and shields.
+   * Free station courtesy on dock — restore core, plating, and shields + tank top-off.
+   * Successful repair also refills weapon ammo and warp charges, and clears
+   * shield-break downtime.
    */
   applyComplimentaryDockService(): { healed: number; refueled: boolean } {
     const healed = this.missingHealth;
     const refueled = this.missingFuel > 0;
-    if (healed > 0) {
+    if (healed > 0 || this.shieldBreakRemaining > 0) {
       this.health = this.maxHull;
+      this.plating = this.maxPlating;
+      this.shield = this.maxShield;
+      this.shieldBreakRemaining = 0;
       this.loadout.refillConsumables();
-      if (this.maxShield > 0) this.shield = this.maxShield;
       this.timeSinceDamage = Number.POSITIVE_INFINITY;
     }
     if (refueled) {
@@ -304,41 +328,59 @@ export class Ship {
     this.credits += amount;
   }
 
-  /** Shields absorb first; remainder hits hull. */
-  takeDamage(amount: number): void {
-    if (amount <= 0) return;
-    this.timeSinceDamage = 0;
-    let remaining = amount;
-    if (this.shield > 0) {
-      const absorbed = Math.min(this.shield, remaining);
-      this.shield -= absorbed;
-      remaining -= absorbed;
-    }
-    if (remaining > 0) {
-      this.health = Math.max(0, this.health - remaining);
-    }
+  /**
+   * Kinetic damage. Shields first (scaled by `shieldMultiplier`, excess wiped
+   * on a break), then plating, then core.
+   * NPC shots pass `WEAPONS.npcShieldMultiplier`.
+   */
+  takeDamage(
+    amount: number,
+    shieldMultiplier: number = WEAPONS.npcShieldMultiplier,
+  ): void {
+    const state = this.defenseBanks();
+    applyKineticHit(state, amount, shieldMultiplier);
+    this.writeDefenseBanks(state);
   }
 
   /**
-   * Shield recharge after a quiet period. Safe to call every frame
-   * (flight, docked, menus).
+   * Shield recharge. A break waits out downtime before regen starts.
+   * Chipped shields still wait out the module quiet-period delay.
+   * Safe to call every frame (flight, docked, menus).
    */
   tickDefense(dt: number): void {
-    this.timeSinceDamage += dt;
-    const utils = this.loadout.utilities();
-    const shieldMax = this.maxShield;
-    if (shieldMax <= 0) return;
-    if (this.shield >= shieldMax) return;
-    const delay = Math.min(
-      ...utils.filter((u) => u.shieldMax > 0).map((u) => u.shieldRegenDelay),
-      Number.POSITIVE_INFINITY,
-    );
-    const rate = utils
-      .filter((u) => u.shieldMax > 0)
-      .reduce((sum, u) => sum + u.shieldRegenRate, 0);
-    if (!Number.isFinite(delay) || rate <= 0) return;
-    if (this.timeSinceDamage < delay) return;
-    this.shield = Math.min(shieldMax, this.shield + rate * dt);
+    const utils = this.loadout.utilities().filter((u) => u.shieldMax > 0);
+    const delay =
+      utils.length > 0
+        ? Math.min(...utils.map((u) => u.shieldRegenDelay))
+        : 0;
+    const rate = utils.reduce((sum, u) => sum + u.shieldRegenRate, 0);
+    const state = this.defenseBanks();
+    tickShieldRegen(state, dt, this.maxShield, delay, rate);
+    this.writeDefenseBanks(state);
+  }
+
+  private defenseBanks() {
+    return {
+      shield: this.shield,
+      plating: this.plating,
+      core: this.health,
+      timeSinceDamage: this.timeSinceDamage,
+      shieldBreakRemaining: this.shieldBreakRemaining,
+    };
+  }
+
+  private writeDefenseBanks(state: {
+    shield: number;
+    plating: number;
+    core: number;
+    timeSinceDamage: number;
+    shieldBreakRemaining: number;
+  }): void {
+    this.shield = state.shield;
+    this.plating = state.plating;
+    this.health = state.core;
+    this.timeSinceDamage = state.timeSinceDamage;
+    this.shieldBreakRemaining = state.shieldBreakRemaining;
   }
 
   update(dt: number, input: InputState): void {

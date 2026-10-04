@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, TEMP_TARGET, WEAPONS, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -12,8 +12,9 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import { swapCost, type EquipModule } from "../ship/equipment";
+import { moduleStockLabel, swapCost, type EquipModule, type WeaponModule } from "../ship/equipment";
 import {
+  applyTempStartBayStock,
   stationBayStock,
   stationBayWealth,
   type StationStockContext,
@@ -81,7 +82,8 @@ import {
   StationPatrol,
   type PatrolPlayerLaw,
 } from "../entities/StationPatrol";
-import { Projectile, spawnProjectile } from "../entities/Projectile";
+import { Projectile, spawnPlayerShot } from "../entities/Projectile";
+import { TempTarget } from "../entities/TempTarget";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
 import { Renderer } from "../render/Renderer";
@@ -288,7 +290,13 @@ export class Game {
     | null = null;
 
   private projectiles: Projectile[] = [];
-  private fireCooldown = 0;
+  /** Per weapon-slot seconds until that hardpoint can fire again. */
+  private weaponCooldowns = new Map<string, number>();
+  /** Gun time-on-target, keyed by slot id + target id. */
+  private gunStreams = new Map<string, { accumulated: number; lastHit: number }>();
+  private combatClock = 0;
+  /** TEMP(weapons-pass): strip before merge. */
+  private tempTarget: TempTarget | null = null;
   private dock: DockState = { kind: "free" };
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
@@ -409,12 +417,14 @@ export class Game {
     this.phase = "playing";
     this.keyboard.discardEdges();
     this.pointer.consumeClick();
+    this.pointer.releaseHeld();
   }
 
   private returnToTitle(): void {
     this.phase = "title";
     this.keyboard.discardEdges();
     this.pointer.consumeClick();
+    this.pointer.releaseHeld();
   }
 
   /** Hull already at 0 — freeze the run and show the destroyed card. */
@@ -474,7 +484,10 @@ export class Game {
     );
     this.panel.selectedBodyId = this.local.bodyId;
     this.projectiles = [];
-    this.fireCooldown = 0;
+    this.weaponCooldowns.clear();
+    this.gunStreams.clear();
+    this.combatClock = 0;
+    this.tempTarget = null;
     this.scoopProgress = 0;
     this.poiScanProgress = 0;
     this.pirates = [];
@@ -534,6 +547,23 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
+    this.spawnTempTarget();
+  }
+
+  /**
+   * TEMP(weapons-pass): strip before merge.
+   * One immobile target beside the starting arrival pose.
+   */
+  private spawnTempTarget(): void {
+    this.tempTarget = null;
+    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) return;
+    this.tempTarget = new TempTarget(
+      this.ship.x + TEMP_TARGET.offsetX,
+      this.ship.y + TEMP_TARGET.offsetY,
+    );
+    this.messages.push(
+      "TEMP: immobile target to starboard — no AI. Shields, then plating, then core. Strip before merge.",
+    );
   }
 
   /**
@@ -2282,6 +2312,7 @@ export class Game {
 
     this.messages.update(dt);
     this.ship.tickDefense(dt);
+    this.tempTarget?.tick(dt);
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
@@ -3714,37 +3745,207 @@ export class Game {
     };
   }
 
-  private updateCombat(dt: number): void {
-    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    this.updatePirateIntrusion(dt);
+  /**
+   * Each weapon slot listens to its own input.
+   * 0 Space, 1 left click, 2 right click (wired even though no hull has a third slot).
+   * Holding one input does not fire the other slots.
+   */
+  private firePlayerWeapons(): void {
+    if (this.dock.kind !== "free" || !this.ship.alive) return;
+    const slots = this.ship.loadout.slotsOfKind("weapon");
+    for (let i = 0; i < slots.length; i += 1) {
+      if (!this.weaponTriggerHeld(i)) continue;
+      const slot = slots[i]!;
+      const weapon = slot.equipped;
+      if (!weapon || weapon.kind !== "weapon") continue;
+      if ((this.weaponCooldowns.get(slot.id) ?? 0) > 0) continue;
+      if (!this.ship.loadout.canFireSlot(slot.id)) continue;
+      this.fireWeaponSlot(slot.id, weapon);
+    }
+  }
 
-    const canFire =
-      this.dock.kind === "free" &&
-      this.keyboard.state.fire &&
-      this.fireCooldown <= 0 &&
-      this.ship.alive &&
-      this.ship.loadout.canFire();
+  private weaponTriggerHeld(index: number): boolean {
+    if (index === 0) return this.keyboard.state.fire;
+    const mouseBlocked =
+      this.stationMenu.open || this.pirateMenu.open || this.patrolMenu.open;
+    if (mouseBlocked) return false;
+    if (index === 1) return this.pointer.leftHeld;
+    if (index === 2) return this.pointer.rightHeld;
+    return false;
+  }
 
-    if (canFire) {
-      const shots = this.ship.loadout.fireWeaponCount();
-      const size = this.ship.hull.size;
-      const spread =
-        shots > 1 ? (8 * Math.PI) / 180 / Math.max(1, shots - 1) : 0;
-      const start = shots > 1 ? -spread * ((shots - 1) / 2) : 0;
-      for (let i = 0; i < shots; i += 1) {
+  private fireWeaponSlot(slotId: string, weapon: WeaponModule): void {
+    const muzzle = this.ship.hull.size;
+    if (weapon.family === "gun") {
+      const ammo = this.ship.loadout.ammoIn(slotId);
+      const n = Math.min(weapon.pelletCount, Math.floor(ammo));
+      if (n <= 0) return;
+      const half = weapon.spread;
+      for (let i = 0; i < n; i += 1) {
+        const t = n === 1 ? 0.5 : i / (n - 1);
+        const offset = -half + t * half * 2;
         this.projectiles.push(
-          spawnProjectile(
+          spawnPlayerShot(
             this.ship.x,
             this.ship.y,
-            this.ship.heading + start + spread * i,
-            size,
-            false,
+            this.ship.heading + offset,
+            muzzle,
+            {
+              family: "gun",
+              speed: WEAPONS.gun.pelletSpeed,
+              radius: WEAPONS.gun.pelletRadius,
+              damage: 0,
+              shieldMultiplier: weapon.shieldMultiplier,
+              gunSlotId: slotId,
+              gunChunkDamage: weapon.damage,
+              gunChunkInterval: weapon.timeOnTarget,
+            },
           ),
         );
       }
-      this.ship.loadout.consumeAmmo(shots);
-      this.fireCooldown = this.ship.loadout.fireCooldown();
+      this.ship.loadout.consumeSlotAmmo(slotId, n);
+    } else if (weapon.family === "cannon") {
+      this.projectiles.push(
+        spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {
+          family: "cannon",
+          speed: WEAPONS.cannon.slugSpeed,
+          radius: WEAPONS.cannon.slugRadius,
+          damage: weapon.damage,
+          shieldMultiplier: weapon.shieldMultiplier,
+        }),
+      );
+      this.ship.loadout.consumeSlotAmmo(slotId, 1);
+    } else {
+      const lock = this.missileAimPoint();
+      this.projectiles.push(
+        spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {
+          family: "missile",
+          speed: WEAPONS.missile.speed,
+          radius: WEAPONS.missile.radius,
+          damage: weapon.damage,
+          shieldMultiplier: weapon.shieldMultiplier,
+          turnRate: weapon.trackingTurn,
+          trackSeconds: weapon.trackSeconds,
+          lockId: lock?.id ?? null,
+        }),
+      );
+      this.ship.loadout.consumeSlotAmmo(slotId, 1);
     }
+    this.weaponCooldowns.set(slotId, weapon.fireCooldown);
+  }
+
+  /** Nearest living combatant to the cursor. Captured onto a missile at launch. */
+  private missileAimPoint(): { id: string; x: number; y: number } | null {
+    if (!this.ship.loadout.weapons().some((w) => w.family === "missile")) {
+      return null;
+    }
+    const world = this.camera.screenToWorld(
+      this.pointer.x,
+      this.pointer.y,
+      window.innerWidth,
+      window.innerHeight,
+    );
+    let best: { id: string; x: number; y: number } | null = null;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const target of this.lockableTargets()) {
+      if (!target.alive) continue;
+      const d = Math.hypot(target.x - world.x, target.y - world.y);
+      if (d < bestD) {
+        bestD = d;
+        best = target;
+      }
+    }
+    return best;
+  }
+
+  private missileReticle(): { x: number; y: number } | null {
+    if (this.phase !== "playing" || this.menuOpen() || this.dock.kind === "docked") {
+      return null;
+    }
+    const aim = this.missileAimPoint();
+    return aim ? { x: aim.x, y: aim.y } : null;
+  }
+
+  private lockableTargets(): Array<{
+    id: string;
+    x: number;
+    y: number;
+    alive: boolean;
+  }> {
+    const list: Array<{ id: string; x: number; y: number; alive: boolean }> = [];
+    for (const pirate of this.pirates) list.push(pirate);
+    for (const pirate of this.distressPirates) list.push(pirate);
+    if (this.baitPirate) list.push(this.baitPirate);
+    for (const patrol of this.patrols) list.push(patrol);
+    if (this.tempTarget) list.push(this.tempTarget);
+    return list;
+  }
+
+  private lockPoint(id: string): { x: number; y: number } | null {
+    for (const target of this.lockableTargets()) {
+      if (target.id === id && target.alive) return target;
+    }
+    return null;
+  }
+
+  /**
+   * Contact test. Gun pellets never deal their own damage — they extend the
+   * stream timer and return a chunk only when time-on-target is met.
+   * A broken gap resets that timer.
+   */
+  private shotImpact(
+    p: Projectile,
+    target: { id: string; x: number; y: number; radius: number; alive: boolean },
+  ): { amount: number; shieldMultiplier: number } | null {
+    if (!target.alive) return null;
+    const dist = Math.hypot(p.x - target.x, p.y - target.y);
+    if (dist > target.radius + p.radius) return null;
+    if (p.family === "gun") {
+      const chunks = this.accrueGunStream(
+        p.gunSlotId,
+        target.id,
+        p.gunChunkInterval,
+      );
+      return {
+        amount: chunks * p.gunChunkDamage,
+        shieldMultiplier: p.shieldMultiplier,
+      };
+    }
+    return { amount: p.damage, shieldMultiplier: p.shieldMultiplier };
+  }
+
+  private accrueGunStream(
+    slotId: string,
+    targetId: string,
+    interval: number,
+  ): number {
+    if (interval <= 0) return 0;
+    const key = `${slotId}:${targetId}`;
+    const now = this.combatClock;
+    const prev = this.gunStreams.get(key);
+    if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
+      this.gunStreams.set(key, { accumulated: 0, lastHit: now });
+      return 0;
+    }
+    const accumulated = prev.accumulated + (now - prev.lastHit);
+    if (accumulated + 1e-6 >= interval) {
+      this.gunStreams.set(key, {
+        accumulated: Math.max(0, accumulated - interval),
+        lastHit: now,
+      });
+      return 1;
+    }
+    this.gunStreams.set(key, { accumulated, lastHit: now });
+    return 0;
+  }
+
+  private updateCombat(dt: number): void {
+    this.combatClock += dt;
+    for (const [id, cd] of this.weaponCooldowns) {
+      if (cd > 0) this.weaponCooldowns.set(id, cd - dt);
+    }
+    this.updatePirateIntrusion(dt);
+    this.firePlayerWeapons();
 
     const pirateShots: Projectile[] = [];
     const justDemanded = this.updatePackEncounter(dt);
@@ -3841,7 +4042,7 @@ export class Game {
 
     for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
       const p = this.projectiles[i]!;
-      p.update(dt);
+      p.update(dt, (id) => this.lockPoint(id));
 
       if (p.isOffScreen(this.camera.x, this.camera.y, viewW, viewH)) {
         this.projectiles.splice(i, 1);
@@ -3851,8 +4052,8 @@ export class Game {
       if (p.hostile) {
         if (this.ship.alive) {
           const dist = Math.hypot(p.x - this.ship.x, p.y - this.ship.y);
-          if (dist <= COMBAT.playerHitRadius + COMBAT.projectileRadius) {
-            this.ship.takeDamage(p.damage);
+          if (dist <= COMBAT.playerHitRadius + p.radius) {
+            this.ship.takeDamage(p.damage, p.shieldMultiplier);
             this.projectiles.splice(i, 1);
           }
         }
@@ -3865,45 +4066,41 @@ export class Game {
       const retaliate = fromPlayer;
       let hit = false;
       for (const pirate of this.pirates) {
-        if (!pirate.alive) continue;
-        const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
-        if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage, retaliate);
-          // Sneak attack, or fire after tribute — one pack fight.
-          if (fromPlayer && this.pack) {
-            this.makePackHostile();
+        const impact = this.shotImpact(p, pirate);
+        if (!impact) continue;
+        pirate.takeDamage(impact.amount, retaliate);
+        // Sneak attack, or fire after tribute — one pack fight.
+        if (fromPlayer && this.pack) {
+          this.makePackHostile();
+        }
+        hit = true;
+        break;
+      }
+      if (!hit) {
+        for (const pirate of this.distressPirates) {
+          const impact = this.shotImpact(p, pirate);
+          if (!impact) continue;
+          pirate.takeDamage(impact.amount, retaliate);
+          if (
+            fromPlayer &&
+            this.distressPack &&
+            this.distressPack.phase === "comms"
+          ) {
+            this.distressPack.phase = "hostile";
+            this.distressPack.timer = 0;
+            for (const d of this.distressPirates) {
+              if (d.alive) d.goAggro();
+            }
           }
           hit = true;
           break;
         }
       }
-      if (!hit) {
-        for (const pirate of this.distressPirates) {
-          if (!pirate.alive) continue;
-          const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
-          if (dist <= pirate.radius + COMBAT.projectileRadius) {
-            pirate.takeDamage(p.damage, retaliate);
-            if (
-              fromPlayer &&
-              this.distressPack &&
-              this.distressPack.phase === "comms"
-            ) {
-              this.distressPack.phase = "hostile";
-              this.distressPack.timer = 0;
-              for (const d of this.distressPirates) {
-                if (d.alive) d.goAggro();
-              }
-            }
-            hit = true;
-            break;
-          }
-        }
-      }
-      if (!hit && this.baitPirate?.alive) {
+      if (!hit && this.baitPirate) {
         const pirate = this.baitPirate;
-        const dist = Math.hypot(p.x - pirate.x, p.y - pirate.y);
-        if (dist <= pirate.radius + COMBAT.projectileRadius) {
-          pirate.takeDamage(p.damage, retaliate);
+        const impact = this.shotImpact(p, pirate);
+        if (impact) {
+          pirate.takeDamage(impact.amount, retaliate);
           if (fromPlayer && this.baitPack && this.baitPack.phase === "comms") {
             this.baitPack.phase = "hostile";
             this.baitPack.timer = 0;
@@ -3912,25 +4109,30 @@ export class Game {
           hit = true;
         }
       }
+      if (!hit && fromPlayer && this.tempTarget) {
+        const impact = this.shotImpact(p, this.tempTarget);
+        if (impact) {
+          this.tempTarget.takeKinetic(impact.amount, impact.shieldMultiplier);
+          hit = true;
+        }
+      }
       if (!hit && fromPlayer) {
         for (const patrol of this.patrols) {
-          if (!patrol.alive) continue;
-          const dist = Math.hypot(p.x - patrol.x, p.y - patrol.y);
-          if (dist <= patrol.radius + COMBAT.projectileRadius) {
-            patrol.takeDamage(p.damage);
-            // First hit only — under-attack / Hostile comms once per combat.
-            if (!patrol.defending) {
-              this.forceStationHostile(
-                patrol.stationKey,
-                patrol.stationName,
-                `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
-              );
-            }
-            patrol.markDefending();
-            this.patrolMenu.hide();
-            hit = true;
-            break;
+          const impact = this.shotImpact(p, patrol);
+          if (!impact) continue;
+          if (impact.amount > 0) patrol.takeDamage(impact.amount);
+          // First hit only — under-attack / Hostile comms once per combat.
+          if (!patrol.defending) {
+            this.forceStationHostile(
+              patrol.stationKey,
+              patrol.stationName,
+              `${patrol.stationName} patrol: Under attack — you are now Hostile.`,
+            );
           }
+          patrol.markDefending();
+          this.patrolMenu.hide();
+          hit = true;
+          break;
         }
       }
       if (hit) this.projectiles.splice(i, 1);
@@ -4147,7 +4349,7 @@ export class Game {
     this.hangarMenu.hide();
     const discount = this.reputation.bayDiscountFraction(key);
     this.shipMenu.openBay(
-      stationBayStock(key, context),
+      applyTempStartBayStock(stationBayStock(key, context), this.local.poiId),
       stationBayWealth(key, context),
       discount,
       this.reputationListingForUi(),
@@ -4499,25 +4701,26 @@ export class Game {
       return;
     }
 
-    const previous = slot.equipped?.name ?? "empty";
-    const previousMaxHull = this.ship.maxHull;
+    const previous = slot.equipped ? moduleStockLabel(slot.equipped) : "empty";
+    const previousMaxPlating = this.ship.maxPlating;
     const previousMaxFuel = this.ship.maxFuel;
     this.ship.loadout.equip(slot.id, module);
     if (slot.kind === "utility" || slot.kind === "drive") {
       this.ship.syncDerivedStats({
         refillShield: slot.kind === "utility",
-        previousMaxHull: slot.kind === "utility" ? previousMaxHull : undefined,
+        previousMaxPlating: slot.kind === "utility" ? previousMaxPlating : undefined,
         previousMaxFuel,
       });
     }
+    const fitted = moduleStockLabel(module);
     const discNote =
       this.shipMenu.bayDiscount > 0 && cost < baseCost
         ? ` (rep −${Math.round(this.shipMenu.bayDiscount * 100)}%)`
         : "";
     this.messages.push(
       cost > 0
-        ? `Bay: Fitted ${module.name} (−${cost} cr${discNote}). Replaced ${previous}.`
-        : `Bay: Fitted ${module.name}. Replaced ${previous}.`,
+        ? `Bay: Fitted ${fitted} (−${cost} cr${discNote}). Replaced ${previous}.`
+        : `Bay: Fitted ${fitted}. Replaced ${previous}.`,
       "station",
     );
   }
@@ -4864,6 +5067,8 @@ export class Game {
       fuelWarnYes: this.fuelWarnYes,
       fuelWarnNo: this.fuelWarnNo,
       patrols: this.patrols,
+      tempTarget: this.tempTarget,
+      missileLock: this.missileReticle(),
       projectiles: this.projectiles,
       alpha,
       thrusting:

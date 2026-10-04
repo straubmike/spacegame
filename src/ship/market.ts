@@ -168,10 +168,14 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     pool[j] = tmp;
   }
 
-  const result: StationMenuSet = new Set<StationServiceMenu>([
+  const result = new Set<StationServiceMenu>([
     "missions",
     ...pool.slice(0, count),
   ]);
+  // TEMP(weapons-pass): strip before merge — starter docks always list a bay.
+  if (stationKey.startsWith(`${GALAXY.startPoiId}:`)) {
+    result.add("bay");
+  }
   menuCache.set(stationKey, result);
   return result;
 }

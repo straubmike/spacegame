@@ -25,7 +25,7 @@ export interface HullDef {
   /** Purchase price (0 = starter; already owned). */
   price: number;
   slots: readonly HullSlotSpec[];
-  /** Base hull HP before utility bonuses. */
+  /** Core hull HP. Plating modules are a separate bank and do not add to this. */
   baseHull: number;
   /** Built-in cargo CU before utility racks. */
   baseCargo: number;
@@ -61,7 +61,7 @@ export const HULLS = {
     stroke: "#6a8bb0",
     // Utility A: Survey Scanner so new players can take explore missions
     // without a Bay buy first; Utility B left empty for scoop/rack/etc.
-    defaultLoadout: ["energy_pulse", "basic_drive", "survey_scanner", null],
+    defaultLoadout: ["gun_mk1", "basic_drive", "survey_scanner", null],
   } satisfies HullDef,
 
   hauler: {
@@ -84,14 +84,15 @@ export const HULLS = {
     stroke: "#8a7a58",
     // Empty utilities — baseCargo covers the built-in hold; racks are player-fitted
     // so a newly bought Hauler never looks like it inherited Sparrow's modules.
-    defaultLoadout: ["energy_pulse", "basic_drive", null, null],
+    defaultLoadout: ["gun_mk1", "basic_drive", null, null],
   } satisfies HullDef,
 
   interceptor: {
     id: "interceptor",
     name: "Interceptor",
     specialty: "Fighter",
-    blurb: "Twin hardpoints, thin skin. Both weapons fire together when Space is held.",
+    blurb:
+      "Twin hardpoints, thin skin. Weapon A fires on Space; Weapon B fires on left click.",
     price: 250,
     slots: [
       { kind: "weapon", label: "Weapon A" },
@@ -105,7 +106,7 @@ export const HULLS = {
     size: 12,
     fill: "#e8b0a0",
     stroke: "#a06050",
-    defaultLoadout: ["energy_pulse", "rapid_pulse", "racing_drive", "light_shield"],
+    defaultLoadout: ["gun_mk1", "cannon_mk1", "racing_drive", "light_shield"],
   } satisfies HullDef,
 
   pathfinder: {
@@ -125,14 +126,15 @@ export const HULLS = {
     size: 14,
     fill: "#a8d4c8",
     stroke: "#4a8878",
-    defaultLoadout: ["energy_pulse", "long_range_drive", null],
+    defaultLoadout: ["gun_mk1", "long_range_drive", null],
   } satisfies HullDef,
 
   bulwark: {
     id: "bulwark",
     name: "Bulwark",
     specialty: "Combat",
-    blurb: "Armored patrol hull. Thick base plating and room for shield plus plating utilities.",
+    blurb:
+      "Armored patrol hull. Thick core hull, plus room for a shield bank and a plating bank.",
     price: 320,
     slots: [
       { kind: "weapon", label: "Weapon" },
@@ -146,7 +148,7 @@ export const HULLS = {
     size: 16,
     fill: "#b0b8c8",
     stroke: "#586878",
-    defaultLoadout: ["heavy_pulse", "basic_drive", "hull_plating", "light_shield"],
+    defaultLoadout: ["cannon_mk1", "basic_drive", "hull_plating", "light_shield"],
   } satisfies HullDef,
 } as const;
 

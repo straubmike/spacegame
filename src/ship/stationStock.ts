@@ -38,11 +38,11 @@ export function stationBayStock(
   const maxTier = maxTiersForWealth(wealth, rng);
 
   const stock: EquipModule[] = [
-    cloneModule(MODULES.energyPulse),
+    cloneModule(MODULES.gunMk1),
     cloneModule(MODULES.basicDrive),
   ];
 
-  const weapons = poolFor("weapon", maxTier).filter((m) => m.id !== "energy_pulse");
+  const weapons = poolFor("weapon", maxTier).filter((m) => m.id !== "gun_mk1");
   const drives = poolFor("drive", maxTier).filter((m) => m.id !== "basic_drive");
   const utilities = poolFor("utility", maxTier);
 
@@ -114,6 +114,30 @@ export function stationBayStock(
   }
 
   return stock;
+}
+
+/**
+ * TEMP(weapons-pass): strip before merge.
+ * Starting-system bays list one of every kinetic weapon at no cost.
+ */
+export function applyTempStartBayStock(
+  stock: EquipModule[],
+  poiId: number,
+): EquipModule[] {
+  if (poiId !== GALAXY.startPoiId) return stock;
+  const kept = stock.filter((m) => m.kind !== "weapon");
+  const free = [
+    MODULES.gunMk1,
+    MODULES.gunMk2,
+    MODULES.gunMk3,
+    MODULES.cannonMk1,
+    MODULES.cannonMk2,
+    MODULES.cannonMk3,
+    MODULES.missileMk1,
+    MODULES.missileMk2,
+    MODULES.missileMk3,
+  ].map((mod) => ({ ...cloneModule(mod), price: 0 }));
+  return [...free, ...kept];
 }
 
 export function stockForSlot(

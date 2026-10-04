@@ -9,12 +9,13 @@ import {
 
 /**
  * Installed modules + consumable pools (ammo / warp) that refill on repair.
+ * Each weapon slot keeps its own magazine — families do not share ammo.
  * Multiple slots of the same kind are allowed (hull layouts).
  */
 export class ShipLoadout {
   readonly slots: ShipSlot[];
-  /** Current magazine; Infinity when weapon has unlimited ammo. */
-  ammo = 0;
+  /** Remaining rounds keyed by weapon slot id. Infinity when unlimited. */
+  private readonly ammo = new Map<string, number>();
   /** Remaining hyperspace charges; Infinity when drive is unlimited. */
   warpCharges = 0;
 
@@ -90,13 +91,14 @@ export class ShipLoadout {
 
   /** Restore ammo / warp pools from equipped module caps. */
   refillConsumables(): void {
-    const weapons = this.weapons();
-    if (weapons.length === 0) {
-      this.ammo = 0;
-    } else if (weapons.some((w) => w.ammoMax === null)) {
-      this.ammo = Infinity;
-    } else {
-      this.ammo = weapons.reduce((sum, w) => sum + (w.ammoMax ?? 0), 0);
+    this.ammo.clear();
+    for (const slot of this.slots) {
+      const equipped = slot.equipped;
+      if (equipped?.kind !== "weapon") continue;
+      this.ammo.set(
+        slot.id,
+        equipped.ammoMax === null ? Number.POSITIVE_INFINITY : equipped.ammoMax,
+      );
     }
 
     const drive = this.drive;
@@ -107,25 +109,22 @@ export class ShipLoadout {
       : 0;
   }
 
-  canFire(): boolean {
-    const weapons = this.weapons();
-    if (weapons.length === 0) return false;
-    return weapons.some((w) => w.ammoMax === null) || this.ammo > 0;
+  ammoIn(slotId: string): number {
+    return this.ammo.get(slotId) ?? 0;
   }
 
-  /** How many shots to spawn this press (one per fitted weapon that has ammo). */
-  fireWeaponCount(): number {
-    const weapons = this.weapons();
-    if (weapons.length === 0) return 0;
-    if (weapons.some((w) => w.ammoMax === null) || this.ammo >= weapons.length) {
-      return weapons.length;
-    }
-    return Math.max(0, Math.floor(this.ammo));
+  canFireSlot(slotId: string): boolean {
+    const slot = this.slots.find((s) => s.id === slotId);
+    const equipped = slot?.equipped;
+    if (!equipped || equipped.kind !== "weapon") return false;
+    if (equipped.ammoMax === null) return true;
+    return this.ammoIn(slotId) > 0;
   }
 
-  consumeAmmo(shots = 1): void {
-    if (!Number.isFinite(this.ammo)) return;
-    this.ammo = Math.max(0, this.ammo - shots);
+  consumeSlotAmmo(slotId: string, shots = 1): void {
+    const cur = this.ammo.get(slotId);
+    if (cur === undefined || !Number.isFinite(cur)) return;
+    this.ammo.set(slotId, Math.max(0, cur - shots));
   }
 
   canJump(): boolean {
@@ -159,13 +158,6 @@ export class ShipLoadout {
     return this.utilities().some((u) => u.poiScan);
   }
 
-  /** Shared fire spacing: fastest fitted weapon sets the cadence. */
-  fireCooldown(): number {
-    const weapons = this.weapons();
-    if (weapons.length === 0) return Number.POSITIVE_INFINITY;
-    return Math.min(...weapons.map((w) => w.fireCooldown));
-  }
-
   equip(slotId: string, module: EquipModule | null): boolean {
     const slot = this.slots.find((s) => s.id === slotId);
     if (!slot) return false;
@@ -184,7 +176,8 @@ export class ShipLoadout {
       equipped: s.equipped ? { ...s.equipped } : null,
     }));
     const copy = new ShipLoadout(slots);
-    copy.ammo = this.ammo;
+    copy.ammo.clear();
+    for (const [slotId, rounds] of this.ammo) copy.ammo.set(slotId, rounds);
     copy.warpCharges = this.warpCharges;
     return copy;
   }

@@ -4,6 +4,7 @@ import {
   SHIP,
   type PirateTierId,
 } from "../game/config";
+import { nextCombatId } from "./combatId";
 import { spawnProjectile, type Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "aggro" | "retreat";
@@ -14,6 +15,7 @@ export type PirateMode = "idle" | "aggro" | "retreat";
  * when the encounter stance is hostile (or after being attacked).
  */
 export class Pirate {
+  readonly id = nextCombatId("pirate");
   health: number;
   vx = 0;
   vy = 0;

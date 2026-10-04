@@ -4,8 +4,12 @@ export class Hud {
     info: {
       health: number;
       maxHealth: number;
+      plating: number;
+      maxPlating: number;
       shield: number;
       maxShield: number;
+      /** Seconds left before a broken shield starts recharging. */
+      shieldBreakRemaining?: number;
       fuel: number;
       maxFuel: number;
       cargoUsed: number;
@@ -52,8 +56,17 @@ export class Hud {
       ...(showLocation ? [info.locationName] : []),
       "",
       `HP ${Math.ceil(info.health)}/${info.maxHealth}`,
+      ...(info.maxPlating > 0
+        ? [`PL ${Math.ceil(info.plating)}/${info.maxPlating}`]
+        : []),
       ...(info.maxShield > 0
-        ? [`SH ${Math.ceil(info.shield)}/${info.maxShield}`]
+        ? [
+            `SH ${Math.ceil(info.shield)}/${info.maxShield}${
+              (info.shieldBreakRemaining ?? 0) > 0
+                ? ` (down ${(info.shieldBreakRemaining ?? 0).toFixed(1)}s)`
+                : ""
+            }`,
+          ]
         : []),
       ...(info.maxFuel > 0
         ? [`FU ${Math.floor(info.fuel)}/${info.maxFuel}`]
