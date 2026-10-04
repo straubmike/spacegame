@@ -35,21 +35,21 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
-/** Fuel-now reach — light grey, short dashes. Not the solid white selection ring. */
-const NOW_REACH_STROKE = "rgba(226, 226, 226, 0.95)";
+/** Current-fuel reach — quieter light grey, short dashes. Drawn only when shorter than max. */
+const NOW_REACH_STROKE = "rgba(186, 186, 190, 0.58)";
 const NOW_REACH_DASH = [5, 4];
 const NOW_REACH_WIDTH = 2;
-/** Full-tank reach — medium grey, long dashes. Not the amber mission ring ([3, 3]). */
-const MAX_REACH_STROKE = "rgba(148, 148, 148, 0.95)";
+/** Max jump — deeper grey, long dashes. Always the outer (or only) ring. */
+const MAX_REACH_STROKE = "rgba(120, 120, 124, 0.48)";
 const MAX_REACH_DASH = [12, 6];
 const MAX_REACH_WIDTH = 1.5;
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
  * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade.
- * Two unfilled dashed rings mark jump reach from the current system: current
- * fuel, and the equipped drive's max jump. Mission targets may be granted
- * identified visibility.
+ * Unfilled dashed rings mark jump reach from the current system. Max Jump is
+ * always shown. Current fuel is drawn only when it falls short of that max.
+ * Mission targets may be granted identified visibility.
  * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
@@ -114,11 +114,13 @@ export class GalaxyChart {
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
 
     const here = this.toScreen(current.chartX, current.chartY, layout);
+    const currentLy = jumpReachLy(fuelInfo.fuel, jumpRange);
+    const showCurrent = currentLy > 0 && currentLy < jumpRange;
     this.drawReachRings(
       ctx,
       here.x,
       here.y,
-      jumpReachLy(fuelInfo.fuel, jumpRange) * layout.scale,
+      showCurrent ? currentLy * layout.scale : 0,
       jumpRange * layout.scale,
     );
 
@@ -166,7 +168,7 @@ export class GalaxyChart {
       }
     }
 
-    this.drawReachLegend(ctx);
+    if (jumpRange > 0) this.drawReachLegend(ctx, showCurrent);
 
     // Footer
     const footerY = panel.y + panel.h - footerH;
@@ -315,7 +317,8 @@ export class GalaxyChart {
 
   /**
    * Unfilled dashed reach rings, same center and radii as the jump check.
-   * Full tank first, fuel-now on top. No fill, so POIs stay readable.
+   * Max jump first. Current fuel only when that reach is shorter, so a full
+   * reach does not draw a second line on top of Max Jump.
    */
   private drawReachRings(
     ctx: CanvasRenderingContext2D,
@@ -369,19 +372,26 @@ export class GalaxyChart {
     ctx.stroke();
   }
 
-  private drawReachLegend(ctx: CanvasRenderingContext2D): void {
+  private drawReachLegend(
+    ctx: CanvasRenderingContext2D,
+    showCurrent: boolean,
+  ): void {
     const rows = [
-      {
-        stroke: NOW_REACH_STROKE,
-        dash: NOW_REACH_DASH,
-        width: NOW_REACH_WIDTH,
-        label: "Current fuel",
-      },
+      ...(showCurrent
+        ? [
+            {
+              stroke: NOW_REACH_STROKE,
+              dash: NOW_REACH_DASH,
+              width: NOW_REACH_WIDTH,
+              label: "Current fuel",
+            },
+          ]
+        : []),
       {
         stroke: MAX_REACH_STROKE,
         dash: MAX_REACH_DASH,
         width: MAX_REACH_WIDTH,
-        label: "Ship max",
+        label: "Max Jump",
       },
     ];
     const x = this.mapRect.x + 10;
