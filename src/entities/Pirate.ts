@@ -1,7 +1,6 @@
 import { COMBAT } from "../game/config";
 import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import {
-  pirateFit,
   type PirateArchetypeId,
   type ResolvedNpcFit,
 } from "../ship/npcLoadout";
@@ -41,11 +40,11 @@ export class Pirate {
     public x: number,
     public y: number,
     public heading: number,
-    tier: PirateArchetypeId = "raider",
+    fit: ResolvedNpcFit,
     fee = 10,
   ) {
-    this.tier = tier;
-    this.fit = pirateFit(tier);
+    this.tier = fit.hullId;
+    this.fit = fit;
     this.fee = fee;
     this.health = this.fit.coreMax;
     this.shield = this.fit.shieldMax;

@@ -5,6 +5,7 @@ import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
 import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
+  heatPirateFits,
   listSystemPirateKeys,
   pickQuestGiverStation,
   pirateViewKey,
@@ -55,9 +56,11 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
-  archetypeForBand,
   patrolFitForStation,
-  type PirateArchetypeId,
+  pirateFitById,
+  pirateRecipeFits,
+  rollDistressDifficulty,
+  rollPassengerDifficulty,
 } from "../ship/npcLoadout";
 import {
   ChartCatalog,
@@ -71,8 +74,6 @@ import {
 } from "../ship/fuel";
 import {
   distressPiratePlan,
-  rollDistressPirateCount,
-  rollDistressPirateTier,
   rollDistressWantsPirates,
 } from "../ship/distressOdds";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
@@ -530,7 +531,13 @@ export class Game {
         const encounter = this.local.pirate;
         for (const ship of encounter.ships) {
           this.pirates.push(
-            new Pirate(ship.x, ship.y, ship.heading, ship.tier, encounter.fee),
+            new Pirate(
+              ship.x,
+              ship.y,
+              ship.heading,
+              pirateFitById(ship.fitId),
+              encounter.fee,
+            ),
           );
         }
         this.pack = {
@@ -3519,13 +3526,13 @@ export class Game {
     const heading = ang + Math.PI;
 
     if (mission.distressOutcome === "bait") {
-      this.baitPirate = new Pirate(
-        x,
-        y,
-        heading,
-        archetypeForBand("raider", Math.random),
-        0,
-      );
+      const fit = heatPirateFits(
+        this.galaxy,
+        this.local.poiId,
+        Math.random,
+        true,
+      )[0]!;
+      this.baitPirate = new Pirate(x, y, heading, fit, 0);
       this.baitPirate.setPeaceful();
       this.baitPack = {
         phase: "comms",
@@ -3625,10 +3632,10 @@ export class Game {
     this.spawnPirateIntrusion();
   }
 
-  /** Drop a lone scout (rarely a pair) into the current local view near the player. */
+  /** Drop a difficulty pack for this system into the current local view. */
   private spawnPirateIntrusion(): void {
-    const dual = Math.random() < ENCOUNTERS.intrusion.dualChance;
-    const count = dual ? 2 : 1;
+    const fits = heatPirateFits(this.galaxy, this.local.poiId, Math.random);
+    const count = fits.length;
     const fee = ENCOUNTERS.feeByTemplate.scout;
     const angle = Math.random() * Math.PI * 2;
     const dist =
@@ -3641,14 +3648,14 @@ export class Game {
       const offset =
         count === 1
           ? 0
-          : (i === 0 ? -1 : 1) * ENCOUNTERS.formationRadius * 0.5;
+          : ((i / count) * 2 - 1) * ENCOUNTERS.formationRadius * 0.5;
       const heading = Math.atan2(this.ship.y - anchorY, this.ship.x - anchorX);
       this.pirates.push(
         new Pirate(
           anchorX + Math.cos(heading + Math.PI / 2) * offset,
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
-          archetypeForBand("scout", Math.random),
+          fits[i]!,
           fee,
         ),
       );
@@ -3663,18 +3670,21 @@ export class Game {
     };
     this.messages.push(
       count > 1
-        ? "Pirate scouts drop out of the black — unexpected visitors."
-        : "A pirate scout drops out of the black — unexpected visitor.",
+        ? "Pirates drop out of the black — unexpected visitors."
+        : "A pirate drops out of the black — unexpected visitor.",
       "pirate",
     );
   }
 
   /**
    * Passenger-fare jump intercept — taunt then aggro, no fee demand.
-   * Group size / tier scales with passengers aboard.
+   * Difficulty scales with passengers aboard, with overlap.
    */
   private spawnPassengerIntercept(passengers: number): void {
-    const tiers = passengerInterceptTiers(passengers);
+    const tiers = pirateRecipeFits(
+      rollPassengerDifficulty(passengers, Math.random),
+      Math.random,
+    );
     const angle = Math.random() * Math.PI * 2;
     const dist =
       COMBAT.pirateSpawnMin +
@@ -4820,7 +4830,11 @@ export class Game {
 
   private spawnDistressPirates(): void {
     const plan = distressPiratePlan(this.reputation.fuelRatsRep());
-    const n = rollDistressPirateCount(plan);
+    const fits = pirateRecipeFits(
+      rollDistressDifficulty(plan.tierWeights, Math.random),
+      Math.random,
+    );
+    const n = fits.length;
     const fee = plan.fee;
     const angle0 = Math.random() * Math.PI * 2;
     this.distressPirates = [];
@@ -4829,13 +4843,12 @@ export class Game {
       const dist =
         FUEL.distressSpawnMin +
         Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
-      const band = rollDistressPirateTier(plan);
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
-          archetypeForBand(band, Math.random),
+          fits[i]!,
           fee,
         ),
       );
@@ -4849,7 +4862,7 @@ export class Game {
     };
     this.messages.push(
       n > 1
-        ? `Pirate pack: Easy pickings — ${n} raiders on your beacon.`
+        ? `Pirate pack: Easy pickings — ${n} ships on your beacon.`
         : "Pirate: Heard your whimper. Stay put.",
       "pirate",
     );
@@ -5130,17 +5143,3 @@ export class Game {
   }
 }
 
-/**
- * Pirate hulls for a passenger-fare jump intercept.
- * Larger parties draw tougher mixes of the real archetypes.
- */
-function passengerInterceptTiers(passengers: number): PirateArchetypeId[] {
-  if (passengers <= 1) return ["sparrow"];
-  if (passengers === 2) {
-    return Math.random() < 0.55 ? ["interceptor"] : ["sparrow", "courier"];
-  }
-  if (passengers === 3) return ["raider", "sparrow"];
-  return Math.random() < 0.5
-    ? ["bulwark", "sparrow"]
-    : ["interceptor", "prospector"];
-}

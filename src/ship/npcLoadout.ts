@@ -16,10 +16,7 @@ import {
   type WeaponModule,
 } from "./equipment";
 
-/** Heat / distress band. Mapped onto a hull archetype at spawn. */
-export type NpcBandId = "scout" | "raider" | "gunship" | "corsair";
-
-/** One pirate loadout per purchasable (and starter) hull. */
+/** Purchasable hulls pirates and patrols can fly. */
 export type PirateArchetypeId =
   | "sparrow"
   | "pathfinder"
@@ -72,13 +69,6 @@ interface FitSpec {
   utilityIds: readonly string[];
   role: "pirate" | "patrol";
 }
-
-const BAND_POOLS: Record<NpcBandId, readonly PirateArchetypeId[]> = {
-  scout: ["sparrow", "pathfinder", "courier"],
-  raider: ["prospector", "interceptor", "liner"],
-  gunship: ["hauler", "raider", "liner"],
-  corsair: ["bulwark", "raider"],
-};
 
 function mustHull(id: string): HullDef {
   const hull = hullById(id);
@@ -179,74 +169,42 @@ function resolveFit(spec: FitSpec): ResolvedNpcFit {
 }
 
 /**
- * One of each hull. Slot count is the hull's, so a 1-slot hull fires one
- * family, Interceptor and Raider mix two, and Bulwark runs all three.
- * Drives are the factory coil for that hull.
+ * Pirate ship fits. Several recipes share hulls with different weapons and
+ * defense. Slot count is always the hull's. NPCs still do not spend ammo.
+ *
+ * Small (1 weapon): Sparrow, Courier, Prospector, Pathfinder.
+ * Bulky (1 weapon, counts as large): Hauler, Liner.
+ * Multi-weapon: Interceptor 2, Raider 2, Bulwark 3.
  */
 const PIRATE_SPECS: readonly FitSpec[] = [
-  {
-    id: "sparrow",
-    hullId: "sparrow",
-    weaponIds: ["gun_mk1"],
-    utilityIds: ["light_shield"],
-    role: "pirate",
-  },
-  {
-    id: "pathfinder",
-    hullId: "pathfinder",
-    weaponIds: ["missile_mk1"],
-    utilityIds: ["light_shield"],
-    role: "pirate",
-  },
-  {
-    id: "courier",
-    hullId: "courier",
-    weaponIds: ["gun_mk2"],
-    utilityIds: ["light_shield"],
-    role: "pirate",
-  },
-  {
-    id: "prospector",
-    hullId: "prospector",
-    weaponIds: ["cannon_mk1"],
-    utilityIds: ["light_shield"],
-    role: "pirate",
-  },
-  {
-    id: "hauler",
-    hullId: "hauler",
-    weaponIds: ["cannon_mk2"],
-    utilityIds: ["medium_shield", "hull_plating"],
-    role: "pirate",
-  },
-  {
-    id: "liner",
-    hullId: "liner",
-    weaponIds: ["missile_mk2"],
-    utilityIds: ["medium_shield"],
-    role: "pirate",
-  },
-  {
-    id: "interceptor",
-    hullId: "interceptor",
-    weaponIds: ["gun_mk1", "cannon_mk1"],
-    utilityIds: ["light_shield"],
-    role: "pirate",
-  },
-  {
-    id: "raider",
-    hullId: "raider",
-    weaponIds: ["gun_mk2", "missile_mk1"],
-    utilityIds: ["light_shield", "hull_plating"],
-    role: "pirate",
-  },
-  {
-    id: "bulwark",
-    hullId: "bulwark",
-    weaponIds: ["cannon_mk2", "gun_mk2", "missile_mk2"],
-    utilityIds: ["medium_shield", "reinforced_hull"],
-    role: "pirate",
-  },
+  { id: "sp-gun1", hullId: "sparrow", weaponIds: ["gun_mk1"], utilityIds: [], role: "pirate" },
+  { id: "co-gun1-s", hullId: "courier", weaponIds: ["gun_mk1"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "pf-mis1-s", hullId: "pathfinder", weaponIds: ["missile_mk1"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "pr-can1-p", hullId: "prospector", weaponIds: ["cannon_mk1"], utilityIds: ["hull_plating"], role: "pirate" },
+  { id: "co-gun2-s", hullId: "courier", weaponIds: ["gun_mk2"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "pf-mis2", hullId: "pathfinder", weaponIds: ["missile_mk2"], utilityIds: [], role: "pirate" },
+  { id: "sp-can1-sp", hullId: "sparrow", weaponIds: ["cannon_mk1"], utilityIds: ["light_shield", "hull_plating"], role: "pirate" },
+  { id: "co-mis1-s", hullId: "courier", weaponIds: ["missile_mk1"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "rd-g1m1-s", hullId: "raider", weaponIds: ["gun_mk1", "missile_mk1"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "in-c1g1-p", hullId: "interceptor", weaponIds: ["cannon_mk1", "gun_mk1"], utilityIds: ["hull_plating"], role: "pirate" },
+  { id: "ha-can1", hullId: "hauler", weaponIds: ["cannon_mk1"], utilityIds: [], role: "pirate" },
+  { id: "ln-mis1-p", hullId: "liner", weaponIds: ["missile_mk1"], utilityIds: ["hull_plating"], role: "pirate" },
+  { id: "pf-gun2-s", hullId: "pathfinder", weaponIds: ["gun_mk2"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "rd-g2c2-s2p1", hullId: "raider", weaponIds: ["gun_mk2", "cannon_mk2"], utilityIds: ["medium_shield", "hull_plating"], role: "pirate" },
+  { id: "rd-m2g2-s2p1", hullId: "raider", weaponIds: ["missile_mk2", "gun_mk2"], utilityIds: ["medium_shield", "hull_plating"], role: "pirate" },
+  { id: "ha-can2-s", hullId: "hauler", weaponIds: ["cannon_mk2"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "bw-all1-s", hullId: "bulwark", weaponIds: ["cannon_mk1", "gun_mk1", "missile_mk1"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "rd-g2m2-s2p2", hullId: "raider", weaponIds: ["gun_mk2", "missile_mk2"], utilityIds: ["medium_shield", "reinforced_hull"], role: "pirate" },
+  { id: "ln-mis2-s2", hullId: "liner", weaponIds: ["missile_mk2"], utilityIds: ["medium_shield"], role: "pirate" },
+  { id: "pf-gun2-p", hullId: "pathfinder", weaponIds: ["gun_mk2"], utilityIds: ["hull_plating"], role: "pirate" },
+  { id: "bw-all1-sp", hullId: "bulwark", weaponIds: ["cannon_mk1", "gun_mk1", "missile_mk1"], utilityIds: ["light_shield", "hull_plating"], role: "pirate" },
+  { id: "rd-g3c2-s2p2", hullId: "raider", weaponIds: ["gun_mk3", "cannon_mk2"], utilityIds: ["medium_shield", "reinforced_hull"], role: "pirate" },
+  { id: "ha-can2-s2p1", hullId: "hauler", weaponIds: ["cannon_mk2"], utilityIds: ["medium_shield", "hull_plating"], role: "pirate" },
+  { id: "sp-mis2-s", hullId: "sparrow", weaponIds: ["missile_mk2"], utilityIds: ["light_shield"], role: "pirate" },
+  { id: "bw-all2-sp", hullId: "bulwark", weaponIds: ["cannon_mk2", "gun_mk2", "missile_mk2"], utilityIds: ["light_shield", "hull_plating"], role: "pirate" },
+  { id: "rd-g3c3-s2p2", hullId: "raider", weaponIds: ["gun_mk3", "cannon_mk3"], utilityIds: ["medium_shield", "reinforced_hull"], role: "pirate" },
+  { id: "ha-can3-s2p1", hullId: "hauler", weaponIds: ["cannon_mk3"], utilityIds: ["medium_shield", "hull_plating"], role: "pirate" },
+  { id: "co-mis2-s", hullId: "courier", weaponIds: ["missile_mk2"], utilityIds: ["light_shield"], role: "pirate" },
 ];
 
 /**
@@ -283,29 +241,159 @@ const PATROL_SPECS: readonly FitSpec[] = [
 const PIRATE_FITS = PIRATE_SPECS.map(resolveFit);
 const PATROL_FITS = PATROL_SPECS.map(resolveFit);
 
-const PIRATE_BY_ID: Record<PirateArchetypeId, ResolvedNpcFit> = {
-  sparrow: PIRATE_FITS[0]!,
-  pathfinder: PIRATE_FITS[1]!,
-  courier: PIRATE_FITS[2]!,
-  prospector: PIRATE_FITS[3]!,
-  hauler: PIRATE_FITS[4]!,
-  liner: PIRATE_FITS[5]!,
-  interceptor: PIRATE_FITS[6]!,
-  raider: PIRATE_FITS[7]!,
-  bulwark: PIRATE_FITS[8]!,
-};
+const PIRATE_BY_ID = new Map(PIRATE_FITS.map((fit) => [fit.id, fit]));
 
-export function pirateFit(id: PirateArchetypeId): ResolvedNpcFit {
-  return PIRATE_BY_ID[id];
+export type PirateDifficulty = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** One pack at a difficulty. Ship ids are pirate fit ids. */
+const RECIPES: readonly { difficulty: PirateDifficulty; ships: readonly string[] }[] = [
+  // 1 — one small, Mk I, shield or plating or neither.
+  { difficulty: 1, ships: ["sp-gun1"] },
+  { difficulty: 1, ships: ["co-gun1-s"] },
+  { difficulty: 1, ships: ["pf-mis1-s"] },
+  { difficulty: 1, ships: ["pr-can1-p"] },
+  // 2 — one better small, or two difficulty-1 ships.
+  { difficulty: 2, ships: ["co-gun2-s"] },
+  { difficulty: 2, ships: ["pf-mis2"] },
+  { difficulty: 2, ships: ["sp-can1-sp"] },
+  { difficulty: 2, ships: ["sp-gun1", "pf-mis1-s"] },
+  // 3 — one multi with one defense, or a poor bulky plus smalls.
+  { difficulty: 3, ships: ["rd-g1m1-s"] },
+  { difficulty: 3, ships: ["in-c1g1-p"] },
+  { difficulty: 3, ships: ["ha-can1", "sp-gun1", "co-mis1-s"] },
+  { difficulty: 3, ships: ["ln-mis1-p", "pf-gun2-s"] },
+  // 4 — multi with Mk II weapons and both defense layers, or bulky plus a better small.
+  { difficulty: 4, ships: ["rd-g2c2-s2p1"] },
+  { difficulty: 4, ships: ["rd-m2g2-s2p1"] },
+  { difficulty: 4, ships: ["ha-can2-s", "co-gun2-s"] },
+  // 5 — Bulwark enters on a thin shield, or the raider's plating steps up, or the bulky shield does.
+  { difficulty: 5, ships: ["bw-all1-s"] },
+  { difficulty: 5, ships: ["rd-g2m2-s2p2"] },
+  { difficulty: 5, ships: ["ln-mis2-s2", "pf-gun2-p"] },
+  // 6 — one layer or one mark on the previous step.
+  { difficulty: 6, ships: ["bw-all1-sp"] },
+  { difficulty: 6, ships: ["rd-g3c2-s2p2"] },
+  { difficulty: 6, ships: ["ha-can2-s2p1", "sp-mis2-s"] },
+  // 7 — one more mark. A kitted player can still fight a single top ship.
+  { difficulty: 7, ships: ["bw-all2-sp"] },
+  { difficulty: 7, ships: ["rd-g3c3-s2p2"] },
+  { difficulty: 7, ships: ["ha-can3-s2p1", "co-mis2-s"] },
+];
+
+const MULTI_HULLS = new Set<PirateArchetypeId>(["interceptor", "raider", "bulwark"]);
+
+function assertRecipes(): void {
+  const seen = new Set<string>();
+  for (const fit of PIRATE_FITS) {
+    if (seen.has(fit.id)) throw new Error(`duplicate pirate fit ${fit.id}`);
+    seen.add(fit.id);
+  }
+  for (const recipe of RECIPES) {
+    if (recipe.ships.length < 1 || recipe.ships.length > 4) {
+      throw new Error(`pirate recipe pack size ${recipe.ships.length}`);
+    }
+    for (const id of recipe.ships) {
+      const fit = PIRATE_BY_ID.get(id);
+      if (!fit) throw new Error(`recipe missing fit ${id}`);
+      if (recipe.difficulty >= 3 && MULTI_HULLS.has(fit.hullId)) {
+        if (fit.shieldMax <= 0 && fit.platingMax <= 0) {
+          throw new Error(`${id} is a multi-weapon ship with no defense`);
+        }
+      }
+    }
+  }
+  for (let d = 1; d <= 7; d += 1) {
+    const at = RECIPES.filter((recipe) => recipe.difficulty === d);
+    if (at.length < 3) throw new Error(`difficulty ${d} needs several recipes`);
+    if (!at.some((recipe) => recipe.ships.length === 1)) {
+      throw new Error(`difficulty ${d} needs a one-ship recipe`);
+    }
+  }
 }
 
-export function archetypeForBand(
-  band: NpcBandId,
+assertRecipes();
+
+export function pirateFitById(id: string): ResolvedNpcFit {
+  const fit = PIRATE_BY_ID.get(id);
+  if (!fit) throw new Error(`unknown pirate fit ${id}`);
+  return fit;
+}
+
+function pickWeighted(weights: readonly number[], rng: () => number): number {
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let roll = rng() * total;
+  for (let i = 0; i < weights.length; i += 1) {
+    roll -= weights[i]!;
+    if (roll <= 0) return i;
+  }
+  return weights.length - 1;
+}
+
+/** Index 0 is difficulty 1. Adjacent bands share a step or two. */
+const HEAT_WEIGHTS: Record<string, readonly number[]> = {
+  near: [50, 34, 16, 0, 0, 0, 0],
+  mid: [0, 18, 34, 32, 16, 0, 0],
+  far: [0, 0, 0, 16, 34, 32, 18],
+  midWealthy: [0, 0, 18, 34, 32, 16, 0],
+  farWealthy: [0, 0, 0, 0, 22, 40, 38],
+};
+
+const DISTRESS_BAND_DIFFICULTY = {
+  scout: [1, 1, 2],
+  raider: [2, 3, 4],
+  gunship: [4, 5, 6],
+  corsair: [5, 6, 7],
+} as const;
+
+export function rollHeatDifficulty(
+  band: "near" | "mid" | "far",
+  wealthy: boolean,
   rng: () => number,
-): PirateArchetypeId {
-  const pool = BAND_POOLS[band];
-  const index = Math.floor(rng() * pool.length) % pool.length;
-  return pool[index]!;
+): PirateDifficulty {
+  const key = wealthy && band !== "near" ? `${band}Wealthy` : band;
+  const index = pickWeighted(HEAT_WEIGHTS[key]!, rng);
+  return (index + 1) as PirateDifficulty;
+}
+
+export function rollDistressDifficulty(
+  weights: { scout: number; raider: number; gunship: number; corsair: number },
+  rng: () => number,
+): PirateDifficulty {
+  const bands = ["scout", "raider", "gunship", "corsair"] as const;
+  const bandIndex = pickWeighted(
+    bands.map((band) => Math.max(0, weights[band])),
+    rng,
+  );
+  const options = DISTRESS_BAND_DIFFICULTY[bands[bandIndex]!];
+  return options[Math.floor(rng() * options.length) % options.length]!;
+}
+
+export function rollPassengerDifficulty(
+  passengers: number,
+  rng: () => number,
+): PirateDifficulty {
+  const table =
+    passengers <= 1
+      ? [1, 1, 2]
+      : passengers === 2
+        ? [2, 2, 3]
+        : passengers === 3
+          ? [3, 4, 4]
+          : [4, 5, 6];
+  return table[Math.floor(rng() * table.length) % table.length] as PirateDifficulty;
+}
+
+export function pirateRecipeFits(
+  difficulty: PirateDifficulty,
+  rng: () => number,
+  solo = false,
+): ResolvedNpcFit[] {
+  const pool = RECIPES.filter(
+    (recipe) =>
+      recipe.difficulty === difficulty && (!solo || recipe.ships.length === 1),
+  );
+  const recipe = pool[Math.floor(rng() * pool.length) % pool.length]!;
+  return recipe.ships.map((id) => pirateFitById(id));
 }
 
 /** Stable per station key hash — neighboring stations can field different hulls. */

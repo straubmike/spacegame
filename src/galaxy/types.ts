@@ -1,5 +1,3 @@
-import type { PirateArchetypeId } from "../ship/npcLoadout";
-
 export type PoiType =
   | "starSystem"
   | "blackHole"
@@ -67,9 +65,6 @@ export interface Landmark {
   radius: number;
 }
 
-/** Hull archetype fitted on a seeded pirate ship. */
-export type PirateTier = PirateArchetypeId;
-
 /** Encounter shape chosen by heat / wealth (Must-have 4). */
 export type EncounterTemplate =
   | "scout"
@@ -83,7 +78,8 @@ export interface PirateShipSpawn {
   x: number;
   y: number;
   heading: number;
-  tier: PirateTier;
+  /** Pirate fit id from the difficulty ladder. */
+  fitId: string;
 }
 
 /**
