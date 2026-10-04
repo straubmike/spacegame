@@ -118,14 +118,20 @@ export function stationBayStock(
 
 /**
  * TEMP(weapons-pass): strip before merge.
- * Starting-system bays list one of every kinetic weapon at no cost.
+ * Starting-system bays list one of every kinetic weapon, plus one of each
+ * ammo expander, at no cost. Catalog prices stay on the modules themselves.
  */
 export function applyTempStartBayStock(
   stock: EquipModule[],
   poiId: number,
 ): EquipModule[] {
   if (poiId !== GALAXY.startPoiId) return stock;
-  const kept = stock.filter((m) => m.kind !== "weapon");
+  const freeIds = new Set([
+    "ammo_expander_1",
+    "ammo_expander_2",
+    "ammo_expander_3",
+  ]);
+  const kept = stock.filter((m) => m.kind !== "weapon" && !freeIds.has(m.id));
   const free = [
     MODULES.gunMk1,
     MODULES.gunMk2,
@@ -136,6 +142,9 @@ export function applyTempStartBayStock(
     MODULES.missileMk1,
     MODULES.missileMk2,
     MODULES.missileMk3,
+    MODULES.ammoExpander1,
+    MODULES.ammoExpander2,
+    MODULES.ammoExpander3,
   ].map((mod) => ({ ...cloneModule(mod), price: 0 }));
   return [...free, ...kept];
 }

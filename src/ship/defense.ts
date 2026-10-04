@@ -1,5 +1,3 @@
-import { WEAPONS } from "../game/config";
-
 /** Shield bank, plating bank, then core. Numbers are current HP. */
 export interface DefenseBanks {
   shield: number;
@@ -17,8 +15,9 @@ export interface DefenseBanks {
  * Shields are first. Damage against them is `amount * shieldMultiplier`.
  * A multiplier of 0 (guns) leaves an intact shield untouched and does not
  * spill. If the scaled damage is at least the current shield, the shield
- * breaks, excess is wiped, and recharge waits out `shieldBreakDowntime`.
- * That hit does not continue into plating or core.
+ * breaks, excess is wiped, and recharge waits out `breakDowntime`
+ * (the equipped shield module's stat). That hit does not continue into
+ * plating or core.
  *
  * Once the shield bank is empty, the full amount hits plating (kinetic is
  * unreduced there) and any leftover spills into core.
@@ -27,7 +26,7 @@ export function applyKineticHit(
   state: DefenseBanks,
   amount: number,
   shieldMultiplier: number,
-  breakDowntime: number = WEAPONS.shieldBreakDowntime,
+  breakDowntime: number,
 ): void {
   if (amount <= 0 || !Number.isFinite(amount)) return;
 

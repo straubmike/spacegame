@@ -3747,7 +3747,7 @@ export class Game {
 
   /**
    * Each weapon slot listens to its own input.
-   * 0 Space, 1 left click, 2 right click (wired even though no hull has a third slot).
+   * 0 Space, 1 left click, 2 right click.
    * Holding one input does not fire the other slots.
    */
   private firePlayerWeapons(): void {

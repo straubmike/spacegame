@@ -338,8 +338,21 @@ export class Ship {
     shieldMultiplier: number = WEAPONS.npcShieldMultiplier,
   ): void {
     const state = this.defenseBanks();
-    applyKineticHit(state, amount, shieldMultiplier);
+    applyKineticHit(state, amount, shieldMultiplier, this.shieldBreakDowntime());
     this.writeDefenseBanks(state);
+  }
+
+  /**
+   * Shortest break wait among equipped shield banks.
+   * No shield module means there is nothing to wait out.
+   */
+  shieldBreakDowntime(): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (const util of this.loadout.utilities()) {
+      if (util.shieldMax <= 0) continue;
+      if (util.shieldBreakDowntime < best) best = util.shieldBreakDowntime;
+    }
+    return Number.isFinite(best) ? best : 0;
   }
 
   /**

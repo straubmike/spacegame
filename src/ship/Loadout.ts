@@ -89,15 +89,35 @@ export class ShipLoadout {
     return this.slots.filter((s) => s.kind === kind);
   }
 
+  /** Sum of fitted ammo-expander fractions (0.25 = +25%). */
+  ammoBonusFraction(): number {
+    return this.utilities().reduce((sum, u) => sum + u.ammoBonus, 0);
+  }
+
+  /**
+   * Magazine after expanders. Each equipped weapon gets the same fraction.
+   * Unlimited weapons stay unlimited.
+   */
+  magazineSize(weapon: WeaponModule): number | null {
+    if (weapon.ammoMax === null) return null;
+    const bonus = this.ammoBonusFraction();
+    if (bonus <= 0) return weapon.ammoMax;
+    return Math.max(
+      weapon.ammoMax,
+      Math.floor(weapon.ammoMax * (1 + bonus)),
+    );
+  }
+
   /** Restore ammo / warp pools from equipped module caps. */
   refillConsumables(): void {
     this.ammo.clear();
     for (const slot of this.slots) {
       const equipped = slot.equipped;
       if (equipped?.kind !== "weapon") continue;
+      const magazine = this.magazineSize(equipped);
       this.ammo.set(
         slot.id,
-        equipped.ammoMax === null ? Number.POSITIVE_INFINITY : equipped.ammoMax,
+        magazine === null ? Number.POSITIVE_INFINITY : magazine,
       );
     }
 

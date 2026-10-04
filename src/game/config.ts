@@ -204,16 +204,11 @@ export const COMBAT = {
  *
  * Shields take `shieldMultiplier` of a hit. If that scaled damage meets or
  * exceeds the shield bank, the shield breaks and the excess is wiped
- * (no spill into plating or core). Plating then core take full kinetic.
+ * (no spill into plating or core). How long the break lasts is the
+ * shield module's own stat. Plating then core take full kinetic.
  * Guns never touch shields (multiplier 0).
  */
 export const WEAPONS = {
-  /**
-   * After a hit reduces shields to 0, recharge cannot start until this
-   * many seconds pass. Partial shield damage still uses the module's
-   * quiet-period delay; a break pays this downtime instead.
-   */
-  shieldBreakDowntime: 3,
   /**
    * Pirate and patrol shots stay simple kinetic slugs.
    * Half of each hit lands on shields; overkill past the bank is wiped.

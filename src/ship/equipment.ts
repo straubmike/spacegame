@@ -85,6 +85,17 @@ export interface UtilityModule extends ModuleBase {
   /** Shield HP restored per second while regenerating. */
   shieldRegenRate: number;
   /**
+   * Seconds a broken shield waits before recharge can start.
+   * 0 when this module has no shield bank. Higher marks recover sooner.
+   * Several shields equipped: the ship uses the shortest wait.
+   */
+  shieldBreakDowntime: number;
+  /**
+   * Fraction added to every equipped weapon's magazine (0.25 = +25%).
+   * Multiple expanders stack by summing the fractions.
+   */
+  ammoBonus: number;
+  /**
    * Plating bank HP. Sits in front of core hull after shields.
    * Does not raise core HP.
    */
@@ -471,12 +482,14 @@ export const MODULES = {
     id: "light_shield",
     name: "Shield",
     blurb:
-      "Shield bank in front of plating and core. A break waits out downtime before recharge — not an instant refill.",
+      "Shield bank in front of plating and core. A break waits 12s before recharge.",
     price: 70,
     tier: 1,
     shieldMax: 4,
     shieldRegenDelay: 2.5,
     shieldRegenRate: 2.5,
+    shieldBreakDowntime: 12,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -498,6 +511,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 3,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -518,6 +533,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 8,
     passengerCapacity: 0,
@@ -532,12 +549,14 @@ export const MODULES = {
     kind: "utility",
     id: "medium_shield",
     name: "Shield",
-    blurb: "Thicker lattice and quicker recover. Mid-route self-defense.",
+    blurb: "Thicker lattice. A break waits 8s before recharge.",
     price: 230,
     tier: 2,
     shieldMax: 8,
     shieldRegenDelay: 2.0,
     shieldRegenRate: 3.5,
+    shieldBreakDowntime: 8,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -558,6 +577,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 6,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -578,6 +599,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 14,
     passengerCapacity: 0,
@@ -592,12 +615,14 @@ export const MODULES = {
     kind: "utility",
     id: "heavy_shield",
     name: "Shield",
-    blurb: "Late deflector bank. Fat buffer and aggressive regen.",
+    blurb: "Late deflector bank. A break waits 5s before recharge.",
     price: 500,
     tier: 3,
     shieldMax: 14,
     shieldRegenDelay: 1.6,
     shieldRegenRate: 5.0,
+    shieldBreakDowntime: 5,
+    ammoBonus: 0,
     hullBonus: 1,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -618,6 +643,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 10,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -638,6 +665,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 22,
     passengerCapacity: 0,
@@ -660,6 +689,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -681,6 +712,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 6,
     passengerCapacity: 0,
@@ -703,6 +736,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 1,
@@ -725,6 +760,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 2,
@@ -747,6 +784,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 4,
@@ -768,6 +807,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 5,
     passengerCapacity: 0,
@@ -789,6 +830,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -810,6 +853,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -836,6 +881,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -850,13 +897,85 @@ export const MODULES = {
     kind: "utility",
     id: "dual_lattice",
     name: "Dual Lattice",
-    blurb: "Hybrid kit — solid shields with a touch of plating. Jack of both.",
+    blurb:
+      "Hybrid kit — shields plus plating. A break waits 6s. Not on the Shield mark ladder.",
     price: 540,
     tier: 3,
     shieldMax: 10,
     shieldRegenDelay: 1.8,
     shieldRegenRate: 4.0,
+    shieldBreakDowntime: 6,
+    ammoBonus: 0,
     hullBonus: 4,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander1: {
+    kind: "utility",
+    id: "ammo_expander_1",
+    name: "Ammo Expander",
+    blurb:
+      "Magazine feed for every fitted weapon. Adds 25% rounds. Extra expanders stack.",
+    price: 80,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0.25,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander2: {
+    kind: "utility",
+    id: "ammo_expander_2",
+    name: "Ammo Expander",
+    blurb:
+      "Larger feeds on every fitted weapon. Adds 50% rounds. Stacks with other expanders.",
+    price: 240,
+    tier: 2,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0.5,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander3: {
+    kind: "utility",
+    id: "ammo_expander_3",
+    name: "Ammo Expander",
+    blurb:
+      "Deep magazines on every fitted weapon. Doubles rounds. Stacks with other expanders.",
+    price: 500,
+    tier: 3,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 1,
+    hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
     mineralScanRange: 0,
@@ -908,6 +1027,9 @@ export const CATALOG: EquipModule[] = [
   MODULES.fuelScoop,
   MODULES.expandedFuelTank,
   MODULES.surveyScanner,
+  MODULES.ammoExpander1,
+  MODULES.ammoExpander2,
+  MODULES.ammoExpander3,
 ];
 
 export function createStarterSlots(): ShipSlot[] {
@@ -915,8 +1037,21 @@ export function createStarterSlots(): ShipSlot[] {
     {
       id: "slot_weapon_0",
       kind: "weapon",
-      label: "Weapon",
+      label: "Weapon A",
       equipped: cloneModule(MODULES.gunMk1),
+    },
+    // TEMP(weapons-pass): extra starter hardpoints. Strip before merge.
+    {
+      id: "slot_weapon_1",
+      kind: "weapon",
+      label: "Weapon B",
+      equipped: null,
+    },
+    {
+      id: "slot_weapon_2",
+      kind: "weapon",
+      label: "Weapon C",
+      equipped: null,
     },
     {
       id: "slot_drive_0",
@@ -989,7 +1124,7 @@ export function tierLabel(tier: ModuleTier): string {
 
 /**
  * Hardpoint index → held input.
- * Slot 3 is right click even though no current hull has a third weapon slot.
+ * Slot 1 Space, slot 2 left click, slot 3 right click.
  */
 export const WEAPON_SLOT_BINDINGS = ["Space", "L-click", "R-click"] as const;
 
@@ -1017,6 +1152,9 @@ const TIER_MARK_MODULE_IDS = new Set<string>([
   "cargo_rack",
   "expanded_hold",
   "freighter_bay",
+  "ammo_expander_1",
+  "ammo_expander_2",
+  "ammo_expander_3",
 ]);
 
 export function moduleShowsTierMark(mod: EquipModule): boolean {

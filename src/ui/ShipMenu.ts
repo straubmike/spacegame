@@ -1010,7 +1010,16 @@ export class ShipMenu {
 
       if (otherRows && compareAgainst) {
         const other = otherRows[i];
-        if (
+        const crossAmmo =
+          row.label === "Ammunition" &&
+          mod.kind === "weapon" &&
+          compareAgainst.kind === "weapon" &&
+          mod.family !== compareAgainst.family;
+        const tw = ctx.measureText(`${row.label}  ${row.text}`).width;
+        if (crossAmmo) {
+          ctx.fillStyle = "rgba(150, 200, 255, 0.95)";
+          ctx.fillText("TYPE CHANGE", x + tw + 8, by);
+        } else if (
           other &&
           row.value !== null &&
           other.value !== null &&
@@ -1019,18 +1028,10 @@ export class ShipMenu {
         ) {
           const delta = other.value - row.value;
           if (Math.abs(delta) > 1e-6) {
-            const crossAmmo =
-              row.label === "Ammunition" &&
-              mod.kind === "weapon" &&
-              compareAgainst.kind === "weapon" &&
-              mod.family !== compareAgainst.family;
             const label = row.lowerIsBetter
               ? formatSignedSeconds(delta)
               : formatDelta(delta);
-            const tw = ctx.measureText(`${row.label}  ${row.text}`).width;
-            if (crossAmmo) {
-              ctx.fillStyle = "rgba(150, 200, 255, 0.95)";
-            } else if (row.lowerIsBetter) {
+            if (row.lowerIsBetter) {
               ctx.fillStyle =
                 delta < 0
                   ? "rgba(90, 210, 130, 0.95)"
@@ -1310,6 +1311,21 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       value: mod.shieldRegenRate,
     },
     {
+      label: "Break downtime",
+      text:
+        mod.shieldBreakDowntime > 0
+          ? `${mod.shieldBreakDowntime.toFixed(0)} s`
+          : "—",
+      value: mod.shieldBreakDowntime,
+      lowerIsBetter: true,
+    },
+    {
+      label: "Ammo bonus",
+      text:
+        mod.ammoBonus > 0 ? `+${Math.round(mod.ammoBonus * 100)}%` : "—",
+      value: Math.round(mod.ammoBonus * 100),
+    },
+    {
       label: "Plating",
       text: `${mod.hullBonus}`,
       value: mod.hullBonus,
@@ -1359,21 +1375,27 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
 }
 
 function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
-  let ammo = mod.ammoMax === null ? Number.POSITIVE_INFINITY : mod.ammoMax;
+  const magazine = loadout.magazineSize(mod);
+  let ammo = magazine === null ? Number.POSITIVE_INFINITY : magazine;
   for (const slot of loadout.slots) {
     if (slot.equipped === mod) {
       ammo = loadout.ammoIn(slot.id);
       break;
     }
   }
+  const bonusPct = Math.round(loadout.ammoBonusFraction() * 100);
+  const ammoText =
+    magazine !== null && bonusPct > 0
+      ? `${formatAmmo(magazine, ammo)} (+${bonusPct}%)`
+      : formatAmmo(magazine, ammo);
   const rof = rateOfFire(mod.fireCooldown);
   const shieldPct = Math.round(mod.shieldMultiplier * 100);
   const trackDeg = (mod.trackingTurn * 180) / Math.PI;
   return [
     {
       label: "Ammunition",
-      text: formatAmmo(mod.ammoMax, ammo),
-      value: mod.ammoMax,
+      text: ammoText,
+      value: magazine,
     },
     {
       label: "Damage",

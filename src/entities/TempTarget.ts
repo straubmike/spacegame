@@ -1,4 +1,5 @@
-import { TEMP_TARGET, WEAPONS } from "../game/config";
+import { TEMP_TARGET } from "../game/config";
+import { MODULES } from "../ship/equipment";
 import { applyKineticHit, tickShieldRegen } from "../ship/defense";
 
 /**
@@ -35,7 +36,13 @@ export class TempTarget {
       timeSinceDamage: this.timeSinceDamage,
       shieldBreakRemaining: this.shieldBreakRemaining,
     };
-    applyKineticHit(state, amount, shieldMultiplier, WEAPONS.shieldBreakDowntime);
+    // Wears Shield Mk I. Downtime is that module's stat, not a private timer.
+    applyKineticHit(
+      state,
+      amount,
+      shieldMultiplier,
+      MODULES.lightShield.shieldBreakDowntime,
+    );
     this.shield = state.shield;
     this.plating = state.plating;
     this.health = state.core;
