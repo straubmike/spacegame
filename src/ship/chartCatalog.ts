@@ -25,6 +25,12 @@ export class ChartCatalog {
   /** In-range neighbors of visited POIs + mission target grants. */
   private readonly identified = new Set<number>();
 
+  /** Forget visited and identified POIs (new run). */
+  clear(): void {
+    this.visited.clear();
+    this.identified.clear();
+  }
+
   get visitedIds(): ReadonlySet<number> {
     return this.visited;
   }

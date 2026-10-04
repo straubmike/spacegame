@@ -10,6 +10,7 @@ import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud } from "../ui/Hud";
+import type { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "../ui/menu";
 import { galacticFuelCost } from "../ship/fuel";
 import type { GalaxyChart, ChartPoiHints } from "../ui/GalaxyChart";
@@ -313,6 +314,38 @@ export class Renderer {
       ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, args.fadeAlpha)})`;
       ctx.fillRect(0, 0, w, h);
     }
+  }
+
+  /** Starfield and title card. Flight world stays hidden until Begin. */
+  drawTitle(
+    starfield: Starfield,
+    screen: StartScreen,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const ctx = this.ctx;
+    ctx.fillStyle = "#05070c";
+    ctx.fillRect(0, 0, w, h);
+    starfield.draw(ctx, w, h);
+    ctx.fillStyle = "rgba(5, 7, 12, 0.62)";
+    ctx.fillRect(0, 0, w, h);
+    screen.draw(ctx, w, h, pointerX, pointerY);
+  }
+
+  /** Dim the frozen flight view and show the ship-destroyed card. */
+  drawGameOver(
+    screen: GameOverScreen,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const ctx = this.ctx;
+    ctx.fillStyle = "rgba(5, 7, 12, 0.55)";
+    ctx.fillRect(0, 0, w, h);
+    screen.draw(ctx, w, h, pointerX, pointerY);
   }
 
   private drawFuelWarn(

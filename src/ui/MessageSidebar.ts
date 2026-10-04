@@ -22,6 +22,13 @@ export class MessageSidebar {
   /** Hit target — always the fixed panel rect, even when hidden. */
   private hitArea: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
+  clear(): void {
+    this.lines.length = 0;
+    this.scroll = 0;
+    this.maxScroll = 0;
+    this.hoverActive = false;
+  }
+
   push(text: string, tone: CommsTone = "neutral"): void {
     this.lines.push({ text, age: 0, tone });
     while (this.lines.length > DOCK.messageMax) {

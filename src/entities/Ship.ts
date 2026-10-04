@@ -35,6 +35,16 @@ export class Ship {
   prevHeading = this.heading;
 
   constructor() {
+    this.resetForNewRun();
+  }
+
+  /** Factory starter hull, full tanks, and starting credits. */
+  resetForNewRun(): void {
+    this.credits = ECONOMY.startingCredits;
+    this.fleet.resetToStarter();
+    this.vx = 0;
+    this.vy = 0;
+    this.timeSinceDamage = Number.POSITIVE_INFINITY;
     this.applyOwnedShip(this.fleet.active, { refillShield: true, fullHealth: true });
   }
 

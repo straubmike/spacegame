@@ -45,6 +45,11 @@ export class Keyboard {
     return true;
   }
 
+  /** Drop queued key taps so they do not fire on the next gameplay frame. */
+  discardEdges(): void {
+    this.edges.clear();
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     this.pressed.add(e.code);
