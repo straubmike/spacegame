@@ -153,6 +153,19 @@ export class ReputationTracker {
   /** Once true, Rebels stay on the L list even if standing returns to 0. */
   private rebelsRevealed = false;
 
+  /** Wipe session standing so a new run starts Neutral. */
+  reset(): void {
+    this.stations.clear();
+    this.stationLabels.clear();
+    this.pirateStanding = 0;
+    this.fuelRatsStanding = 0;
+    this.imperialStanding = 0;
+    this.rebelsStanding = 0;
+    this.merchantsStanding = 0;
+    this.cartographersStanding = 0;
+    this.rebelsRevealed = false;
+  }
+
   stationStanding(stationKey: string): number {
     return this.stations.get(stationKey) ?? 0;
   }

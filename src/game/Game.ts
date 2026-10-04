@@ -96,6 +96,7 @@ import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
 import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
+import { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { factoryPassengerCapacity, hullById } from "../ship/hulls";
 import {
   ABANDONED_DERELICT_CARGO_ID,
@@ -123,6 +124,9 @@ import {
 } from "../ship/missions";
 
 type FadePhase = "idle" | "fadeOut" | "fadeIn";
+
+/** Title before the first tick of a run; game over when the hull is lost. */
+type RunPhase = "title" | "playing" | "gameover";
 
 type PendingTravel =
   | { kind: "galaxy"; poiId: number }
@@ -303,6 +307,11 @@ export class Game {
   private fadeTimer = 0;
   private fadeAlpha = 0;
   private pending: PendingTravel | null = null;
+  private phase: RunPhase = "title";
+  /** True when the session was just reset and has not launched yet. */
+  private sessionFresh = true;
+  private readonly startScreen = new StartScreen();
+  private readonly gameOverScreen = new GameOverScreen();
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -319,14 +328,7 @@ export class Game {
     this.renderer = new Renderer(canvas, ctx);
 
     this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
-    // Home is visited (and fog-expanded) but already "known" — no Cartographer payout.
-    this.chartCatalog.markVisited(
-      GALAXY.startPoiId,
-      this.galaxy,
-      this.ship.jumpRange(),
-    );
-    this.claimedCartographerVisits.add(GALAXY.startPoiId);
-    this.enterLocal();
+    this.resetSession();
 
     this.loop = new Loop(
       (dt) => this.update(dt),
@@ -339,6 +341,139 @@ export class Game {
 
   start(): void {
     this.loop.start();
+  }
+
+  /**
+   * Fresh run at the starting system: starter hull, empty ledger, no chart
+   * progress. Home stays pre-visited so it does not pay Cartographer credit.
+   */
+  private resetSession(): void {
+    this.stationReplenishOffers.clear();
+    this.stationRefillState.clear();
+    this.paidPirateViews.clear();
+    this.clearedPirateViews.clear();
+    this.pendingPirateKills = 0;
+    this.activeMissions.length = 0;
+    this.acceptedMissionIds.clear();
+    this.claimedClearanceSystems.clear();
+    this.chartCatalog.clear();
+    this.claimedCartographerVisits.clear();
+    this.scannedPoiIds.clear();
+    this.reputation.reset();
+    this.scanDebt.clearAll();
+    this.scanCaught.clear();
+    this.lastDockedStation = null;
+    this.dockClearance.clear();
+
+    this.fuelWarnTravel = null;
+    this.pendingPassengerIntercept = null;
+    this.distressNextFuelRatOnly = false;
+    this.fadePhase = "idle";
+    this.fadeTimer = 0;
+    this.fadeAlpha = 0;
+    this.pending = null;
+    this.chartOpen = false;
+    this.panelOpen = false;
+    this.shipMenuOpen = false;
+    this.marketMenuOpen = false;
+    this.missionBoardOpen = false;
+    this.hangarMenuOpen = false;
+    this.marketMenuKind = "legal";
+    this.dockMissionOffers = [];
+    this.dockMarket = null;
+    this.dockBlackMarket = null;
+
+    this.ship.resetForNewRun();
+    this.shipMenu.selectedIndex = 0;
+    this.shipMenu.openView();
+    this.messages.clear();
+    this.chart.selectedId = null;
+
+    this.starfield.reseed(hash2(GALAXY.seed, GALAXY.startPoiId));
+    this.local = generateLocalView(this.galaxy, GALAXY.startPoiId, 0);
+    this.chartCatalog.markVisited(
+      GALAXY.startPoiId,
+      this.galaxy,
+      this.ship.jumpRange(),
+    );
+    this.claimedCartographerVisits.add(GALAXY.startPoiId);
+    this.enterLocal();
+    const pose = this.ship.sample(1);
+    this.camera.follow(pose.x, pose.y);
+    this.sessionFresh = true;
+  }
+
+  private beginRun(): void {
+    if (!this.sessionFresh) this.resetSession();
+    this.sessionFresh = false;
+    this.phase = "playing";
+    this.keyboard.discardEdges();
+    this.pointer.consumeClick();
+  }
+
+  private restartRun(): void {
+    this.resetSession();
+    this.beginRun();
+  }
+
+  private returnToTitle(): void {
+    this.phase = "title";
+    this.keyboard.discardEdges();
+    this.pointer.consumeClick();
+  }
+
+  /** Hull already at 0 — freeze the run and show the destroyed card. */
+  private enterGameOver(): void {
+    if (this.phase === "gameover") return;
+    this.phase = "gameover";
+    this.stationMenu.hide();
+    this.pirateMenu.hide();
+    this.patrolMenu.hide();
+    this.chartOpen = false;
+    this.panelOpen = false;
+    this.closeShipMenuUi();
+    this.marketMenuOpen = false;
+    this.marketMenu.hide();
+    this.missionBoardOpen = false;
+    this.missionBoard.hide();
+    this.hangarMenuOpen = false;
+    this.hangarMenu.hide();
+    this.dockedMenu.hide();
+    this.fuelWarnTravel = null;
+    this.keyboard.discardEdges();
+    this.pointer.consumeClick();
+  }
+
+  private updateRunFlow(): void {
+    const viewW = window.innerWidth;
+    const viewH = window.innerHeight;
+    this.pointer.consumeWheel();
+
+    if (this.phase === "title") {
+      this.startScreen.layout(viewW, viewH);
+      const clicked = this.pointer.consumeClick();
+      const key =
+        this.keyboard.consume("Enter") || this.keyboard.consume("Space");
+      this.keyboard.discardEdges();
+      if (key || (clicked && this.startScreen.hitsBegin(this.pointer.x, this.pointer.y))) {
+        this.beginRun();
+      }
+      return;
+    }
+
+    this.gameOverScreen.layout(viewW, viewH);
+    const clicked = this.pointer.consumeClick();
+    const restartKey =
+      this.keyboard.consume("Enter") || this.keyboard.consume("KeyR");
+    const titleKey = this.keyboard.consume("Escape");
+    this.keyboard.discardEdges();
+    if (restartKey || (clicked && this.gameOverScreen.hitsRestart(this.pointer.x, this.pointer.y))) {
+      this.restartRun();
+      return;
+    }
+    if (titleKey || (clicked && this.gameOverScreen.hitsTitle(this.pointer.x, this.pointer.y))) {
+      this.returnToTitle();
+    }
   }
 
   private enterLocal(): void {
@@ -2146,6 +2281,16 @@ export class Game {
   }
 
   private update(dt: number): void {
+    if (this.phase !== "playing") {
+      this.updateRunFlow();
+      return;
+    }
+
+    if (!this.ship.alive) {
+      this.enterGameOver();
+      return;
+    }
+
     this.messages.update(dt);
     this.ship.tickDefense(dt);
 
@@ -2327,12 +2472,20 @@ export class Game {
       this.updateCombat(dt);
       // World is still live on approach — rats, stranded, and taunts keep going.
       this.updateDistress(dt);
+      if (!this.ship.alive) {
+        this.enterGameOver();
+        return;
+      }
       if (arrived) {
         this.completeDock(this.dock.station);
       }
     } else {
       this.ship.update(dt, this.keyboard.state);
       this.updateCombat(dt);
+      if (!this.ship.alive) {
+        this.enterGameOver();
+        return;
+      }
       this.updateScoop(dt);
       this.updateFuelScoop(dt);
       this.updateExploreScan(dt);
@@ -4685,6 +4838,16 @@ export class Game {
   }
 
   private render(alpha: number): void {
+    if (this.phase === "title") {
+      this.renderer.drawTitle(
+        this.starfield,
+        this.startScreen,
+        this.pointer.x,
+        this.pointer.y,
+      );
+      return;
+    }
+
     if (this.fadePhase === "idle" && !this.menuOpen() && this.dock.kind !== "docked") {
       const pose = this.ship.sample(alpha);
       this.camera.follow(pose.x, pose.y);
@@ -4744,6 +4907,14 @@ export class Game {
       pointerY: this.pointer.y,
       fadeAlpha: this.fadeAlpha,
     });
+
+    if (this.phase === "gameover") {
+      this.renderer.drawGameOver(
+        this.gameOverScreen,
+        this.pointer.x,
+        this.pointer.y,
+      );
+    }
   }
 }
 

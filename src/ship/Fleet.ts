@@ -67,6 +67,12 @@ export class Fleet {
   activeInstanceId = "";
 
   constructor() {
+    this.resetToStarter();
+  }
+
+  /** Drop owned hulls and start over with a factory starter. */
+  resetToStarter(): void {
+    this.owned.length = 0;
     const starter = hullById(STARTER_HULL_ID);
     if (!starter) throw new Error("Missing starter hull");
     const ship = freshOwned(starter);

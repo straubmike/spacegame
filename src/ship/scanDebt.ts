@@ -232,4 +232,9 @@ export class ScanDebtLedger {
   clear(stationKey: string): void {
     this.byStation.delete(stationKey);
   }
+
+  /** Drop every station's known illegal debt (new run). */
+  clearAll(): void {
+    this.byStation.clear();
+  }
 }
