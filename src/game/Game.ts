@@ -329,6 +329,7 @@ export class Game {
 
     this.keyboard = new Keyboard();
     this.pointer = new Pointer(canvas);
+    this.pointer.setUiOpen(() => this.pointerUiOpen());
     this.ship = new Ship();
     this.camera = new Camera();
     this.galaxy = new Galaxy();
@@ -3764,13 +3765,34 @@ export class Game {
     }
   }
 
+  /**
+   * True while a click would be UI, not a shot. Read at pointerdown so the
+   * press that closes a menu stays latched until the button is released.
+   */
+  private pointerUiOpen(): boolean {
+    return (
+      this.phase !== "playing" ||
+      this.chartOpen ||
+      this.panelOpen ||
+      this.shipMenuOpen ||
+      this.marketMenuOpen ||
+      this.missionBoardOpen ||
+      this.hangarMenuOpen ||
+      this.stationMenu.open ||
+      this.pirateMenu.open ||
+      this.patrolMenu.open ||
+      this.dock.kind === "docked" ||
+      this.fuelWarnTravel !== null
+    );
+  }
+
   private weaponTriggerHeld(index: number): boolean {
     if (index === 0) return this.keyboard.state.fire;
     const mouseBlocked =
       this.stationMenu.open || this.pirateMenu.open || this.patrolMenu.open;
     if (mouseBlocked) return false;
-    if (index === 1) return this.pointer.leftHeld;
-    if (index === 2) return this.pointer.rightHeld;
+    if (index === 1) return this.pointer.fireLeft;
+    if (index === 2) return this.pointer.fireRight;
     return false;
   }
 
