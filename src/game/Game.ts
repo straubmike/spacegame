@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -55,6 +55,12 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
+  archetypeForBand,
+  patrolFitForStation,
+  PIRATE_SHOWCASE_ORDER,
+  type PirateArchetypeId,
+} from "../ship/npcLoadout";
+import {
   ChartCatalog,
   stationMenuLettersForPoi,
 } from "../ship/chartCatalog";
@@ -75,6 +81,7 @@ import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
 import { Pirate } from "../entities/Pirate";
+import { PLAYER_LOCK_ID } from "../entities/npcVolley";
 import { FuelRat } from "../entities/FuelRat";
 import { strandedRadioLine, StrandedPilot } from "../entities/StrandedPilot";
 import {
@@ -240,6 +247,11 @@ export class Game {
   private readonly dockClearance = new Set<number>();
   private local: LocalView;
   private pirates: Pirate[] = [];
+  /**
+   * TEMP(npc-loadouts): strip before merge.
+   * One of each pirate archetype beside the starting arrival. Not a fee pack.
+   */
+  private showcasePirates: Pirate[] = [];
   /** Local station patrols (host-station tied). */
   private patrols: StationPatrol[] = [];
   /** Shared fee/combat event for the current local pirate group (null = none). */
@@ -487,6 +499,7 @@ export class Game {
     this.scoopProgress = 0;
     this.poiScanProgress = 0;
     this.pirates = [];
+    this.showcasePirates = [];
     this.patrols = [];
     this.pack = null;
     this.distressPirates = [];
@@ -543,6 +556,36 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
+    // TEMP(npc-loadouts): strip before merge. Additive gallery — does not
+    // replace seeded packs, patrols, or intrusions.
+    this.spawnNpcLoadoutShowcase();
+  }
+
+  /**
+   * TEMP(npc-loadouts): strip before merge.
+   * Hostile, slow, and easy to fly up to. Patrols do not hunt this list.
+   */
+  private spawnNpcLoadoutShowcase(): void {
+    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) return;
+    const originX = this.ship.x + 260;
+    const originY = this.ship.y - 100;
+    const spacing = 110;
+    for (let i = 0; i < PIRATE_SHOWCASE_ORDER.length; i += 1) {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const x = originX + col * spacing;
+      const y = originY + row * spacing;
+      const heading = Math.atan2(this.ship.y - y, this.ship.x - x);
+      const pirate = new Pirate(x, y, heading, PIRATE_SHOWCASE_ORDER[i]!, 0, {
+        showcase: true,
+      });
+      pirate.goAggro();
+      this.showcasePirates.push(pirate);
+    }
+    this.messages.push(
+      "TEMP(npc-loadouts): one of each pirate hull is off to your right — hostile, slow, and not part of any fee pack.",
+      "pirate",
+    );
   }
 
   /**
@@ -584,6 +627,9 @@ export class Game {
         ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
         180;
       const dist = PATROL.spawnDistance;
+      const fit = patrolFitForStation(
+        hash2(GALAXY.seed ^ 0x57a1, hashStationKey(key)),
+      );
       this.patrols.push(
         new StationPatrol(
           station.x + Math.cos(angle) * dist,
@@ -594,6 +640,7 @@ export class Game {
           key,
           station.x,
           station.y,
+          fit,
         ),
       );
     }
@@ -3509,7 +3556,13 @@ export class Game {
     const heading = ang + Math.PI;
 
     if (mission.distressOutcome === "bait") {
-      this.baitPirate = new Pirate(x, y, heading, "raider", 0);
+      this.baitPirate = new Pirate(
+        x,
+        y,
+        heading,
+        archetypeForBand("raider", Math.random),
+        0,
+      );
       this.baitPirate.setPeaceful();
       this.baitPack = {
         phase: "comms",
@@ -3632,7 +3685,7 @@ export class Game {
           anchorX + Math.cos(heading + Math.PI / 2) * offset,
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
-          "scout",
+          archetypeForBand("scout", Math.random),
           fee,
         ),
       );
@@ -3871,11 +3924,16 @@ export class Game {
     for (const pirate of this.pirates) list.push(pirate);
     for (const pirate of this.distressPirates) list.push(pirate);
     if (this.baitPirate) list.push(this.baitPirate);
+    // TEMP(npc-loadouts): strip before merge. Player missiles can lock the gallery.
+    for (const pirate of this.showcasePirates) list.push(pirate);
     for (const patrol of this.patrols) list.push(patrol);
     return list;
   }
 
   private lockPoint(id: string): { x: number; y: number } | null {
+    if (id === PLAYER_LOCK_ID && this.ship.alive) {
+      return { x: this.ship.x, y: this.ship.y };
+    }
     for (const target of this.lockableTargets()) {
       if (target.id === id && target.alive) return target;
     }
@@ -3960,6 +4018,7 @@ export class Game {
         this.ship.y,
         pirateShots,
         hostile === true,
+        PLAYER_LOCK_ID,
       );
     }
     const distressHostile = this.distressPack?.phase === "hostile";
@@ -3970,6 +4029,7 @@ export class Game {
         this.ship.y,
         pirateShots,
         distressHostile === true,
+        PLAYER_LOCK_ID,
       );
     }
     if (this.baitPirate?.alive) {
@@ -3979,6 +4039,18 @@ export class Game {
         this.ship.y,
         pirateShots,
         this.baitPack?.phase === "hostile",
+        PLAYER_LOCK_ID,
+      );
+    }
+    // TEMP(npc-loadouts): strip before merge.
+    for (const pirate of this.showcasePirates) {
+      pirate.update(
+        dt,
+        this.ship.x,
+        this.ship.y,
+        pirateShots,
+        true,
+        PLAYER_LOCK_ID,
       );
     }
     if (pirateShots.length > 0) {
@@ -4045,9 +4117,17 @@ export class Game {
 
       if (p.hostile) {
         if (this.ship.alive) {
-          const dist = Math.hypot(p.x - this.ship.x, p.y - this.ship.y);
-          if (dist <= COMBAT.playerHitRadius + p.radius) {
-            this.ship.takeDamage(p.damage, p.shieldMultiplier);
+          const impact = this.shotImpact(p, {
+            id: PLAYER_LOCK_ID,
+            x: this.ship.x,
+            y: this.ship.y,
+            radius: COMBAT.playerHitRadius,
+            alive: true,
+          });
+          if (impact) {
+            if (impact.amount > 0) {
+              this.ship.takeDamage(impact.amount, impact.shieldMultiplier);
+            }
             this.projectiles.splice(i, 1);
           }
         }
@@ -4062,7 +4142,7 @@ export class Game {
       for (const pirate of this.pirates) {
         const impact = this.shotImpact(p, pirate);
         if (!impact) continue;
-        pirate.takeDamage(impact.amount, retaliate);
+        pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
         // Sneak attack, or fire after tribute — one pack fight.
         if (fromPlayer && this.pack) {
           this.makePackHostile();
@@ -4074,7 +4154,7 @@ export class Game {
         for (const pirate of this.distressPirates) {
           const impact = this.shotImpact(p, pirate);
           if (!impact) continue;
-          pirate.takeDamage(impact.amount, retaliate);
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
           if (
             fromPlayer &&
             this.distressPack &&
@@ -4094,7 +4174,7 @@ export class Game {
         const pirate = this.baitPirate;
         const impact = this.shotImpact(p, pirate);
         if (impact) {
-          pirate.takeDamage(impact.amount, retaliate);
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
           if (fromPlayer && this.baitPack && this.baitPack.phase === "comms") {
             this.baitPack.phase = "hostile";
             this.baitPack.timer = 0;
@@ -4103,11 +4183,23 @@ export class Game {
           hit = true;
         }
       }
+      // TEMP(npc-loadouts): strip before merge. No fee pack and no kill reputation.
+      if (!hit) {
+        for (const pirate of this.showcasePirates) {
+          const impact = this.shotImpact(p, pirate);
+          if (!impact) continue;
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, fromPlayer);
+          hit = true;
+          break;
+        }
+      }
       if (!hit && fromPlayer) {
         for (const patrol of this.patrols) {
           const impact = this.shotImpact(p, patrol);
           if (!impact) continue;
-          if (impact.amount > 0) patrol.takeDamage(impact.amount);
+          if (impact.amount > 0) {
+            patrol.takeDamage(impact.amount, impact.shieldMultiplier);
+          }
           // First hit only — under-attack / Hostile comms once per combat.
           if (!patrol.defending) {
             this.forceStationHostile(
@@ -4170,6 +4262,9 @@ export class Game {
       // Next L-menu distress is Fuel Rat only — no player-facing spoiler.
       this.distressNextFuelRatOnly = true;
     }
+
+    // TEMP(npc-loadouts): strip before merge. Gallery deaths are not bounties.
+    this.showcasePirates = this.showcasePirates.filter((p) => p.alive);
 
     if (this.baitPirate && !this.baitPirate.alive) {
       if (this.baitPirate.health <= 0) {
@@ -4797,13 +4892,13 @@ export class Game {
       const dist =
         FUEL.distressSpawnMin +
         Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
-      const tier = rollDistressPirateTier(plan);
+      const band = rollDistressPirateTier(plan);
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
-          tier,
+          archetypeForBand(band, Math.random),
           fee,
         ),
       );
@@ -5041,6 +5136,8 @@ export class Game {
         ...this.pirates,
         ...this.distressPirates,
         ...(this.baitPirate ? [this.baitPirate] : []),
+        // TEMP(npc-loadouts): strip before merge.
+        ...this.showcasePirates,
       ],
       fuelRat: this.fuelRat,
       strandedPilot: this.strandedPilot,
@@ -5100,16 +5197,15 @@ export class Game {
 
 /**
  * Pirate hulls for a passenger-fare jump intercept.
- * Larger parties draw tougher / bigger packs.
+ * Larger parties draw tougher mixes of the real archetypes.
  */
-function passengerInterceptTiers(passengers: number): PirateTierId[] {
-  if (passengers <= 1) return ["scout"];
+function passengerInterceptTiers(passengers: number): PirateArchetypeId[] {
+  if (passengers <= 1) return ["sparrow"];
   if (passengers === 2) {
-    return Math.random() < 0.55 ? ["raider"] : ["scout", "scout"];
+    return Math.random() < 0.55 ? ["interceptor"] : ["sparrow", "courier"];
   }
-  if (passengers === 3) return ["raider", "scout"];
-  // 4+
+  if (passengers === 3) return ["raider", "sparrow"];
   return Math.random() < 0.5
-    ? ["gunship", "scout"]
-    : ["raider", "raider", "scout"];
+    ? ["bulwark", "sparrow"]
+    : ["interceptor", "prospector"];
 }

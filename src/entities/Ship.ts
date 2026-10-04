@@ -331,7 +331,7 @@ export class Ship {
   /**
    * Kinetic damage. Shields first (scaled by `shieldMultiplier`, excess wiped
    * on a break), then plating, then core.
-   * NPC shots pass `WEAPONS.npcShieldMultiplier`.
+   * Callers pass the shot's own multiplier (gun 0, cannon 0.5, missile 0.25).
    */
   takeDamage(
     amount: number,

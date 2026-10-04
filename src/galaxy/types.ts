@@ -1,3 +1,5 @@
+import type { PirateArchetypeId } from "../ship/npcLoadout";
+
 export type PoiType =
   | "starSystem"
   | "blackHole"
@@ -65,8 +67,8 @@ export interface Landmark {
   radius: number;
 }
 
-/** Hull tier for a seeded pirate ship. */
-export type PirateTier = "scout" | "raider" | "gunship" | "corsair";
+/** Hull archetype fitted on a seeded pirate ship. */
+export type PirateTier = PirateArchetypeId;
 
 /** Encounter shape chosen by heat / wealth (Must-have 4). */
 export type EncounterTemplate =

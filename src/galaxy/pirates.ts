@@ -8,11 +8,15 @@ import { generateSystemBlueprint } from "./generateLocal";
 import { patrolWouldSpawn } from "./patrolSpawn";
 import { hash2, mulberry32 } from "./rng";
 import type { Galaxy } from "./Galaxy";
+import {
+  archetypeForBand,
+  type NpcBandId,
+  type PirateArchetypeId,
+} from "../ship/npcLoadout";
 import type {
   EncounterTemplate,
   PirateEncounter,
   PirateShipSpawn,
-  PirateTier,
 } from "./types";
 
 /** Stable key for a local view's pirate encounter slot. */
@@ -116,11 +120,11 @@ function offsetFrom(
   };
 }
 
-function pickTier(
+function pickBands(
   rng: () => number,
   template: EncounterTemplate,
   band: HeatBandId,
-): PirateTier[] {
+): NpcBandId[] {
   switch (template) {
     case "scout":
       return ["scout"];
@@ -128,7 +132,7 @@ function pickTier(
       return [band === "far" && rng() < 0.35 ? "gunship" : "raider"];
     case "wing": {
       const n = band === "far" ? (rng() < 0.45 ? 3 : 2) : 2;
-      const tiers: PirateTier[] = [];
+      const tiers: NpcBandId[] = [];
       for (let i = 0; i < n; i += 1) {
         if (i === 0 && band !== "near" && rng() < 0.4) {
           tiers.push("raider");
@@ -139,18 +143,18 @@ function pickTier(
       return tiers;
     }
     case "ambush": {
-      const lead: PirateTier =
+      const lead: NpcBandId =
         band === "far" && rng() < 0.4 ? "gunship" : "raider";
-      const wing: PirateTier = rng() < 0.55 ? "scout" : "raider";
+      const wing: NpcBandId = rng() < 0.55 ? "scout" : "raider";
       return [lead, wing];
     }
     case "heat": {
       if (band === "far" && rng() < 0.45) {
-        // Elite corsair + optional scout wingman
+        // Elite corsair band + optional scout-band wingman
         return rng() < 0.55 ? ["corsair", "scout"] : ["corsair"];
       }
       const escortCount = band === "near" ? 0 : rng() < 0.55 ? 2 : 1;
-      const tiers: PirateTier[] = ["gunship"];
+      const tiers: NpcBandId[] = ["gunship"];
       for (let i = 0; i < escortCount; i += 1) {
         tiers.push(rng() < 0.5 ? "scout" : "raider");
       }
@@ -159,10 +163,20 @@ function pickTier(
   }
 }
 
+function pickTier(
+  rng: () => number,
+  template: EncounterTemplate,
+  band: HeatBandId,
+): PirateArchetypeId[] {
+  return pickBands(rng, template, band).map((npcBand) =>
+    archetypeForBand(npcBand, rng),
+  );
+}
+
 function buildShips(
   rng: () => number,
   template: EncounterTemplate,
-  tiers: PirateTier[],
+  tiers: PirateArchetypeId[],
 ): PirateShipSpawn[] {
   const anchor = placeAnchor(rng, template);
   return tiers.map((tier, i) => {
