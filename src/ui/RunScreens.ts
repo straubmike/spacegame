@@ -72,33 +72,26 @@ export class StartScreen {
 
 /**
  * Shown when the player ship is destroyed.
- * Restart (Enter / R / click) or return to the start screen (Esc / click).
+ * One control back to the title: click Start screen, or press Esc.
  */
 export class GameOverScreen {
   private panel: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private restartBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private titleBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
   layout(viewW: number, viewH: number): void {
     const w = 420;
-    const h = 228;
+    const h = 188;
     this.panel = {
       x: Math.floor((viewW - w) / 2),
       y: Math.floor((viewH - h) / 2),
       w,
       h,
     };
-    const bw = w - 48;
+    const bw = 180;
     const bh = 32;
-    this.restartBtn = {
-      x: this.panel.x + 24,
-      y: this.panel.y + 108,
-      w: bw,
-      h: bh,
-    };
     this.titleBtn = {
-      x: this.panel.x + 24,
-      y: this.restartBtn.y + 40,
+      x: this.panel.x + Math.floor((w - bw) / 2),
+      y: this.panel.y + 108,
       w: bw,
       h: bh,
     };
@@ -124,11 +117,8 @@ export class GameOverScreen {
     ctx.fillStyle = "rgba(200, 210, 230, 0.92)";
     ctx.fillText("This run is over.", this.panel.x + 24, this.panel.y + 52);
 
-    drawButton(ctx, this.restartBtn, "Restart", {
-      primary: true,
-      hover: hit(this.restartBtn, pointerX, pointerY),
-    });
     drawButton(ctx, this.titleBtn, "Start screen", {
+      primary: true,
       hover: hit(this.titleBtn, pointerX, pointerY),
     });
 
@@ -137,16 +127,12 @@ export class GameOverScreen {
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillText(
-      "Enter or R restart · Esc start screen",
+      "Esc",
       this.panel.x + this.panel.w / 2,
       this.titleBtn.y + this.titleBtn.h + 14,
     );
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-  }
-
-  hitsRestart(px: number, py: number): boolean {
-    return hit(this.restartBtn, px, py);
   }
 
   hitsTitle(px: number, py: number): boolean {

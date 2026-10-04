@@ -411,11 +411,6 @@ export class Game {
     this.pointer.consumeClick();
   }
 
-  private restartRun(): void {
-    this.resetSession();
-    this.beginRun();
-  }
-
   private returnToTitle(): void {
     this.phase = "title";
     this.keyboard.discardEdges();
@@ -463,14 +458,8 @@ export class Game {
 
     this.gameOverScreen.layout(viewW, viewH);
     const clicked = this.pointer.consumeClick();
-    const restartKey =
-      this.keyboard.consume("Enter") || this.keyboard.consume("KeyR");
     const titleKey = this.keyboard.consume("Escape");
     this.keyboard.discardEdges();
-    if (restartKey || (clicked && this.gameOverScreen.hitsRestart(this.pointer.x, this.pointer.y))) {
-      this.restartRun();
-      return;
-    }
     if (titleKey || (clicked && this.gameOverScreen.hitsTitle(this.pointer.x, this.pointer.y))) {
       this.returnToTitle();
     }
