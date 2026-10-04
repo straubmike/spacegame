@@ -268,8 +268,8 @@ export const WEAPONS = {
 } as const;
 
 /**
- * Distress and heat bands. Spawn maps each band onto a hull archetype
- * (see npcLoadout.ts) so the weight tables stay four keys.
+ * Distress bands. Fuel Rat standing still lerps these four weights.
+ * Spawn maps a rolled band onto an overlapping difficulty range.
  */
 export type PirateTierId = "scout" | "raider" | "gunship" | "corsair";
 
