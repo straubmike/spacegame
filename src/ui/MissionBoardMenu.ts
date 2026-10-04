@@ -1,5 +1,11 @@
 import type { ActiveMission, MissionOffer } from "../ship/missions";
-import { missionStatusLine } from "../ship/missions";
+import {
+  isDerelictRetrievalKind,
+  isRebelMissionKind,
+  isSurveyMissionKind,
+  missionStatusLine,
+  rebelCoverNeedsRegularSlot,
+} from "../ship/missions";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
 
 export type MissionBoardClickResult =
@@ -44,6 +50,10 @@ export class MissionBoardMenu {
   private hasExpandedFuelTank = false;
   /** Survey Scanner fitted — required for exploration / scan contracts. */
   private hasSurveyScanner = false;
+  /** A rebel-contract seat is open (separate from the regular cap). */
+  private rebelSlotFree = true;
+  /** A regular seat is open for a steal/kidnap cover haul or fare. */
+  private coverSlotFree = true;
 
   show(
     stationName: string,
@@ -55,6 +65,8 @@ export class MissionBoardMenu {
     hasExpandedFuelTank = false,
     freeBerths = 0,
     hasSurveyScanner = false,
+    rebelSlotFree = true,
+    coverSlotFree = true,
   ): void {
     this.open = true;
     this.stationName = stationName;
@@ -66,6 +78,8 @@ export class MissionBoardMenu {
     this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
     this.hasSurveyScanner = hasSurveyScanner;
+    this.rebelSlotFree = rebelSlotFree;
+    this.coverSlotFree = coverSlotFree;
     this.scroll = 0;
   }
 
@@ -79,6 +93,8 @@ export class MissionBoardMenu {
     hasExpandedFuelTank = false,
     freeBerths = 0,
     hasSurveyScanner = false,
+    rebelSlotFree = true,
+    coverSlotFree = true,
   ): void {
     if (!this.open) return;
     this.offers = offers;
@@ -89,6 +105,8 @@ export class MissionBoardMenu {
     this.hasScoop = hasScoop;
     this.hasExpandedFuelTank = hasExpandedFuelTank;
     this.hasSurveyScanner = hasSurveyScanner;
+    this.rebelSlotFree = rebelSlotFree;
+    this.coverSlotFree = coverSlotFree;
   }
 
   hide(): void {
@@ -175,6 +193,7 @@ export class MissionBoardMenu {
       "Fuel Rats",
       "Merchants Guild",
       "Cartographers",
+      "Rebels",
     ];
     const factionOffers = this.offers.filter((m) => !!m.factionId);
     const stationOffers = this.offers.filter((m) => !m.factionId);
@@ -314,18 +333,14 @@ export class MissionBoardMenu {
       ctx.fillText(blurbLines[1], textX, y + 40);
     }
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    const rewardLine =
-      mission.kind === "distressAnswer"
-        ? "Fuel Rats reputation"
-        : mission.kind === "cargo"
-          ? `+${mission.reward} cr · Merchants Guild`
-          : mission.kind === "explore"
-            ? `+${mission.reward} cr · Cartographers`
-            : `+${mission.reward} cr`;
-    ctx.fillText(truncateToWidth(ctx, rewardLine, textMaxW), textX, y + 60);
+    ctx.fillText(
+      truncateToWidth(ctx, missionRewardLine(mission), textMaxW),
+      textX,
+      y + 60,
+    );
 
     const needCu =
-      mission.kind === "cargo" || mission.kind === "derelictCargo"
+      mission.kind === "cargo" || isDerelictRetrievalKind(mission.kind)
         ? (mission.cu ?? 0)
         : 0;
     const needBerths =
@@ -333,33 +348,42 @@ export class MissionBoardMenu {
     const cargoOk = needCu === 0 || this.freeCu >= needCu;
     const berthOk = needBerths === 0 || this.freeBerths >= needBerths;
     const scoopOk =
-      mission.kind !== "derelictCargo" || this.hasScoop;
+      !isDerelictRetrievalKind(mission.kind) || this.hasScoop;
     const tankOk =
       mission.kind !== "distressAnswer" || this.hasExpandedFuelTank;
     const scannerOk =
-      mission.kind !== "explore" || this.hasSurveyScanner;
+      !isSurveyMissionKind(mission.kind) || this.hasSurveyScanner;
     const clearanceBusy =
       mission.kind === "clearance" &&
       this.active.some((m) => m.kind === "clearance");
+    const rebel = isRebelMissionKind(mission.kind);
+    const needsCover = rebelCoverNeedsRegularSlot(mission.kind);
+    const rebelSeatOk = this.rebelSlotFree && (!needsCover || this.coverSlotFree);
     const slotOk =
       mission.kind === "clearance"
         ? !clearanceBusy
-        : this.canAcceptMore;
+        : rebel
+          ? rebelSeatOk
+          : this.canAcceptMore;
     const enabled = slotOk && cargoOk && berthOk && scoopOk && tankOk && scannerOk;
     const label = !enabled
       ? clearanceBusy
         ? "Active"
-        : !scannerOk
-          ? "Requires Scanner"
-          : !tankOk
-            ? "Requires tank"
-            : !scoopOk
-              ? "Requires Scoop"
-              : !berthOk
-                ? "Requires berths"
-                : cargoOk
-                  ? "Full"
-                  : "Requires CU"
+        : rebel && !this.rebelSlotFree
+          ? "Full"
+          : needsCover && !this.coverSlotFree
+            ? "Requires slot"
+            : !scannerOk
+              ? "Requires Scanner"
+              : !tankOk
+                ? "Requires tank"
+                : !scoopOk
+                  ? "Requires Scoop"
+                  : !berthOk
+                    ? "Requires berths"
+                    : cargoOk
+                      ? "Full"
+                      : "Requires CU"
       : "Accept";
     drawButton(ctx, acceptBtn, label, {
       enabled,
@@ -415,15 +439,11 @@ export class MissionBoardMenu {
       ctx.fillText(statusLines[1], textX, y + 40);
     }
     ctx.fillStyle = "rgba(180, 210, 160, 0.9)";
-    const activeReward =
-      mission.kind === "distressAnswer"
-        ? "Fuel Rats reputation"
-        : mission.kind === "cargo"
-          ? `+${mission.reward} cr · Merchants Guild`
-          : mission.kind === "explore"
-            ? `+${mission.reward} cr · Cartographers`
-            : `+${mission.reward} cr`;
-    ctx.fillText(truncateToWidth(ctx, activeReward, textMaxW), textX, y + 60);
+    ctx.fillText(
+      truncateToWidth(ctx, missionRewardLine(mission), textMaxW),
+      textX,
+      y + 60,
+    );
 
     drawButton(ctx, cancelBtn, "Cancel", {
       hover: hit(cancelBtn, pointerX, pointerY),
@@ -459,6 +479,28 @@ export class MissionBoardMenu {
       }
     }
     return null;
+  }
+}
+
+function missionRewardLine(mission: {
+  kind: string;
+  reward: number;
+}): string {
+  switch (mission.kind) {
+    case "distressAnswer":
+      return "Fuel Rats reputation";
+    case "cargo":
+      return `+${mission.reward} cr · Merchants Guild`;
+    case "explore":
+      return `+${mission.reward} cr · Cartographers`;
+    case "rebelDerelict":
+    case "rebelScan":
+    case "rebelSteal":
+    case "rebelKidnap":
+    case "bmDestroyPatrol":
+      return `+${mission.reward} cr · Rebels`;
+    default:
+      return `+${mission.reward} cr`;
   }
 }
 

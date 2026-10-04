@@ -268,7 +268,7 @@ export class Renderer {
         ),
         surveyScanHint: args.activeMissions.some(
           (m) =>
-            m.kind === "explore" &&
+            (m.kind === "explore" || m.kind === "rebelScan") &&
             !m.scanned &&
             m.targetPoiId === args.local.poiId,
         ),

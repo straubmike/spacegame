@@ -1,14 +1,16 @@
 /**
- * Session reputation — stations + pirate / Fuel Rats / Rebels / guild factions.
+ * Session reputation — stations + Imperial / pirate / Fuel Rats / Rebels / guild factions.
  *
  * Station ladder includes Violation between Unfriendly and Hostile.
  * Merchants Guild + Cartographers stand from faction-tagged generic missions;
  * merchants tariff multiplier remains a stub (1.0).
  *
  * L-menu visibility:
- * - Pirates + Fuel Rats + Merchants Guild + Cartographers: always shown (even at 0)
+ * - Imperial + Pirates + Fuel Rats + Merchants Guild + Cartographers: always shown (even at 0)
  * - Rebels: hidden until revealed (first fence of Sensitive Derelict Cargo, etc.)
  * - Stations: non-zero only
+ *
+ * Imperial is broad standing for order among stations (no Violation band).
  */
 
 import { REPUTATION } from "../game/config";
@@ -23,6 +25,7 @@ export type StandingBand =
 
 export const PIRATE_FACTION_ID = "pirates";
 export const FUEL_RATS_FACTION_ID = "fuel_rats";
+export const IMPERIAL_FACTION_ID = "imperial";
 export const REBELS_FACTION_ID = "rebels";
 export const MERCHANTS_GUILD_FACTION_ID = "merchants_guild";
 export const CARTOGRAPHERS_FACTION_ID = "cartographers";
@@ -34,6 +37,7 @@ export const ALWAYS_VISIBLE_FACTIONS: readonly {
 }[] = [
   { id: PIRATE_FACTION_ID, label: "Pirates" },
   { id: FUEL_RATS_FACTION_ID, label: "Fuel Rats" },
+  { id: IMPERIAL_FACTION_ID, label: "Imperial" },
 ];
 
 /** Guild factions — always listed after reveal-gated rows. */
@@ -60,8 +64,8 @@ export interface ReputationStationRow {
 /** Payload for the L-menu Reputation band. */
 export interface ReputationListing {
   /**
-   * Always-visible factions first (Pirates, Fuel Rats), then revealed
-   * factions (Rebels), then guilds (Merchants Guild, Cartographers).
+   * Always-visible factions first (Pirates, Fuel Rats, Imperial), then
+   * revealed factions (Rebels), then guilds (Merchants Guild, Cartographers).
    */
   factions: ReputationFactionRow[];
   /** Only stations with non-zero standing. */
@@ -71,6 +75,7 @@ export interface ReputationListing {
 const FACTION_IDS = new Set<string>([
   PIRATE_FACTION_ID,
   FUEL_RATS_FACTION_ID,
+  IMPERIAL_FACTION_ID,
   REBELS_FACTION_ID,
   MERCHANTS_GUILD_FACTION_ID,
   CARTOGRAPHERS_FACTION_ID,
@@ -95,7 +100,7 @@ export function standingBand(score: number): StandingBand {
 }
 
 /**
- * Pirate / Fuel Rats / Rebels / guilds — no Violation band; fold into Unfriendly.
+ * Imperial / pirate / Fuel Rats / Rebels / guilds — no Violation band.
  */
 export function pirateStandingBand(score: number): StandingBand {
   if (score <= REPUTATION.hostileAtOrBelow) return "hostile";
@@ -141,6 +146,7 @@ export class ReputationTracker {
   private readonly stationLabels = new Map<string, string>();
   private pirateStanding = 0;
   private fuelRatsStanding = 0;
+  private imperialStanding = 0;
   private rebelsStanding = 0;
   private merchantsStanding = 0;
   private cartographersStanding = 0;
@@ -157,6 +163,10 @@ export class ReputationTracker {
 
   fuelRatsRep(): number {
     return this.fuelRatsStanding;
+  }
+
+  imperialRep(): number {
+    return this.imperialStanding;
   }
 
   rebelsRep(): number {
@@ -209,6 +219,10 @@ export class ReputationTracker {
       this.fuelRatsStanding = clampStanding(this.fuelRatsStanding + delta);
       return this.fuelRatsStanding;
     }
+    if (target === IMPERIAL_FACTION_ID) {
+      this.imperialStanding = clampStanding(this.imperialStanding + delta);
+      return this.imperialStanding;
+    }
     if (target === REBELS_FACTION_ID) {
       this.rebelsStanding = clampStanding(this.rebelsStanding + delta);
       this.rebelsRevealed = true;
@@ -243,6 +257,10 @@ export class ReputationTracker {
       this.fuelRatsStanding = next;
       return next;
     }
+    if (target === IMPERIAL_FACTION_ID) {
+      this.imperialStanding = next;
+      return next;
+    }
     if (target === REBELS_FACTION_ID) {
       this.rebelsStanding = next;
       this.rebelsRevealed = true;
@@ -263,6 +281,7 @@ export class ReputationTracker {
   private readTarget(target: string): number {
     if (target === PIRATE_FACTION_ID) return this.pirateStanding;
     if (target === FUEL_RATS_FACTION_ID) return this.fuelRatsStanding;
+    if (target === IMPERIAL_FACTION_ID) return this.imperialStanding;
     if (target === REBELS_FACTION_ID) return this.rebelsStanding;
     if (target === MERCHANTS_GUILD_FACTION_ID) return this.merchantsStanding;
     if (target === CARTOGRAPHERS_FACTION_ID) return this.cartographersStanding;

@@ -3,6 +3,23 @@ import { COMBAT, FUEL, SHIP } from "../game/config";
 export type StrandedPilotPhase = "drift" | "depart" | "gone";
 
 /**
+ * Organic hails for Fuel Rat answer-distress sites.
+ * Same interaction (click to transfer fuel) — only the radio line varies.
+ */
+export const STRANDED_RADIO_LINES = [
+  "Stranded: Mayday — tanks dry. Click me if you can spare a fuel transfer.",
+  "Stranded: Mayday, mayday. I'm on fumes and I can't make the next station. Click me for a transfer.",
+  "Stranded: Dead stick out here — tanks are empty. I need a fuel transfer. Click me.",
+  "Stranded: Distress call. Fuel state zero, just drifting. A transfer would get me to a dock. Click me.",
+  "Stranded: Engine's cold and the gauge is empty. Spare a fuel transfer? Click me.",
+] as const;
+
+export function strandedRadioLine(): string {
+  const i = (Math.random() * STRANDED_RADIO_LINES.length) | 0;
+  return STRANDED_RADIO_LINES[i]!;
+}
+
+/**
  * Friendly stranded ship for Fuel Rat “Answer distress” missions.
  * Left-click to donate fuel; after help they scoot off then hyperspace
  * (same escape pathing feel as pirate retreat).

@@ -194,6 +194,19 @@ export function formatSlotLayout(hull: HullDef): string {
   return `${w}W / ${d}D / ${u}U`;
 }
 
+/** Berths on a newly bought hull (factory utilities only). */
+export function factoryPassengerCapacity(hull: HullDef): number {
+  let n = 0;
+  for (let i = 0; i < hull.slots.length; i += 1) {
+    if (hull.slots[i]!.kind !== "utility") continue;
+    const id = hull.defaultLoadout[i];
+    if (!id) continue;
+    const mod = MODULE_BY_ID[id];
+    if (mod?.kind === "utility") n += mod.passengerCapacity;
+  }
+  return n;
+}
+
 /** Hulls offered for purchase at every station (starter excluded). */
 export function hangarSaleStock(): HullDef[] {
   return HULL_CATALOG.filter((h) => h.price > 0);

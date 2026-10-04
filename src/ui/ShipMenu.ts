@@ -22,6 +22,7 @@ import {
   isMissionCargoId,
   isStolenCargoId,
   missionStatusLine,
+  occupiedPassengerBerths,
   type ActiveMission,
 } from "../ship/missions";
 import {
@@ -407,6 +408,9 @@ export class ShipMenu {
     );
 
     this.drawSectionFrame(ctx, detailX, cargoY, detailW, cargoH);
+    const passengerCapacity = loadout
+      .utilities()
+      .reduce((sum, u) => sum + u.passengerCapacity, 0);
     this.drawCargoBand(
       ctx,
       detailX + 10,
@@ -414,6 +418,8 @@ export class ShipMenu {
       detailW - 20,
       cargoH - 16,
       cargo,
+      occupiedPassengerBerths(missions),
+      passengerCapacity,
       pointerX,
       pointerY,
     );
@@ -530,12 +536,14 @@ export class ShipMenu {
     w: number,
     h: number,
     cargo: CargoHold | null,
+    passengerUsed: number,
+    passengerCapacity: number,
     pointerX: number,
     pointerY: number,
   ): void {
     this.syncEjectQty(cargo);
 
-    const titleH = 28;
+    const titleH = 46;
     const listTop = y + titleH;
     const listH = Math.max(0, h - titleH);
     this.cargoListRect = { x, y: listTop, w, h: listH };
@@ -546,6 +554,15 @@ export class ShipMenu {
     ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
     ctx.textBaseline = "top";
     ctx.fillText(cap > 0 ? `Cargo  ${used}/${cap} CU` : "Cargo", x, y);
+
+    const freeBerths = Math.max(0, passengerCapacity - passengerUsed);
+    const berthLine =
+      passengerCapacity <= 0 && passengerUsed <= 0
+        ? "Berths  none fitted"
+        : `Berths  ${freeBerths} free / ${passengerUsed} used`;
+    ctx.font = FONT;
+    ctx.fillStyle = "rgba(170, 205, 185, 0.95)";
+    ctx.fillText(berthLine, x, y + 18);
 
     ctx.font = FONT;
     if (!cargo || cap <= 0) {
@@ -745,7 +762,7 @@ export class ShipMenu {
   }
 
   /**
-   * Stations (non-zero) first, then factions (Pirates/Fuel Rats always;
+   * Stations (non-zero) first, then factions (Pirates/Fuel Rats/Imperial always;
    * Rebels when revealed; Merchants Guild + Cartographers always).
    * Wheel-scrolls when the list overflows.
    */
