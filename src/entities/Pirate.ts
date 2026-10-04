@@ -11,14 +11,6 @@ import type { Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "aggro" | "retreat";
 
-export interface PirateSpawnOptions {
-  /** TEMP(npc-loadouts): strip before merge. Slow, already hostile gallery hull. */
-  showcase?: boolean;
-}
-
-/** TEMP(npc-loadouts): strip before merge. Showcase hulls close slowly. */
-const SHOWCASE_SPEED_SCALE = 0.35;
-
 /**
  * Hostile hull in a local encounter.
  * Fee / hail timing is owned by Game as one pack event — ships only fight
@@ -44,8 +36,6 @@ export class Pirate {
   readonly fit: ResolvedNpcFit;
   /** Shared pack tribute (same value on every wingmate). */
   readonly fee: number;
-  /** TEMP(npc-loadouts): strip before merge. */
-  readonly showcase: boolean;
 
   constructor(
     public x: number,
@@ -53,12 +43,10 @@ export class Pirate {
     public heading: number,
     tier: PirateArchetypeId = "raider",
     fee = 10,
-    options?: PirateSpawnOptions,
   ) {
     this.tier = tier;
     this.fit = pirateFit(tier);
     this.fee = fee;
-    this.showcase = options?.showcase === true;
     this.health = this.fit.coreMax;
     this.shield = this.fit.shieldMax;
     this.plating = this.fit.platingMax;
@@ -91,10 +79,6 @@ export class Pirate {
 
   get hullId(): PirateArchetypeId {
     return this.fit.hullId;
-  }
-
-  get hullName(): string {
-    return this.fit.hullName;
   }
 
   get fill(): string {
@@ -258,10 +242,6 @@ export class Pirate {
     this.writeDefense(state);
   }
 
-  private speedScale(): number {
-    return this.showcase ? SHOWCASE_SPEED_SCALE : 1;
-  }
-
   private turnToward(desired: number, dt: number): void {
     let delta = shortestAngle(this.heading, desired);
     const maxStep = this.fit.turnRate * dt;
@@ -271,7 +251,7 @@ export class Pirate {
   }
 
   private thrust(dt: number): void {
-    const accel = this.fit.thrustAccel * this.speedScale();
+    const accel = this.fit.thrustAccel;
     this.vx += Math.cos(this.heading) * accel * dt;
     this.vy += Math.sin(this.heading) * accel * dt;
     this.clampSpeed();
@@ -284,7 +264,7 @@ export class Pirate {
   }
 
   private clampSpeed(): void {
-    const max = this.fit.maxSpeed * this.speedScale();
+    const max = this.fit.maxSpeed;
     const speed = Math.hypot(this.vx, this.vy);
     if (speed > max) {
       const s = max / speed;

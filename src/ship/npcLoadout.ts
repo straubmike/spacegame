@@ -298,19 +298,6 @@ export function pirateFit(id: PirateArchetypeId): ResolvedNpcFit {
   return PIRATE_BY_ID[id];
 }
 
-/** TEMP(npc-loadouts): strip before merge. Gallery order at the start view. */
-export const PIRATE_SHOWCASE_ORDER: readonly PirateArchetypeId[] = [
-  "sparrow",
-  "courier",
-  "prospector",
-  "hauler",
-  "pathfinder",
-  "liner",
-  "interceptor",
-  "raider",
-  "bulwark",
-];
-
 export function archetypeForBand(
   band: NpcBandId,
   rng: () => number,

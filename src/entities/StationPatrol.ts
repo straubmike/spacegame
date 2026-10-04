@@ -112,10 +112,6 @@ export class StationPatrol {
     return this.fit.hullId;
   }
 
-  get hullName(): string {
-    return this.fit.hullName;
-  }
-
   get fill(): string {
     return this.fit.fill;
   }

@@ -57,7 +57,6 @@ import { hashStationKey } from "../ship/stationKey";
 import {
   archetypeForBand,
   patrolFitForStation,
-  PIRATE_SHOWCASE_ORDER,
   type PirateArchetypeId,
 } from "../ship/npcLoadout";
 import {
@@ -247,11 +246,6 @@ export class Game {
   private readonly dockClearance = new Set<number>();
   private local: LocalView;
   private pirates: Pirate[] = [];
-  /**
-   * TEMP(npc-loadouts): strip before merge.
-   * One of each pirate archetype beside the starting arrival. Not a fee pack.
-   */
-  private showcasePirates: Pirate[] = [];
   /** Local station patrols (host-station tied). */
   private patrols: StationPatrol[] = [];
   /** Shared fee/combat event for the current local pirate group (null = none). */
@@ -499,7 +493,6 @@ export class Game {
     this.scoopProgress = 0;
     this.poiScanProgress = 0;
     this.pirates = [];
-    this.showcasePirates = [];
     this.patrols = [];
     this.pack = null;
     this.distressPirates = [];
@@ -556,36 +549,6 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
-    // TEMP(npc-loadouts): strip before merge. Additive gallery — does not
-    // replace seeded packs, patrols, or intrusions.
-    this.spawnNpcLoadoutShowcase();
-  }
-
-  /**
-   * TEMP(npc-loadouts): strip before merge.
-   * Hostile, slow, and easy to fly up to. Patrols do not hunt this list.
-   */
-  private spawnNpcLoadoutShowcase(): void {
-    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) return;
-    const originX = this.ship.x + 260;
-    const originY = this.ship.y - 100;
-    const spacing = 110;
-    for (let i = 0; i < PIRATE_SHOWCASE_ORDER.length; i += 1) {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const x = originX + col * spacing;
-      const y = originY + row * spacing;
-      const heading = Math.atan2(this.ship.y - y, this.ship.x - x);
-      const pirate = new Pirate(x, y, heading, PIRATE_SHOWCASE_ORDER[i]!, 0, {
-        showcase: true,
-      });
-      pirate.goAggro();
-      this.showcasePirates.push(pirate);
-    }
-    this.messages.push(
-      "TEMP(npc-loadouts): one of each pirate hull is off to your right — hostile, slow, and not part of any fee pack.",
-      "pirate",
-    );
   }
 
   /**
@@ -3924,8 +3887,6 @@ export class Game {
     for (const pirate of this.pirates) list.push(pirate);
     for (const pirate of this.distressPirates) list.push(pirate);
     if (this.baitPirate) list.push(this.baitPirate);
-    // TEMP(npc-loadouts): strip before merge. Player missiles can lock the gallery.
-    for (const pirate of this.showcasePirates) list.push(pirate);
     for (const patrol of this.patrols) list.push(patrol);
     return list;
   }
@@ -4039,17 +4000,6 @@ export class Game {
         this.ship.y,
         pirateShots,
         this.baitPack?.phase === "hostile",
-        PLAYER_LOCK_ID,
-      );
-    }
-    // TEMP(npc-loadouts): strip before merge.
-    for (const pirate of this.showcasePirates) {
-      pirate.update(
-        dt,
-        this.ship.x,
-        this.ship.y,
-        pirateShots,
-        true,
         PLAYER_LOCK_ID,
       );
     }
@@ -4183,16 +4133,6 @@ export class Game {
           hit = true;
         }
       }
-      // TEMP(npc-loadouts): strip before merge. No fee pack and no kill reputation.
-      if (!hit) {
-        for (const pirate of this.showcasePirates) {
-          const impact = this.shotImpact(p, pirate);
-          if (!impact) continue;
-          pirate.takeDamage(impact.amount, impact.shieldMultiplier, fromPlayer);
-          hit = true;
-          break;
-        }
-      }
       if (!hit && fromPlayer) {
         for (const patrol of this.patrols) {
           const impact = this.shotImpact(p, patrol);
@@ -4262,9 +4202,6 @@ export class Game {
       // Next L-menu distress is Fuel Rat only — no player-facing spoiler.
       this.distressNextFuelRatOnly = true;
     }
-
-    // TEMP(npc-loadouts): strip before merge. Gallery deaths are not bounties.
-    this.showcasePirates = this.showcasePirates.filter((p) => p.alive);
 
     if (this.baitPirate && !this.baitPirate.alive) {
       if (this.baitPirate.health <= 0) {
@@ -5136,8 +5073,6 @@ export class Game {
         ...this.pirates,
         ...this.distressPirates,
         ...(this.baitPirate ? [this.baitPirate] : []),
-        // TEMP(npc-loadouts): strip before merge.
-        ...this.showcasePirates,
       ],
       fuelRat: this.fuelRat,
       strandedPilot: this.strandedPilot,

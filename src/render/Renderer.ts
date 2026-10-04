@@ -564,12 +564,12 @@ export class Renderer {
   }
 
   private drawPirate(x: number, y: number, pirate: Pirate): void {
-    this.drawNpcHull(x, y, pirate, pirate.showcase ? pirate.hullName : null);
+    this.drawNpcHull(x, y, pirate);
   }
 
   /** Same hull silhouette as a pirate of that body, with a law-blue stroke. */
   private drawPatrol(x: number, y: number, patrol: StationPatrol): void {
-    this.drawNpcHull(x, y, patrol, null);
+    this.drawNpcHull(x, y, patrol);
   }
 
   private drawNpcHull(
@@ -588,7 +588,6 @@ export class Renderer {
       plating: number;
       maxPlating: number;
     },
-    label: string | null,
   ): void {
     const size = npc.size;
     const ctx = this.ctx;
@@ -622,15 +621,6 @@ export class Renderer {
       const ratio = Math.max(0, Math.min(1, bank.value / bank.max));
       ctx.fillRect(left, barY, barW * ratio, 3);
       barY -= 5;
-    }
-    if (label) {
-      ctx.save();
-      ctx.font = FONT;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      ctx.fillStyle = "rgba(255, 214, 180, 0.95)";
-      ctx.fillText(label, x, barY - 1);
-      ctx.restore();
     }
   }
 
