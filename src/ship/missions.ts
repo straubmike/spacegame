@@ -1066,7 +1066,7 @@ function makeRebelOffer(
     case "rebelDerelict":
       return makeRebelDerelictOffer(galaxy, origin, rng);
     case "rebelScan":
-      return makeRebelScanOffer(galaxy, origin, rng);
+      return makeRebelScanOffer(galaxy, origin, rng, boardOffers);
     case "rebelSteal":
       return makeRebelStealOffer(origin, boardOffers, acceptedIds);
     case "rebelKidnap":
@@ -1142,8 +1142,15 @@ function makeRebelScanOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,
   rng: () => number,
+  boardOffers: readonly MissionOffer[],
 ): MissionOffer | null {
-  const target = pickExploreTarget(galaxy, origin.poiId, rng);
+  const blocked = new Set<number>();
+  for (const offer of boardOffers) {
+    if (offer.kind === "explore" && offer.targetPoiId !== undefined) {
+      blocked.add(offer.targetPoiId);
+    }
+  }
+  const target = pickExploreTarget(galaxy, origin.poiId, rng, blocked);
   if (!target) return null;
   const originPoi = galaxy.get(origin.poiId);
   const dist = galaxy.distance(originPoi, target);
