@@ -146,8 +146,9 @@ function resolveFit(spec: FitSpec): ResolvedNpcFit {
     hullName: hull.name,
     size: hull.size,
     radius: Math.max(11, Math.round(hull.size * 0.95)),
-    fill: hull.fill,
-    stroke: spec.role === "patrol" ? "#8ec6ff" : hull.stroke,
+    // Faction paint, not hull paint. Prior raider red / prior lawful patrol blue.
+    fill: spec.role === "patrol" ? "#6a9ec8" : "#c45a4a",
+    stroke: spec.role === "patrol" ? "#3a6a98" : "#8a3028",
     coreMax: hull.baseHull,
     shieldMax: utilities.reduce((sum, util) => sum + util.shieldMax, 0),
     platingMax: utilities.reduce((sum, util) => sum + util.hullBonus, 0),

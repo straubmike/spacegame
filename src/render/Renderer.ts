@@ -421,10 +421,7 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.rotate(rat.heading);
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.7, size * 0.55);
-    ctx.lineTo(-size * 0.35, 0);
-    ctx.lineTo(-size * 0.7, -size * 0.55);
+    traceHull(ctx, rat.hullId, size);
     ctx.closePath();
     ctx.fillStyle = rat.fill;
     ctx.fill();
