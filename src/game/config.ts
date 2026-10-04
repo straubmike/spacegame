@@ -337,7 +337,7 @@ export const ECONOMY = {
 
 /**
  * Ship fuel — hyperspace + supercruise only (not local flight).
- * Drive / hull / Expanded Tank set capacity; jump *range* stays GALAXY.jumpRange.
+ * Drive / hull / Expanded Tank set capacity. Max jump range is the equipped drive.
  */
 export const FUEL = {
   /** Flat cost for one system-map (supercruise) hop. */

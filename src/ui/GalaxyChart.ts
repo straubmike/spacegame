@@ -3,6 +3,7 @@ import { POI_CHART_COLORS, STAR_COLORS } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef } from "../galaxy/types";
 import type { ChartReveal } from "../ship/chartCatalog";
+import { jumpReachLy } from "../ship/fuel";
 
 export type GalaxyClickResult = "jump" | "close" | null;
 
@@ -34,11 +35,21 @@ const EMPTY_HINTS: ChartPoiHints = {
 const LETTER_COLOR = "rgba(120, 220, 170, 0.95)";
 /** Unvisited identified neighbors / mission grants — shape only, no type color. */
 const IDENTIFIED_GREY = "rgba(130, 140, 155, 0.9)";
+/** Current-fuel reach — quieter light grey, short dashes. Drawn only when shorter than max. */
+const NOW_REACH_STROKE = "rgba(186, 186, 190, 0.58)";
+const NOW_REACH_DASH = [5, 4];
+const NOW_REACH_WIDTH = 2;
+/** Max jump — deeper grey, long dashes. Always the outer (or only) ring. */
+const MAX_REACH_STROKE = "rgba(120, 120, 124, 0.48)";
+const MAX_REACH_DASH = [12, 6];
+const MAX_REACH_WIDTH = 1.5;
 
 /**
  * Galaxy map menu: open with G, click a target, click Jump.
- * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade,
- * no jump-range circle. Mission targets may be granted identified visibility.
+ * Fog-of-war: only visited / identified POIs appear. No full-galaxy fade.
+ * Unfilled dashed rings mark jump reach from the current system. Max Jump is
+ * always shown. Current fuel is drawn only when it falls short of that max.
+ * Mission targets may be granted identified visibility.
  * Icons: visited = star-class / POI type color; identified-only = grey.
  */
 export class GalaxyChart {
@@ -102,6 +113,17 @@ export class GalaxyChart {
     ctx.strokeStyle = "rgba(100, 130, 170, 0.25)";
     ctx.strokeRect(this.mapRect.x, this.mapRect.y, this.mapRect.w, this.mapRect.h);
 
+    const here = this.toScreen(current.chartX, current.chartY, layout);
+    const currentLy = jumpReachLy(fuelInfo.fuel, jumpRange);
+    const showCurrent = currentLy > 0 && currentLy < jumpRange;
+    this.drawReachRings(
+      ctx,
+      here.x,
+      here.y,
+      showCurrent ? currentLy * layout.scale : 0,
+      jumpRange * layout.scale,
+    );
+
     for (const poi of galaxy.pois) {
       const reveal = this.revealFor(poi.id, currentId, hints);
       if (reveal === "hidden") continue;
@@ -145,6 +167,8 @@ export class GalaxyChart {
         ctx.stroke();
       }
     }
+
+    if (jumpRange > 0) this.drawReachLegend(ctx, showCurrent);
 
     // Footer
     const footerY = panel.y + panel.h - footerH;
@@ -289,6 +313,118 @@ export class GalaxyChart {
     if (hints.identifiedPoiIds.has(poiId)) return "identified";
     // Mission grants land in identifiedPoiIds; quest ring alone does not reveal.
     return "hidden";
+  }
+
+  /**
+   * Unfilled dashed reach rings, same center and radii as the jump check.
+   * Max jump first. Current fuel only when that reach is shorter, so a full
+   * reach does not draw a second line on top of Max Jump.
+   */
+  private drawReachRings(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    currentR: number,
+    maxR: number,
+  ): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "butt";
+    this.strokeReachRing(
+      ctx,
+      x,
+      y,
+      maxR,
+      MAX_REACH_STROKE,
+      MAX_REACH_DASH,
+      MAX_REACH_WIDTH,
+    );
+    this.strokeReachRing(
+      ctx,
+      x,
+      y,
+      currentR,
+      NOW_REACH_STROKE,
+      NOW_REACH_DASH,
+      NOW_REACH_WIDTH,
+    );
+    ctx.restore();
+  }
+
+  private strokeReachRing(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    stroke: string,
+    dash: readonly number[],
+    width: number,
+  ): void {
+    if (!(radius > 0) || !Number.isFinite(radius)) return;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash.slice());
+    ctx.stroke();
+  }
+
+  private drawReachLegend(
+    ctx: CanvasRenderingContext2D,
+    showCurrent: boolean,
+  ): void {
+    const rows = [
+      ...(showCurrent
+        ? [
+            {
+              stroke: NOW_REACH_STROKE,
+              dash: NOW_REACH_DASH,
+              width: NOW_REACH_WIDTH,
+              label: "Current fuel",
+            },
+          ]
+        : []),
+      {
+        stroke: MAX_REACH_STROKE,
+        dash: MAX_REACH_DASH,
+        width: MAX_REACH_WIDTH,
+        label: "Max Jump",
+      },
+    ];
+    const x = this.mapRect.x + 10;
+    const y0 = this.mapRect.y + 8;
+    const rowH = 16;
+    ctx.fillStyle = "rgba(8, 12, 20, 0.88)";
+    ctx.strokeStyle = "rgba(130, 165, 210, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    const boxW = 140;
+    const boxH = rowH * rows.length + 6;
+    ctx.fillRect(x, y0, boxW, boxH);
+    ctx.strokeRect(x, y0, boxW, boxH);
+
+    ctx.font = FONT;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    let y = y0 + 4 + rowH / 2;
+    for (const row of rows) {
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y);
+      ctx.lineTo(x + 22, y);
+      ctx.strokeStyle = row.stroke;
+      ctx.lineWidth = row.width;
+      ctx.setLineDash(row.dash.slice());
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
+      ctx.fillText(row.label, x + 28, y + 0.5);
+      y += rowH;
+    }
+    ctx.textBaseline = "alphabetic";
+    ctx.setLineDash([]);
   }
 
   private drawMarker(

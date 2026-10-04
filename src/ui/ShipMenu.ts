@@ -1274,6 +1274,11 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
         value: turnDeg,
       },
       {
+        label: "Jump range",
+        text: `${mod.maxJumpRange} ly`,
+        value: mod.maxJumpRange,
+      },
+      {
         label: "Fuel tank",
         text: `${mod.fuelCapacity}`,
         value: mod.fuelCapacity,
