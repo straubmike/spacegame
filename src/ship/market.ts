@@ -168,7 +168,7 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     pool[j] = tmp;
   }
 
-  const result: StationMenuSet = new Set<StationServiceMenu>([
+  const result = new Set<StationServiceMenu>([
     "missions",
     ...pool.slice(0, count),
   ]);

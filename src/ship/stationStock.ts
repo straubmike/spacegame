@@ -38,11 +38,11 @@ export function stationBayStock(
   const maxTier = maxTiersForWealth(wealth, rng);
 
   const stock: EquipModule[] = [
-    cloneModule(MODULES.energyPulse),
+    cloneModule(MODULES.gunMk1),
     cloneModule(MODULES.basicDrive),
   ];
 
-  const weapons = poolFor("weapon", maxTier).filter((m) => m.id !== "energy_pulse");
+  const weapons = poolFor("weapon", maxTier).filter((m) => m.id !== "gun_mk1");
   const drives = poolFor("drive", maxTier).filter((m) => m.id !== "basic_drive");
   const utilities = poolFor("utility", maxTier);
 

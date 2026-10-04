@@ -64,6 +64,8 @@ export class Renderer {
     fuelWarnYes: Rect;
     fuelWarnNo: Rect;
     patrols: StationPatrol[];
+    /** World position of the missile cursor-lock, if a missile is equipped. */
+    missileLock: { x: number; y: number } | null;
     projectiles: Projectile[];
     alpha: number;
     thrusting: boolean;
@@ -158,9 +160,19 @@ export class Renderer {
       }
     }
 
+    if (args.missileLock && !args.chartOpen && !args.panelOpen && !args.shipMenuOpen) {
+      const p = args.camera.worldToScreen(
+        args.missileLock.x,
+        args.missileLock.y,
+        w,
+        h,
+      );
+      this.drawMissileReticle(p.x, p.y);
+    }
+
     for (const shot of args.projectiles) {
       const p = args.camera.worldToScreen(shot.x, shot.y, w, h);
-      this.drawProjectile(p.x, p.y, shot.hostile);
+      this.drawProjectile(p.x, p.y, shot);
     }
 
     if (args.ship.alive) {
@@ -246,8 +258,11 @@ export class Renderer {
       this.hud.draw(ctx, {
         health: args.ship.health,
         maxHealth: args.ship.maxHull,
+        plating: args.ship.plating,
+        maxPlating: args.ship.maxPlating,
         shield: args.ship.shield,
         maxShield: args.ship.maxShield,
+        shieldBreakRemaining: args.ship.shieldBreakRemaining,
         fuel: args.ship.fuel,
         maxFuel: args.ship.maxFuel,
         cargoUsed: args.ship.cargo.usedCu,
@@ -439,14 +454,66 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawProjectile(x: number, y: number, hostile: boolean): void {
+  private drawProjectile(x: number, y: number, shot: Projectile): void {
     const ctx = this.ctx;
+    if (shot.family === "cannon") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(shot.heading);
+      ctx.fillStyle = shot.hostile
+        ? "rgba(255, 150, 90, 0.95)"
+        : "rgba(255, 214, 140, 0.95)";
+      ctx.fillRect(-7, -2.4, 14, 4.8);
+      ctx.restore();
+      return;
+    }
+    if (shot.family === "missile") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(shot.heading);
+      ctx.beginPath();
+      ctx.moveTo(7, 0);
+      ctx.lineTo(-5, 3.2);
+      ctx.lineTo(-3, 0);
+      ctx.lineTo(-5, -3.2);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(140, 220, 255, 0.95)";
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+    const radius = shot.family === "gun" ? 1.6 : COMBAT.projectileRadius;
     ctx.beginPath();
-    ctx.arc(x, y, COMBAT.projectileRadius, 0, Math.PI * 2);
-    ctx.fillStyle = hostile
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = shot.hostile
       ? "rgba(255, 140, 110, 0.95)"
-      : "rgba(220, 240, 255, 0.95)";
+      : shot.family === "gun"
+        ? "rgba(210, 225, 245, 0.9)"
+        : "rgba(220, 240, 255, 0.95)";
     ctx.fill();
+  }
+
+  private drawMissileReticle(x: number, y: number): void {
+    const ctx = this.ctx;
+    const s = 16;
+    ctx.save();
+    ctx.strokeStyle = "rgba(140, 220, 255, 0.95)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - s, y - s + 5);
+    ctx.lineTo(x - s, y - s);
+    ctx.lineTo(x - s + 5, y - s);
+    ctx.moveTo(x + s - 5, y - s);
+    ctx.lineTo(x + s, y - s);
+    ctx.lineTo(x + s, y - s + 5);
+    ctx.moveTo(x + s, y + s - 5);
+    ctx.lineTo(x + s, y + s);
+    ctx.lineTo(x + s - 5, y + s);
+    ctx.moveTo(x - s + 5, y + s);
+    ctx.lineTo(x - s, y + s);
+    ctx.lineTo(x - s, y + s - 5);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private isOnScreen(x: number, y: number, w: number, h: number): boolean {

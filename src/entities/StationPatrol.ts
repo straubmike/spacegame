@@ -1,4 +1,5 @@
 import { COMBAT, PATROL, SHIP } from "../game/config";
+import { nextCombatId } from "./combatId";
 import { spawnProjectile, type Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
 
@@ -30,6 +31,7 @@ export type PatrolUpdateResult = {
  * Player fire marks defending → return fire (hostile shots).
  */
 export class StationPatrol {
+  readonly id = nextCombatId("patrol");
   health: number;
   vx = 0;
   vy = 0;

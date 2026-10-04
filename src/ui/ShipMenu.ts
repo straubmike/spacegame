@@ -5,8 +5,10 @@ import {
   swapCost,
   moduleDetailTitle,
   moduleStockLabel,
+  weaponSlotBinding,
   type EquipModule,
   type ShipSlot,
+  type WeaponModule,
 } from "../ship/equipment";
 import {
   applyBayDiscount,
@@ -46,6 +48,8 @@ interface StatRow {
   label: string;
   text: string;
   value: number | null;
+  /** A smaller number is the upgrade (gun time-on-target). */
+  lowerIsBetter?: boolean;
 }
 
 interface CargoRowWidgets {
@@ -213,6 +217,7 @@ export class ShipMenu {
     this.confirmNoBtn = { x: 0, y: 0, w: 0, h: 0 };
 
     this.slotRects = [];
+    let weaponOrdinal = 0;
     loadout.slots.forEach((slot, i) => {
       const row: Rect = {
         x: listX,
@@ -234,13 +239,25 @@ export class ShipMenu {
       ctx.font = FONT;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
       ctx.textBaseline = "top";
-      ctx.fillText(slot.label, row.x + 10, row.y + 6);
+      const binding =
+        slot.kind === "weapon" ? weaponSlotBinding(weaponOrdinal) : null;
+      if (slot.kind === "weapon") weaponOrdinal += 1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(row.x + 4, row.y, row.w - 8, row.h);
+      ctx.clip();
+      ctx.fillText(
+        binding ? `${slot.label} · ${binding}` : slot.label,
+        row.x + 10,
+        row.y + 6,
+      );
       ctx.fillStyle = "rgba(150, 170, 200, 0.8)";
       ctx.fillText(
-        slot.equipped ? slot.equipped.name : "Empty",
+        slot.equipped ? moduleStockLabel(slot.equipped) : "Empty",
         row.x + 10,
         row.y + 22,
       );
+      ctx.restore();
     });
 
     const slot = loadout.slots[this.selectedIndex] ?? loadout.slots[0]!;
@@ -991,9 +1008,18 @@ export class ShipMenu {
       ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
       ctx.fillText(`${row.label}  ${row.text}`, x, by);
 
-      if (otherRows) {
+      if (otherRows && compareAgainst) {
         const other = otherRows[i];
-        if (
+        const crossAmmo =
+          row.label === "Ammunition" &&
+          mod.kind === "weapon" &&
+          compareAgainst.kind === "weapon" &&
+          mod.family !== compareAgainst.family;
+        const tw = ctx.measureText(`${row.label}  ${row.text}`).width;
+        if (crossAmmo) {
+          ctx.fillStyle = "rgba(150, 200, 255, 0.95)";
+          ctx.fillText("TYPE CHANGE", x + tw + 8, by);
+        } else if (
           other &&
           row.value !== null &&
           other.value !== null &&
@@ -1002,12 +1028,20 @@ export class ShipMenu {
         ) {
           const delta = other.value - row.value;
           if (Math.abs(delta) > 1e-6) {
-            const label = formatDelta(delta);
-            const tw = ctx.measureText(`${row.label}  ${row.text}`).width;
-            ctx.fillStyle =
-              delta > 0
-                ? "rgba(90, 210, 130, 0.95)"
-                : "rgba(230, 100, 100, 0.95)";
+            const label = row.lowerIsBetter
+              ? formatSignedSeconds(delta)
+              : formatDelta(delta);
+            if (row.lowerIsBetter) {
+              ctx.fillStyle =
+                delta < 0
+                  ? "rgba(90, 210, 130, 0.95)"
+                  : "rgba(230, 100, 100, 0.95)";
+            } else {
+              ctx.fillStyle =
+                delta > 0
+                  ? "rgba(90, 210, 130, 0.95)"
+                  : "rgba(230, 100, 100, 0.95)";
+            }
             ctx.fillText(label, x + tw + 8, by);
           }
         }
@@ -1224,32 +1258,7 @@ function truncate(
 }
 
 function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
-  if (mod.kind === "weapon") {
-    const ammo =
-      loadout.weapon?.id === mod.id
-        ? loadout.ammo
-        : mod.ammoMax === null
-          ? Infinity
-          : mod.ammoMax;
-    const rof = rateOfFire(mod.fireCooldown);
-    return [
-      {
-        label: "Rate of fire",
-        text: `${rof.toFixed(2)} /s`,
-        value: rof,
-      },
-      {
-        label: "Ammunition",
-        text: formatAmmo(mod.ammoMax, ammo),
-        value: mod.ammoMax,
-      },
-      {
-        label: "Damage",
-        text: `${mod.damage}`,
-        value: mod.damage,
-      },
-    ];
-  }
+  if (mod.kind === "weapon") return weaponStatRows(mod, loadout);
   if (mod.kind === "drive") {
     const turnDeg = (mod.turnRate * 180) / Math.PI;
     return [
@@ -1302,8 +1311,23 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       value: mod.shieldRegenRate,
     },
     {
-      label: "Hull bonus",
-      text: `+${mod.hullBonus}`,
+      label: "Break downtime",
+      text:
+        mod.shieldBreakDowntime > 0
+          ? `${mod.shieldBreakDowntime.toFixed(0)} s`
+          : "—",
+      value: mod.shieldBreakDowntime,
+      lowerIsBetter: true,
+    },
+    {
+      label: "Ammo bonus",
+      text:
+        mod.ammoBonus > 0 ? `+${Math.round(mod.ammoBonus * 100)}%` : "—",
+      value: Math.round(mod.ammoBonus * 100),
+    },
+    {
+      label: "Plating",
+      text: `${mod.hullBonus}`,
       value: mod.hullBonus,
     },
     {
@@ -1348,6 +1372,65 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
       value: mod.poiScan ? 1 : 0,
     },
   ];
+}
+
+function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
+  const magazine = loadout.magazineSize(mod);
+  let ammo = magazine === null ? Number.POSITIVE_INFINITY : magazine;
+  for (const slot of loadout.slots) {
+    if (slot.equipped === mod) {
+      ammo = loadout.ammoIn(slot.id);
+      break;
+    }
+  }
+  const bonusPct = Math.round(loadout.ammoBonusFraction() * 100);
+  const ammoText =
+    magazine !== null && bonusPct > 0
+      ? `${formatAmmo(magazine, ammo)} (+${bonusPct}%)`
+      : formatAmmo(magazine, ammo);
+  const rof = rateOfFire(mod.fireCooldown);
+  const shieldPct = Math.round(mod.shieldMultiplier * 100);
+  const trackDeg = (mod.trackingTurn * 180) / Math.PI;
+  return [
+    {
+      label: "Ammunition",
+      text: ammoText,
+      value: magazine,
+    },
+    {
+      label: "Damage",
+      text: mod.family === "gun" ? `${mod.damage} / chunk` : `${mod.damage}`,
+      value: mod.damage,
+    },
+    {
+      label: "Shield hit",
+      text: `${shieldPct}%`,
+      value: shieldPct,
+    },
+    {
+      label: "Rate of fire",
+      text: `${rof.toFixed(2)} /s`,
+      value: rof,
+    },
+    {
+      label: "Time on target",
+      text: mod.family === "gun" ? `${mod.timeOnTarget.toFixed(2)} s` : "—",
+      // Raw seconds. A negative delta is a shorter chunk timer (an upgrade).
+      value: mod.family === "gun" ? mod.timeOnTarget : null,
+      lowerIsBetter: mod.family === "gun",
+    },
+    {
+      label: "Tracking",
+      text: mod.family === "missile" ? `${trackDeg.toFixed(0)}°/s` : "—",
+      value: mod.family === "missile" ? trackDeg : null,
+    },
+  ];
+}
+
+/** Signed seconds, two decimals, so a shorter gun timer reads as a reduction. */
+function formatSignedSeconds(delta: number): string {
+  const sign = delta > 0 ? "+" : "";
+  return `${sign}${delta.toFixed(2)} s`;
 }
 
 function formatDelta(delta: number): string {

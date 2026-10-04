@@ -1,4 +1,4 @@
-import { COMBAT, SHIP } from "../game/config";
+import { SHIP, WEAPONS } from "../game/config";
 
 /** Equip categories — one module per slot. */
 export type SlotKind = "weapon" | "drive" | "utility";
@@ -19,16 +19,40 @@ interface ModuleBase {
   tier: ModuleTier;
 }
 
+/** Kinetic family. Mark is the tier rung, not a separate name. */
+export type WeaponFamily = "gun" | "cannon" | "missile";
+
 export interface WeaponModule extends ModuleBase {
   kind: "weapon";
+  family: WeaponFamily;
   /**
-   * Internal shot spacing in seconds — derived into rate of fire for UI.
-   * Do not surface as a separate player-facing “cooldown” stat.
+   * Seconds between shots (pellet volley, slug, or missile).
+   * Surfaced as rate of fire — not a separate “cooldown” label.
    */
   fireCooldown: number;
-  /** null = infinite magazine (energy weapons). */
+  /** null = infinite magazine. Player kinetics always carry a finite bank. */
   ammoMax: number | null;
+  /**
+   * Gun: HP chunk once the stream has stayed on target.
+   * Cannon / missile: damage per hit.
+   */
   damage: number;
+  /**
+   * Fraction of `damage` applied to a shield bank.
+   * 0 leaves shields untouched and does not spill.
+   * Excess over the current shield is wiped.
+   */
+  shieldMultiplier: number;
+  /** Gun: seconds of sustained impacts before a chunk. 0 on other families. */
+  timeOnTarget: number;
+  /** Missile steering, radians per second. 0 on other families. */
+  trackingTurn: number;
+  /** Missile lock window. After this the round flies straight. */
+  trackSeconds: number;
+  /** Pellets per volley. 1 for slugs and missiles. */
+  pelletCount: number;
+  /** Cone half-angle in radians. 0 fires straight ahead. */
+  spread: number;
 }
 
 export interface DriveModule extends ModuleBase {
@@ -54,13 +78,27 @@ export interface DriveModule extends ModuleBase {
 
 export interface UtilityModule extends ModuleBase {
   kind: "utility";
-  /** Max shield HP absorbed before hull damage. */
+  /** Shield bank HP. First layer; not bonus core HP. */
   shieldMax: number;
   /** Seconds without damage before shield regen starts. */
   shieldRegenDelay: number;
   /** Shield HP restored per second while regenerating. */
   shieldRegenRate: number;
-  /** Extra hull HP above the ship base. */
+  /**
+   * Seconds a broken shield waits before recharge can start.
+   * 0 when this module has no shield bank. Higher marks recover sooner.
+   * Several shields equipped: the ship uses the shortest wait.
+   */
+  shieldBreakDowntime: number;
+  /**
+   * Fraction added to every equipped weapon's magazine (0.25 = +25%).
+   * Multiple expanders stack by summing the fractions.
+   */
+  ammoBonus: number;
+  /**
+   * Plating bank HP. Sits in front of core hull after shields.
+   * Does not raise core HP.
+   */
   hullBonus: number;
   /** Cargo hold size in cargo units (CU). */
   cargoCapacity: number;
@@ -105,113 +143,183 @@ export interface ShipSlot {
  * - Tier 3 (~480–720): multi-loop goal; trade-in softens the step up
  */
 export const MODULES = {
-  // —— Weapons ————————————————————————————————————————————————
-  energyPulse: {
+  // —— Weapons (kinetic only: Gun / Cannon / Missile, Mk I–III) ———
+  gunMk1: {
     kind: "weapon",
-    id: "energy_pulse",
-    name: "Energy Pulse",
-    blurb: "Lightweight pulse cannon. Draws from the reactor — no magazine.",
-    price: 40,
+    family: "gun",
+    id: "gun_mk1",
+    name: "Gun",
+    blurb:
+      "Tight kinetic stream. Pellets do not hit — a chunk lands after the stream stays on target. No effect on shields.",
+    price: 75,
     tier: 1,
-    fireCooldown: COMBAT.fireCooldown,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage,
+    fireCooldown: WEAPONS.gun.pelletCooldown,
+    ammoMax: WEAPONS.gun.marks[0].ammo,
+    damage: WEAPONS.gun.chunkDamage,
+    shieldMultiplier: 0,
+    timeOnTarget: WEAPONS.gun.marks[0].timeOnTarget,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: WEAPONS.gun.pelletCount,
+    spread: WEAPONS.gun.spread,
   } satisfies WeaponModule,
 
-  rapidPulse: {
+  gunMk2: {
     kind: "weapon",
-    id: "rapid_pulse",
-    name: "Rapid Pulse",
-    blurb: "Faster cycle for a premium. Same punch as a stock pulse cannon.",
-    price: 90,
-    tier: 1,
-    fireCooldown: COMBAT.fireCooldown * 0.65,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage,
-  } satisfies WeaponModule,
-
-  heavyPulse: {
-    kind: "weapon",
-    id: "heavy_pulse",
-    name: "Heavy Pulse",
-    blurb: "Slower discharge with a harder hit.",
-    price: 100,
-    tier: 1,
-    fireCooldown: COMBAT.fireCooldown * 1.45,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 1,
-  } satisfies WeaponModule,
-
-  twinPulse: {
-    kind: "weapon",
-    id: "twin_pulse",
-    name: "Twin Pulse",
-    blurb: "Paired emitters — quicker cycle and a firmer punch than stock.",
+    family: "gun",
+    id: "gun_mk2",
+    name: "Gun",
+    blurb:
+      "Same stream and chunk. Deeper magazine, and less time on target before each chunk.",
     price: 240,
     tier: 2,
-    fireCooldown: COMBAT.fireCooldown * 0.72,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 1,
+    fireCooldown: WEAPONS.gun.pelletCooldown,
+    ammoMax: WEAPONS.gun.marks[1].ammo,
+    damage: WEAPONS.gun.chunkDamage,
+    shieldMultiplier: 0,
+    timeOnTarget: WEAPONS.gun.marks[1].timeOnTarget,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: WEAPONS.gun.pelletCount,
+    spread: WEAPONS.gun.spread,
   } satisfies WeaponModule,
 
-  focusBeam: {
+  gunMk3: {
     kind: "weapon",
-    id: "focus_beam",
-    name: "Focus Beam",
-    blurb: "Charged lance. Slow to cycle, nasty when it lands.",
-    price: 280,
+    family: "gun",
+    id: "gun_mk3",
+    name: "Gun",
+    blurb:
+      "Largest gun magazine and the shortest time on target before each chunk.",
+    price: 520,
+    tier: 3,
+    fireCooldown: WEAPONS.gun.pelletCooldown,
+    ammoMax: WEAPONS.gun.marks[2].ammo,
+    damage: WEAPONS.gun.chunkDamage,
+    shieldMultiplier: 0,
+    timeOnTarget: WEAPONS.gun.marks[2].timeOnTarget,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: WEAPONS.gun.pelletCount,
+    spread: WEAPONS.gun.spread,
+  } satisfies WeaponModule,
+
+  cannonMk1: {
+    kind: "weapon",
+    family: "cannon",
+    id: "cannon_mk1",
+    name: "Cannon",
+    blurb:
+      "Slow heavy slug, straight ahead. Half damage on shields — overkill past the bank is wasted.",
+    price: 90,
+    tier: 1,
+    fireCooldown: WEAPONS.cannon.marks[0].fireCooldown,
+    ammoMax: WEAPONS.cannon.marks[0].ammo,
+    damage: WEAPONS.cannon.marks[0].damage,
+    shieldMultiplier: WEAPONS.cannon.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+  } satisfies WeaponModule,
+
+  cannonMk2: {
+    kind: "weapon",
+    family: "cannon",
+    id: "cannon_mk2",
+    name: "Cannon",
+    blurb: "Harder slug, faster cycle, a few more rounds in the heavy magazine.",
+    price: 270,
     tier: 2,
-    fireCooldown: COMBAT.fireCooldown * 1.55,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 2,
+    fireCooldown: WEAPONS.cannon.marks[1].fireCooldown,
+    ammoMax: WEAPONS.cannon.marks[1].ammo,
+    damage: WEAPONS.cannon.marks[1].damage,
+    shieldMultiplier: WEAPONS.cannon.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
   } satisfies WeaponModule,
 
-  burstCannon: {
+  cannonMk3: {
     kind: "weapon",
-    id: "burst_cannon",
-    name: "Burst Cannon",
-    blurb: "Aggressive cycle rate. Same bite as Twin Pulse, hungrier on heat.",
-    price: 310,
+    family: "cannon",
+    id: "cannon_mk3",
+    name: "Cannon",
+    blurb: "Siege slug. Highest cannon damage, cycle, and magazine.",
+    price: 580,
+    tier: 3,
+    fireCooldown: WEAPONS.cannon.marks[2].fireCooldown,
+    ammoMax: WEAPONS.cannon.marks[2].ammo,
+    damage: WEAPONS.cannon.marks[2].damage,
+    shieldMultiplier: WEAPONS.cannon.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+  } satisfies WeaponModule,
+
+  missileMk1: {
+    kind: "weapon",
+    family: "missile",
+    id: "missile_mk1",
+    name: "Missile",
+    blurb:
+      "Lighter than a slug. Locks the target nearest the cursor and does not switch. Tracking is short, then it flies straight. Quarter damage on shields.",
+    price: 105,
+    tier: 1,
+    fireCooldown: WEAPONS.missile.fireCooldown,
+    ammoMax: WEAPONS.missile.marks[0].ammo,
+    damage: WEAPONS.missile.marks[0].damage,
+    shieldMultiplier: WEAPONS.missile.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: WEAPONS.missile.marks[0].trackingTurn,
+    trackSeconds: WEAPONS.missile.trackSeconds,
+    pelletCount: 1,
+    spread: 0,
+  } satisfies WeaponModule,
+
+  missileMk2: {
+    kind: "weapon",
+    family: "missile",
+    id: "missile_mk2",
+    name: "Missile",
+    blurb:
+      "Heavier warhead, tighter homing, more rounds. Still locks once and flies off when tracking ends.",
+    price: 300,
     tier: 2,
-    fireCooldown: COMBAT.fireCooldown * 0.48,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 1,
+    fireCooldown: WEAPONS.missile.fireCooldown,
+    ammoMax: WEAPONS.missile.marks[1].ammo,
+    damage: WEAPONS.missile.marks[1].damage,
+    shieldMultiplier: WEAPONS.missile.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: WEAPONS.missile.marks[1].trackingTurn,
+    trackSeconds: WEAPONS.missile.trackSeconds,
+    pelletCount: 1,
+    spread: 0,
   } satisfies WeaponModule,
 
-  novaLance: {
+  missileMk3: {
     kind: "weapon",
-    id: "nova_lance",
-    name: "Nova Lance",
-    blurb: "Late-yard beam. Strong hit with a respectable cycle.",
-    price: 560,
+    family: "missile",
+    id: "missile_mk3",
+    name: "Missile",
+    blurb:
+      "Best missile warhead and the tightest turn. Short lock, then a straight run — no orbit.",
+    price: 640,
     tier: 3,
-    fireCooldown: COMBAT.fireCooldown * 0.9,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 3,
-  } satisfies WeaponModule,
-
-  plasmaRepeater: {
-    kind: "weapon",
-    id: "plasma_repeater",
-    name: "Plasma Repeater",
-    blurb: "Top-end spray. Fastest energy cycle that still hits hard.",
-    price: 620,
-    tier: 3,
-    fireCooldown: COMBAT.fireCooldown * 0.4,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 2,
-  } satisfies WeaponModule,
-
-  siegePulse: {
-    kind: "weapon",
-    id: "siege_pulse",
-    name: "Siege Pulse",
-    blurb: "Capital-grade discharge. Slow, brutal, and expensive.",
-    price: 680,
-    tier: 3,
-    fireCooldown: COMBAT.fireCooldown * 1.7,
-    ammoMax: null,
-    damage: COMBAT.projectileDamage + 4,
+    fireCooldown: WEAPONS.missile.fireCooldown,
+    ammoMax: WEAPONS.missile.marks[2].ammo,
+    damage: WEAPONS.missile.marks[2].damage,
+    shieldMultiplier: WEAPONS.missile.shieldMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: WEAPONS.missile.marks[2].trackingTurn,
+    trackSeconds: WEAPONS.missile.trackSeconds,
+    pelletCount: 1,
+    spread: 0,
   } satisfies WeaponModule,
 
   // —— Drives ————————————————————————————————————————————————
@@ -373,12 +481,15 @@ export const MODULES = {
     kind: "utility",
     id: "light_shield",
     name: "Shield",
-    blurb: "Thin deflector lattice. Absorbs hits first; recharges after a quiet spell.",
+    blurb:
+      "Shield bank in front of plating and core. A break waits 12s before recharge.",
     price: 70,
     tier: 1,
     shieldMax: 4,
     shieldRegenDelay: 2.5,
     shieldRegenRate: 2.5,
+    shieldBreakDowntime: 12,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -393,12 +504,15 @@ export const MODULES = {
     kind: "utility",
     id: "hull_plating",
     name: "Hull Plating",
-    blurb: "Reinforced skin plates. More hull, no fancy tricks.",
+    blurb:
+      "Plating bank ahead of core hull. Kinetic hits it hard. Does not add core HP.",
     price: 65,
     tier: 1,
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 3,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -419,6 +533,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 8,
     passengerCapacity: 0,
@@ -433,12 +549,14 @@ export const MODULES = {
     kind: "utility",
     id: "medium_shield",
     name: "Shield",
-    blurb: "Thicker lattice and quicker recover. Mid-route self-defense.",
+    blurb: "Thicker lattice. A break waits 8s before recharge.",
     price: 230,
     tier: 2,
     shieldMax: 8,
     shieldRegenDelay: 2.0,
     shieldRegenRate: 3.5,
+    shieldBreakDowntime: 8,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -453,12 +571,14 @@ export const MODULES = {
     kind: "utility",
     id: "reinforced_hull",
     name: "Hull Plating",
-    blurb: "Layered plating. Survives longer once shields are gone.",
+    blurb: "Thicker plating bank. Soaks kinetic once the shield is down.",
     price: 210,
     tier: 2,
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 6,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -479,6 +599,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 14,
     passengerCapacity: 0,
@@ -493,12 +615,14 @@ export const MODULES = {
     kind: "utility",
     id: "heavy_shield",
     name: "Shield",
-    blurb: "Late deflector bank. Fat buffer and aggressive regen.",
+    blurb: "Late deflector bank. A break waits 5s before recharge.",
     price: 500,
     tier: 3,
     shieldMax: 14,
     shieldRegenDelay: 1.6,
     shieldRegenRate: 5.0,
+    shieldBreakDowntime: 5,
+    ammoBonus: 0,
     hullBonus: 1,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -513,12 +637,14 @@ export const MODULES = {
     kind: "utility",
     id: "fortress_plating",
     name: "Hull Plating",
-    blurb: "Brutal armor kit. Hull-first survival for close fights.",
+    blurb: "Heavy plating bank. The last buffer before core hull.",
     price: 480,
     tier: 3,
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 10,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -539,6 +665,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 22,
     passengerCapacity: 0,
@@ -561,6 +689,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -582,6 +712,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 6,
     passengerCapacity: 0,
@@ -604,6 +736,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 1,
@@ -626,6 +760,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 2,
@@ -648,6 +784,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 4,
@@ -669,6 +807,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 5,
     passengerCapacity: 0,
@@ -690,6 +830,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -711,6 +853,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -737,6 +881,8 @@ export const MODULES = {
     shieldMax: 0,
     shieldRegenDelay: 0,
     shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0,
     hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
@@ -751,13 +897,85 @@ export const MODULES = {
     kind: "utility",
     id: "dual_lattice",
     name: "Dual Lattice",
-    blurb: "Hybrid kit — solid shields with a touch of plating. Jack of both.",
+    blurb:
+      "Hybrid kit — shields plus plating. A break waits 6s. Not on the Shield mark ladder.",
     price: 540,
     tier: 3,
     shieldMax: 10,
     shieldRegenDelay: 1.8,
     shieldRegenRate: 4.0,
+    shieldBreakDowntime: 6,
+    ammoBonus: 0,
     hullBonus: 4,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander1: {
+    kind: "utility",
+    id: "ammo_expander_1",
+    name: "Ammo Expander",
+    blurb:
+      "Magazine feed for every fitted weapon. Adds 25% rounds. Extra expanders stack.",
+    price: 80,
+    tier: 1,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0.25,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander2: {
+    kind: "utility",
+    id: "ammo_expander_2",
+    name: "Ammo Expander",
+    blurb:
+      "Larger feeds on every fitted weapon. Adds 50% rounds. Stacks with other expanders.",
+    price: 240,
+    tier: 2,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 0.5,
+    hullBonus: 0,
+    cargoCapacity: 0,
+    passengerCapacity: 0,
+    mineralScanRange: 0,
+    scoopRange: 0,
+    fuelCapacity: 0,
+    fuelScoop: false,
+    poiScan: false,
+  } satisfies UtilityModule,
+
+  ammoExpander3: {
+    kind: "utility",
+    id: "ammo_expander_3",
+    name: "Ammo Expander",
+    blurb:
+      "Deep magazines on every fitted weapon. Doubles rounds. Stacks with other expanders.",
+    price: 500,
+    tier: 3,
+    shieldMax: 0,
+    shieldRegenDelay: 0,
+    shieldRegenRate: 0,
+    shieldBreakDowntime: 0,
+    ammoBonus: 1,
+    hullBonus: 0,
     cargoCapacity: 0,
     passengerCapacity: 0,
     mineralScanRange: 0,
@@ -772,15 +990,15 @@ export const MODULES = {
 export const MODULE_TRADE_IN = 0.5;
 
 export const CATALOG: EquipModule[] = [
-  MODULES.energyPulse,
-  MODULES.rapidPulse,
-  MODULES.heavyPulse,
-  MODULES.twinPulse,
-  MODULES.focusBeam,
-  MODULES.burstCannon,
-  MODULES.novaLance,
-  MODULES.plasmaRepeater,
-  MODULES.siegePulse,
+  MODULES.gunMk1,
+  MODULES.gunMk2,
+  MODULES.gunMk3,
+  MODULES.cannonMk1,
+  MODULES.cannonMk2,
+  MODULES.cannonMk3,
+  MODULES.missileMk1,
+  MODULES.missileMk2,
+  MODULES.missileMk3,
   MODULES.basicDrive,
   MODULES.racingDrive,
   MODULES.longRangeDrive,
@@ -809,6 +1027,9 @@ export const CATALOG: EquipModule[] = [
   MODULES.fuelScoop,
   MODULES.expandedFuelTank,
   MODULES.surveyScanner,
+  MODULES.ammoExpander1,
+  MODULES.ammoExpander2,
+  MODULES.ammoExpander3,
 ];
 
 export function createStarterSlots(): ShipSlot[] {
@@ -817,7 +1038,7 @@ export function createStarterSlots(): ShipSlot[] {
       id: "slot_weapon_0",
       kind: "weapon",
       label: "Weapon",
-      equipped: cloneModule(MODULES.energyPulse),
+      equipped: cloneModule(MODULES.gunMk1),
     },
     {
       id: "slot_drive_0",
@@ -888,8 +1109,27 @@ export function tierLabel(tier: ModuleTier): string {
   }
 }
 
-/** Stat-ladder SKUs only — same role, better numbers (shield / hull / cargo hold). */
+/**
+ * Hardpoint index → held input.
+ * Slot 1 Space, slot 2 left click, slot 3 right click.
+ */
+export const WEAPON_SLOT_BINDINGS = ["Space", "L-click", "R-click"] as const;
+
+export function weaponSlotBinding(index: number): string | null {
+  return WEAPON_SLOT_BINDINGS[index] ?? null;
+}
+
+/** Stat-ladder SKUs only — same role, better numbers (weapons / shield / plating / cargo). */
 const TIER_MARK_MODULE_IDS = new Set<string>([
+  "gun_mk1",
+  "gun_mk2",
+  "gun_mk3",
+  "cannon_mk1",
+  "cannon_mk2",
+  "cannon_mk3",
+  "missile_mk1",
+  "missile_mk2",
+  "missile_mk3",
   "light_shield",
   "medium_shield",
   "heavy_shield",
@@ -899,6 +1139,9 @@ const TIER_MARK_MODULE_IDS = new Set<string>([
   "cargo_rack",
   "expanded_hold",
   "freighter_bay",
+  "ammo_expander_1",
+  "ammo_expander_2",
+  "ammo_expander_3",
 ]);
 
 export function moduleShowsTierMark(mod: EquipModule): boolean {

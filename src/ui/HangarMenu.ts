@@ -117,7 +117,7 @@ export class HangarMenu {
     const listY = panel.y + 68;
     const listW = 220;
     const footerY = panel.y + panel.h - 50;
-    const rowH = 48;
+    const rowH = 40;
     const headerH = 22;
 
     this.rowRects = [];
@@ -163,13 +163,13 @@ export class HangarMenu {
             : row.hull.name
           : row.hull.name;
       ctx.fillStyle = "rgba(220, 235, 255, 0.95)";
-      ctx.fillText(title, rect.x + 10, rect.y + 8);
+      ctx.fillText(title, rect.x + 10, rect.y + 4);
       ctx.fillStyle = "rgba(150, 170, 200, 0.8)";
       const sub =
         row.kind === "owned"
           ? `Owned · ${row.hull.specialty}`
           : `${row.hull.price} cr · ${row.hull.specialty}`;
-      ctx.fillText(sub, rect.x + 10, rect.y + 26);
+      ctx.fillText(sub, rect.x + 10, rect.y + 20);
     });
 
     const detailX = listX + listW + 18;

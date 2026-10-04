@@ -199,6 +199,83 @@ export const COMBAT = {
 } as const;
 
 /**
+ * Player kinetic weapons. Three families, each a Mk I–III ladder.
+ * All damage is kinetic — no energy / beam types.
+ *
+ * Shields take `shieldMultiplier` of a hit. If that scaled damage meets or
+ * exceeds the shield bank, the shield breaks and the excess is wiped
+ * (no spill into plating or core). How long the break lasts is the
+ * shield module's own stat. Plating then core take full kinetic.
+ * Guns never touch shields (multiplier 0).
+ */
+export const WEAPONS = {
+  /**
+   * Pirate and patrol shots stay simple kinetic slugs.
+   * Half of each hit lands on shields; overkill past the bank is wiped.
+   */
+  npcShieldMultiplier: 0.5,
+  /** Gap between pellet impacts that resets a gun's time-on-target. */
+  gunStreamBreakGap: 0.25,
+  gun: {
+    /** HP removed once per maintained stream, not per shot. */
+    chunkDamage: 6,
+    /**
+     * Seconds between shots. One round per shot (recoil picks a heading
+     * inside the cone). Doubled from the old 0.10 s paired volley so a
+     * single shot replaces each of the two pellets.
+     */
+    pelletCooldown: 0.05,
+    pelletCount: 1,
+    /** Half-angle of the cone, radians. */
+    spread: (3.2 * Math.PI) / 180,
+    pelletSpeed: 760,
+    pelletRadius: 1.5,
+    /**
+     * Marks raise ammo and shorten time-on-target. Chunk size stays put,
+     * so a higher mark deals that chunk more often.
+     * Per-second chunk: Mk I 6, Mk II ~8.6, Mk III ~13.3.
+     */
+    marks: [
+      { ammo: 360, timeOnTarget: 1 },
+      { ammo: 560, timeOnTarget: 0.7 },
+      { ammo: 800, timeOnTarget: 0.45 },
+    ],
+  },
+  cannon: {
+    shieldMultiplier: 0.5,
+    slugSpeed: 380,
+    slugRadius: 4.4,
+    /** Marks: damage, rate of fire, ammo. Small heavy magazine. */
+    marks: [
+      { damage: 14, fireCooldown: 1.15, ammo: 8 },
+      { damage: 22, fireCooldown: 0.85, ammo: 12 },
+      { damage: 34, fireCooldown: 0.62, ammo: 18 },
+    ],
+  },
+  missile: {
+    shieldMultiplier: 0.25,
+    speed: 320,
+    radius: 3.1,
+    /** Same launch rate on every mark — ladder is damage, tracking, ammo. */
+    fireCooldown: 0.85,
+    /**
+     * Lock steering window. After this the missile keeps its heading
+     * and flies off — it does not orbit.
+     */
+    trackSeconds: 1.4,
+    /**
+     * Damage stays under the same-mark gun's per-second chunk
+     * (6 / ~8.6 / ~13.3) and under the same-mark cannon slug.
+     */
+    marks: [
+      { damage: 4, trackingTurn: 1.6, ammo: 20 },
+      { damage: 7, trackingTurn: 2.7, ammo: 32 },
+      { damage: 11, trackingTurn: 4.2, ammo: 46 },
+    ],
+  },
+} as const;
+
+/**
  * Pirate hull tiers — distinct silhouettes / loadouts for Must-have 4.
  * Stats are relative to the player's starter combat feel.
  */

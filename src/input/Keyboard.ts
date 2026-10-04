@@ -3,7 +3,10 @@ export interface InputState {
   reverse: boolean;
   turnLeft: boolean;
   turnRight: boolean;
-  /** held fire (Space) — autofire on cooldown */
+  /**
+   * Weapon slot 1 (Space), held — autofire on that slot's cooldown.
+   * Slot 2 is left click. Slot 3 is right click.
+   */
   fire: boolean;
   /** held scoop (F) — collect scanned belt ore when equipped */
   scoop: boolean;

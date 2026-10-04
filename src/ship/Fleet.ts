@@ -13,7 +13,11 @@ export interface OwnedShipSnapshot {
   loadout: ShipLoadout;
   cargo: CargoHold;
   health: number;
+  /** Plating bank. Separate from core `health`. */
+  plating: number;
   shield: number;
+  /** Seconds left on a broken-shield recharge downtime. */
+  shieldBreakRemaining: number;
   fuel: number;
 }
 
@@ -38,8 +42,7 @@ function freshOwned(hull: HullDef): OwnedShipSnapshot {
     .utilities()
     .reduce((sum, u) => sum + u.cargoCapacity, 0);
   cargo.setCapacity(hull.baseCargo + utilCargo);
-  const hullBonus = loadout.utilities().reduce((sum, u) => sum + u.hullBonus, 0);
-  const maxHull = hull.baseHull + hullBonus;
+  const plating = loadout.utilities().reduce((sum, u) => sum + u.hullBonus, 0);
   const shieldMax = loadout
     .utilities()
     .reduce((sum, u) => sum + u.shieldMax, 0);
@@ -52,8 +55,10 @@ function freshOwned(hull: HullDef): OwnedShipSnapshot {
     hullId: hull.id,
     loadout,
     cargo,
-    health: maxHull,
+    health: hull.baseHull,
+    plating,
     shield: shieldMax,
+    shieldBreakRemaining: 0,
     fuel: maxFuel,
   };
 }
