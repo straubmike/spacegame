@@ -276,22 +276,6 @@ export const WEAPONS = {
 } as const;
 
 /**
- * TEMP(weapons-pass): strip before merge.
- * Immobile damage sponge in the starting local view.
- */
-export const TEMP_TARGET = {
-  shield: 250,
-  plating: 250,
-  core: 2000,
-  radius: 26,
-  regenDelay: 1.6,
-  regenRate: 45,
-  /** World offset from the arrival pose (starboard of the nose-up spawn). */
-  offsetX: 220,
-  offsetY: 0,
-} as const;
-
-/**
  * Pirate hull tiers — distinct silhouettes / loadouts for Must-have 4.
  * Stats are relative to the player's starter combat feel.
  */

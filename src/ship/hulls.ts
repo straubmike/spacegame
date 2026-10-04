@@ -45,13 +45,10 @@ export const HULLS = {
     name: "Sparrow",
     specialty: "Starter",
     blurb:
-      "TEMP(weapons-pass): two extra weapon bays so Space, left click, and right click can all be tried. Strip Weapon B and Weapon C before merge.",
+      "Light multipurpose hull. Twin utility bays so scanner + scoop (or berth) can ride together.",
     price: 0,
     slots: [
-      { kind: "weapon", label: "Weapon A" },
-      // TEMP(weapons-pass): extra starter hardpoints. Not a real sparrow layout.
-      { kind: "weapon", label: "Weapon B" },
-      { kind: "weapon", label: "Weapon C" },
+      { kind: "weapon", label: "Weapon" },
       { kind: "drive", label: "Drive" },
       { kind: "utility", label: "Utility A" },
       { kind: "utility", label: "Utility B" },
@@ -63,15 +60,8 @@ export const HULLS = {
     fill: "#c8d6e8",
     stroke: "#6a8bb0",
     // Utility A: Survey Scanner so new players can take explore missions
-    // without a Bay buy first. Weapon B/C start empty for the free bay.
-    defaultLoadout: [
-      "gun_mk1",
-      null,
-      null,
-      "basic_drive",
-      "survey_scanner",
-      null,
-    ],
+    // without a Bay buy first; Utility B left empty for scoop/rack/etc.
+    defaultLoadout: ["gun_mk1", "basic_drive", "survey_scanner", null],
   } satisfies HullDef,
 
   pathfinder: {

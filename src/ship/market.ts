@@ -172,10 +172,6 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     "missions",
     ...pool.slice(0, count),
   ]);
-  // TEMP(weapons-pass): strip before merge — starter docks always list a bay.
-  if (stationKey.startsWith(`${GALAXY.startPoiId}:`)) {
-    result.add("bay");
-  }
   menuCache.set(stationKey, result);
   return result;
 }

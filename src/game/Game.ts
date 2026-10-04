@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, TEMP_TARGET, WEAPONS, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS, type PirateTierId } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -14,7 +14,6 @@ import {
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
 import { moduleStockLabel, swapCost, type EquipModule, type WeaponModule } from "../ship/equipment";
 import {
-  applyTempStartBayStock,
   stationBayStock,
   stationBayWealth,
   type StationStockContext,
@@ -83,7 +82,6 @@ import {
   type PatrolPlayerLaw,
 } from "../entities/StationPatrol";
 import { Projectile, spawnPlayerShot } from "../entities/Projectile";
-import { TempTarget } from "../entities/TempTarget";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
 import { Renderer } from "../render/Renderer";
@@ -295,8 +293,6 @@ export class Game {
   /** Gun time-on-target, keyed by slot id + target id. */
   private gunStreams = new Map<string, { accumulated: number; lastHit: number }>();
   private combatClock = 0;
-  /** TEMP(weapons-pass): strip before merge. */
-  private tempTarget: TempTarget | null = null;
   private dock: DockState = { kind: "free" };
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
@@ -488,7 +484,6 @@ export class Game {
     this.weaponCooldowns.clear();
     this.gunStreams.clear();
     this.combatClock = 0;
-    this.tempTarget = null;
     this.scoopProgress = 0;
     this.poiScanProgress = 0;
     this.pirates = [];
@@ -548,23 +543,6 @@ export class Game {
     this.spawnFactionDistressEncounter();
     this.checkExploreScanProgress();
     this.ensureDerelictMissionDebris();
-    this.spawnTempTarget();
-  }
-
-  /**
-   * TEMP(weapons-pass): strip before merge.
-   * One immobile target beside the starting arrival pose.
-   */
-  private spawnTempTarget(): void {
-    this.tempTarget = null;
-    if (this.local.poiId !== GALAXY.startPoiId || this.local.bodyId !== 0) return;
-    this.tempTarget = new TempTarget(
-      this.ship.x + TEMP_TARGET.offsetX,
-      this.ship.y + TEMP_TARGET.offsetY,
-    );
-    this.messages.push(
-      "TEMP: immobile target to starboard — no AI. Shields, then plating, then core. Strip before merge.",
-    );
   }
 
   /**
@@ -2313,7 +2291,6 @@ export class Game {
 
     this.messages.update(dt);
     this.ship.tickDefense(dt);
-    this.tempTarget?.tick(dt);
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
@@ -3895,7 +3872,6 @@ export class Game {
     for (const pirate of this.distressPirates) list.push(pirate);
     if (this.baitPirate) list.push(this.baitPirate);
     for (const patrol of this.patrols) list.push(patrol);
-    if (this.tempTarget) list.push(this.tempTarget);
     return list;
   }
 
@@ -4124,13 +4100,6 @@ export class Game {
             this.baitPack.timer = 0;
             pirate.goAggro();
           }
-          hit = true;
-        }
-      }
-      if (!hit && fromPlayer && this.tempTarget) {
-        const impact = this.shotImpact(p, this.tempTarget);
-        if (impact) {
-          this.tempTarget.takeKinetic(impact.amount, impact.shieldMultiplier);
           hit = true;
         }
       }
@@ -4367,7 +4336,7 @@ export class Game {
     this.hangarMenu.hide();
     const discount = this.reputation.bayDiscountFraction(key);
     this.shipMenu.openBay(
-      applyTempStartBayStock(stationBayStock(key, context), this.local.poiId),
+      stationBayStock(key, context),
       stationBayWealth(key, context),
       discount,
       this.reputationListingForUi(),
@@ -5085,7 +5054,6 @@ export class Game {
       fuelWarnYes: this.fuelWarnYes,
       fuelWarnNo: this.fuelWarnNo,
       patrols: this.patrols,
-      tempTarget: this.tempTarget,
       missileLock: this.missileReticle(),
       projectiles: this.projectiles,
       alpha,

@@ -74,12 +74,6 @@ export function generateSystemBlueprint(
     },
   ];
 
-  // TEMP(weapons-pass): strip before merge — starter star always has a dock
-  // so the free kinetic bay can be reached.
-  if (poiId === GALAXY.startPoiId) {
-    bodies[0]!.stationCount = Math.max(1, bodies[0]!.stationCount);
-  }
-
   // Decide which mid slot (if any) is an asteroid belt.
   // Starter system always gets a belt so scoop farming is discoverable.
   const forceBelt = poiId === GALAXY.startPoiId;

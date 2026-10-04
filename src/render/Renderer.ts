@@ -6,7 +6,6 @@ import type { Pirate } from "../entities/Pirate";
 import type { FuelRat } from "../entities/FuelRat";
 import type { StrandedPilot } from "../entities/StrandedPilot";
 import type { StationPatrol } from "../entities/StationPatrol";
-import type { TempTarget } from "../entities/TempTarget";
 import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
@@ -65,8 +64,6 @@ export class Renderer {
     fuelWarnYes: Rect;
     fuelWarnNo: Rect;
     patrols: StationPatrol[];
-    /** TEMP(weapons-pass): strip before merge. */
-    tempTarget: TempTarget | null;
     /** World position of the missile cursor-lock, if a missile is equipped. */
     missileLock: { x: number; y: number } | null;
     projectiles: Projectile[];
@@ -161,16 +158,6 @@ export class Renderer {
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPatrol(p.x, p.y, patrol);
       }
-    }
-
-    if (args.tempTarget?.alive) {
-      const p = args.camera.worldToScreen(
-        args.tempTarget.x,
-        args.tempTarget.y,
-        w,
-        h,
-      );
-      this.drawTempTarget(p.x, p.y, args.tempTarget);
     }
 
     if (args.missileLock && !args.chartOpen && !args.panelOpen && !args.shipMenuOpen) {
@@ -504,41 +491,6 @@ export class Renderer {
         ? "rgba(210, 225, 245, 0.9)"
         : "rgba(220, 240, 255, 0.95)";
     ctx.fill();
-  }
-
-  /** TEMP(weapons-pass): strip before merge. */
-  private drawTempTarget(x: number, y: number, target: TempTarget): void {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.beginPath();
-    ctx.arc(0, 0, target.radius, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(160, 70, 55, 0.45)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255, 170, 140, 0.95)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(255, 220, 200, 0.95)";
-    ctx.fillText("TEMP", 0, -6);
-    const down =
-      target.shieldBreakRemaining > 0
-        ? ` down ${target.shieldBreakRemaining.toFixed(1)}s`
-        : "";
-    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    ctx.fillText(
-      `SH ${Math.ceil(target.shield)}/${target.maxShield}${down}`,
-      0,
-      target.radius + 14,
-    );
-    ctx.fillText(
-      `PL ${Math.ceil(target.plating)}/${target.maxPlating}  HP ${Math.ceil(target.health)}/${target.maxHealth}`,
-      0,
-      target.radius + 28,
-    );
-    ctx.restore();
   }
 
   private drawMissileReticle(x: number, y: number): void {

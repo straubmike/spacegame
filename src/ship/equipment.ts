@@ -1037,21 +1037,8 @@ export function createStarterSlots(): ShipSlot[] {
     {
       id: "slot_weapon_0",
       kind: "weapon",
-      label: "Weapon A",
+      label: "Weapon",
       equipped: cloneModule(MODULES.gunMk1),
-    },
-    // TEMP(weapons-pass): extra starter hardpoints. Strip before merge.
-    {
-      id: "slot_weapon_1",
-      kind: "weapon",
-      label: "Weapon B",
-      equipped: null,
-    },
-    {
-      id: "slot_weapon_2",
-      kind: "weapon",
-      label: "Weapon C",
-      equipped: null,
     },
     {
       id: "slot_drive_0",
