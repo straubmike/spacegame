@@ -3029,27 +3029,27 @@ export class Game {
     this.applyComplimentaryDockService(station);
   }
 
-  /** Free hull repair + full refuel on every dock — station courtesy. */
+  /** Free hull repair, refuel, and ammo refill on every dock. */
   private applyComplimentaryDockService(station: Landmark): void {
     const result = this.ship.applyComplimentaryDockService();
     if (result.healed > 0 && result.refueled) {
       this.messages.push(
-        `${station.name}: Complimentary repair & refuel — hull and tanks topped free of charge.`,
+        `${station.name}: Complimentary repair, refuel, and ammo — hull, tanks, and magazines topped free of charge.`,
         "station",
       );
     } else if (result.healed > 0) {
       this.messages.push(
-        `${station.name}: Complimentary repair — hull restored free of charge.`,
+        `${station.name}: Complimentary repair and ammo — hull restored and magazines topped free of charge.`,
         "station",
       );
     } else if (result.refueled) {
       this.messages.push(
-        `${station.name}: Complimentary refuel — tanks topped free of charge.`,
+        `${station.name}: Complimentary refuel and ammo — tanks and magazines topped free of charge.`,
         "station",
       );
     } else {
       this.messages.push(
-        `${station.name}: Complimentary dock services — hull and fuel already full.`,
+        `${station.name}: Complimentary dock services — hull and fuel already full. Magazines topped.`,
         "station",
       );
     }
@@ -3778,32 +3778,28 @@ export class Game {
     const muzzle = this.ship.hull.size;
     if (weapon.family === "gun") {
       const ammo = this.ship.loadout.ammoIn(slotId);
-      const n = Math.min(weapon.pelletCount, Math.floor(ammo));
-      if (n <= 0) return;
-      const half = weapon.spread;
-      for (let i = 0; i < n; i += 1) {
-        const t = n === 1 ? 0.5 : i / (n - 1);
-        const offset = -half + t * half * 2;
-        this.projectiles.push(
-          spawnPlayerShot(
-            this.ship.x,
-            this.ship.y,
-            this.ship.heading + offset,
-            muzzle,
-            {
-              family: "gun",
-              speed: WEAPONS.gun.pelletSpeed,
-              radius: WEAPONS.gun.pelletRadius,
-              damage: 0,
-              shieldMultiplier: weapon.shieldMultiplier,
-              gunSlotId: slotId,
-              gunChunkDamage: weapon.damage,
-              gunChunkInterval: weapon.timeOnTarget,
-            },
-          ),
-        );
-      }
-      this.ship.loadout.consumeSlotAmmo(slotId, n);
+      if (ammo < 1) return;
+      // One round. The cone is recoil: each shot lands somewhere inside it.
+      const offset = (Math.random() * 2 - 1) * weapon.spread;
+      this.projectiles.push(
+        spawnPlayerShot(
+          this.ship.x,
+          this.ship.y,
+          this.ship.heading + offset,
+          muzzle,
+          {
+            family: "gun",
+            speed: WEAPONS.gun.pelletSpeed,
+            radius: WEAPONS.gun.pelletRadius,
+            damage: 0,
+            shieldMultiplier: weapon.shieldMultiplier,
+            gunSlotId: slotId,
+            gunChunkDamage: weapon.damage,
+            gunChunkInterval: weapon.timeOnTarget,
+          },
+        ),
+      );
+      this.ship.loadout.consumeSlotAmmo(slotId, 1);
     } else if (weapon.family === "cannon") {
       this.projectiles.push(
         spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {

@@ -222,11 +222,15 @@ export const WEAPONS = {
   /** Gap between pellet impacts that resets a gun's time-on-target. */
   gunStreamBreakGap: 0.25,
   gun: {
-    /** HP removed once per maintained stream, not per pellet. */
+    /** HP removed once per maintained stream, not per shot. */
     chunkDamage: 6,
-    /** Seconds between pellet volleys. */
-    pelletCooldown: 0.1,
-    pelletCount: 2,
+    /**
+     * Seconds between shots. One round per shot (recoil picks a heading
+     * inside the cone). Doubled from the old 0.10 s paired volley so a
+     * single shot replaces each of the two pellets.
+     */
+    pelletCooldown: 0.05,
+    pelletCount: 1,
     /** Half-angle of the cone, radians. */
     spread: (3.2 * Math.PI) / 180,
     pelletSpeed: 760,

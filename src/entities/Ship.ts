@@ -296,19 +296,19 @@ export class Ship {
   }
 
   /**
-   * Free station courtesy on dock — restore core, plating, and shields + tank top-off.
-   * Successful repair also refills weapon ammo and warp charges, and clears
-   * shield-break downtime.
+   * Free station courtesy on dock — restore core, plating, and shields, top off
+   * the tank, and refill every weapon magazine. Ammo refills even when the
+   * hull and tank are already full. A repair also clears shield-break downtime.
    */
   applyComplimentaryDockService(): { healed: number; refueled: boolean } {
     const healed = this.missingHealth;
     const refueled = this.missingFuel > 0;
+    this.loadout.refillConsumables();
     if (healed > 0 || this.shieldBreakRemaining > 0) {
       this.health = this.maxHull;
       this.plating = this.maxPlating;
       this.shield = this.maxShield;
       this.shieldBreakRemaining = 0;
-      this.loadout.refillConsumables();
       this.timeSinceDamage = Number.POSITIVE_INFINITY;
     }
     if (refueled) {

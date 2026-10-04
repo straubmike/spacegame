@@ -48,6 +48,8 @@ interface StatRow {
   label: string;
   text: string;
   value: number | null;
+  /** A smaller number is the upgrade (gun time-on-target). */
+  lowerIsBetter?: boolean;
 }
 
 interface CargoRowWidgets {
@@ -1006,7 +1008,7 @@ export class ShipMenu {
       ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
       ctx.fillText(`${row.label}  ${row.text}`, x, by);
 
-      if (otherRows) {
+      if (otherRows && compareAgainst) {
         const other = otherRows[i];
         if (
           other &&
@@ -1017,12 +1019,28 @@ export class ShipMenu {
         ) {
           const delta = other.value - row.value;
           if (Math.abs(delta) > 1e-6) {
-            const label = formatDelta(delta);
+            const crossAmmo =
+              row.label === "Ammunition" &&
+              mod.kind === "weapon" &&
+              compareAgainst.kind === "weapon" &&
+              mod.family !== compareAgainst.family;
+            const label = row.lowerIsBetter
+              ? formatSignedSeconds(delta)
+              : formatDelta(delta);
             const tw = ctx.measureText(`${row.label}  ${row.text}`).width;
-            ctx.fillStyle =
-              delta > 0
-                ? "rgba(90, 210, 130, 0.95)"
-                : "rgba(230, 100, 100, 0.95)";
+            if (crossAmmo) {
+              ctx.fillStyle = "rgba(150, 200, 255, 0.95)";
+            } else if (row.lowerIsBetter) {
+              ctx.fillStyle =
+                delta < 0
+                  ? "rgba(90, 210, 130, 0.95)"
+                  : "rgba(230, 100, 100, 0.95)";
+            } else {
+              ctx.fillStyle =
+                delta > 0
+                  ? "rgba(90, 210, 130, 0.95)"
+                  : "rgba(230, 100, 100, 0.95)";
+            }
             ctx.fillText(label, x + tw + 8, by);
           }
         }
@@ -1350,15 +1368,8 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
   }
   const rof = rateOfFire(mod.fireCooldown);
   const shieldPct = Math.round(mod.shieldMultiplier * 100);
-  const role =
-    mod.family === "gun"
-      ? "Stream chunk"
-      : mod.family === "cannon"
-        ? "Heavy slug"
-        : "Homing";
   const trackDeg = (mod.trackingTurn * 180) / Math.PI;
   return [
-    { label: "Role", text: role, value: null },
     {
       label: "Ammunition",
       text: formatAmmo(mod.ammoMax, ammo),
@@ -1382,8 +1393,9 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
     {
       label: "Time on target",
       text: mod.family === "gun" ? `${mod.timeOnTarget.toFixed(2)} s` : "—",
-      // Shorter is better — store the negation so a lower time deltas green.
-      value: mod.family === "gun" ? -mod.timeOnTarget : null,
+      // Raw seconds. A negative delta is a shorter chunk timer (an upgrade).
+      value: mod.family === "gun" ? mod.timeOnTarget : null,
+      lowerIsBetter: mod.family === "gun",
     },
     {
       label: "Tracking",
@@ -1391,6 +1403,12 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
       value: mod.family === "missile" ? trackDeg : null,
     },
   ];
+}
+
+/** Signed seconds, two decimals, so a shorter gun timer reads as a reduction. */
+function formatSignedSeconds(delta: number): string {
+  const sign = delta > 0 ? "+" : "";
+  return `${sign}${delta.toFixed(2)} s`;
 }
 
 function formatDelta(delta: number): string {
