@@ -29,6 +29,37 @@ import { occupiedPassengerBerths } from "../ship/missions";
 import type { ReputationListing } from "../ship/reputation";
 import type { Galaxy } from "../galaxy/Galaxy";
 
+/**
+ * Off-screen chevrons. Same shape as the original pirate marker.
+ * Fill is the color the ship or landmark already uses; the stroke is the
+ * lighter edge that marker has always had.
+ */
+const OFFSCREEN = {
+  /** Existing pirate marker. Hull paint is #c45a4a. */
+  pirate: {
+    fill: "rgba(220, 90, 70, 0.9)",
+    stroke: "rgba(255, 180, 160, 0.7)",
+  },
+  /** Patrol hull #6a9ec8. Stroke is the station ring, rgba(180, 210, 240). */
+  law: {
+    fill: "rgba(106, 158, 200, 0.92)",
+    stroke: "rgba(180, 210, 240, 0.85)",
+  },
+  /** Fuel Rat hull #9fd9a8. */
+  rat: {
+    fill: "rgba(159, 217, 168, 0.95)",
+    stroke: "rgba(214, 244, 220, 0.78)",
+  },
+  /**
+   * Planets, stars, and other places. One gold, distinct from pirate red,
+   * lawful blue, and Fuel Rat green. Same family as a gas giant (#d4b878).
+   */
+  place: {
+    fill: "rgba(212, 184, 120, 0.95)",
+    stroke: "rgba(255, 230, 176, 0.78)",
+  },
+} as const;
+
 export class Renderer {
   private readonly hud = new Hud();
 
@@ -136,7 +167,16 @@ export class Renderer {
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPirate(p.x, p.y, pirate);
       } else if (showEdgeMarkers) {
-        this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
+        this.drawOffscreenChevron(
+          shipScreen.x,
+          shipScreen.y,
+          p.x,
+          p.y,
+          w,
+          h,
+          OFFSCREEN.pirate.fill,
+          OFFSCREEN.pirate.stroke,
+        );
       }
     }
 
@@ -146,13 +186,16 @@ export class Renderer {
         if (body.kind === "debris") continue;
         const p = args.camera.worldToScreen(body.x, body.y, w, h);
         if (this.isOnScreen(p.x, p.y, w, h)) continue;
-        this.drawOffscreenPoiMarker(
+        const tone = body.kind === "station" ? OFFSCREEN.law : OFFSCREEN.place;
+        this.drawOffscreenChevron(
           shipScreen.x,
           shipScreen.y,
           p.x,
           p.y,
           w,
           h,
+          tone.fill,
+          tone.stroke,
         );
       }
     }
@@ -161,6 +204,17 @@ export class Renderer {
       const p = args.camera.worldToScreen(args.fuelRat.x, args.fuelRat.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawFuelRat(p.x, p.y, args.fuelRat);
+      } else if (showEdgeMarkers) {
+        this.drawOffscreenChevron(
+          shipScreen.x,
+          shipScreen.y,
+          p.x,
+          p.y,
+          w,
+          h,
+          OFFSCREEN.rat.fill,
+          OFFSCREEN.rat.stroke,
+        );
       }
     }
 
@@ -181,6 +235,17 @@ export class Renderer {
       const p = args.camera.worldToScreen(patrol.x, patrol.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPatrol(p.x, p.y, patrol);
+      } else if (showEdgeMarkers) {
+        this.drawOffscreenChevron(
+          shipScreen.x,
+          shipScreen.y,
+          p.x,
+          p.y,
+          w,
+          h,
+          OFFSCREEN.law.fill,
+          OFFSCREEN.law.stroke,
+        );
       }
     }
 
@@ -544,53 +609,7 @@ export class Renderer {
     return x >= m && x <= w - m && y >= m && y <= h - m;
   }
 
-  /**
-   * Invisible player→pirate ray; place a chevron where it meets the screen edge.
-   */
-  private drawOffscreenPirateMarker(
-    fromX: number,
-    fromY: number,
-    toX: number,
-    toY: number,
-    w: number,
-    h: number,
-  ): void {
-    this.drawOffscreenChevron(
-      fromX,
-      fromY,
-      toX,
-      toY,
-      w,
-      h,
-      "rgba(220, 90, 70, 0.9)",
-      "rgba(255, 180, 160, 0.7)",
-    );
-  }
-
-  /**
-   * Same edge chevron as an off-screen pirate, in nav blue, aimed at a landmark
-   * outside the current view.
-   */
-  private drawOffscreenPoiMarker(
-    fromX: number,
-    fromY: number,
-    toX: number,
-    toY: number,
-    w: number,
-    h: number,
-  ): void {
-    this.drawOffscreenChevron(
-      fromX,
-      fromY,
-      toX,
-      toY,
-      w,
-      h,
-      "rgba(140, 200, 235, 0.92)",
-      "rgba(210, 235, 255, 0.75)",
-    );
-  }
-
+  /** Same edge chevron as an off-screen pirate, tinted for whoever it points at. */
   private drawOffscreenChevron(
     fromX: number,
     fromY: number,
