@@ -50,7 +50,7 @@ export interface WeaponModule extends ModuleBase {
    * With plating empty, core takes 100% of listed damage regardless.
    */
   platingMultiplier?: number;
-  /** Gun: seconds of sustained impacts before a chunk. 0 on other families. */
+  /** Gun and beam: seconds on one hull before the next chunk. 0 on other families. */
   timeOnTarget: number;
   /** Energy reach in world units. Omitted on kinetics (they fly out). */
   range?: number;
@@ -447,7 +447,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[0].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.beam.chunkInterval,
+    timeOnTarget: WEAPONS.gun.marks[0].timeOnTarget,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,
@@ -472,7 +472,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[1].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.beam.chunkInterval,
+    timeOnTarget: WEAPONS.gun.marks[1].timeOnTarget,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,
@@ -497,7 +497,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[2].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.beam.chunkInterval,
+    timeOnTarget: WEAPONS.gun.marks[2].timeOnTarget,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,

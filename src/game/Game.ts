@@ -341,8 +341,14 @@ export class Game {
   private heldEnergy: { segments: BeamSegment[]; wide: boolean }[] = [];
   /** Weapon slots whose beam is currently held. */
   private beamingSlots = new Set<string>();
-  /** Beam contact timer, keyed by slot id + target id. A miss resets it. */
-  private beamContact = new Map<string, number>();
+  /**
+   * Beam chunk timer, keyed by slot id + target id.
+   * Same 0.25s break as a gun stream. A shorter gap keeps the clock.
+   */
+  private beamContact = new Map<
+    string,
+    { accumulated: number; lastHit: number }
+  >();
   /**
    * TEMP(energy): the free Energy Beam Mk I in the starting station bay
    * has already been taken. Strip this flag before merge.
@@ -3854,10 +3860,6 @@ export class Game {
   private stopBeam(slotId: string, cooldown: number): void {
     this.beamingSlots.delete(slotId);
     this.weaponCooldowns.set(slotId, cooldown);
-    const prefix = `${slotId}:`;
-    for (const key of [...this.beamContact.keys()]) {
-      if (key.startsWith(prefix)) this.beamContact.delete(key);
-    }
   }
 
   private updateBeams(dt: number): void {
@@ -3887,7 +3889,7 @@ export class Game {
         this.beamingSlots.add(slot.id);
       }
       this.heldEnergy.push({
-        segments: this.fireBeam(slot.id, weapon, dt),
+        segments: this.fireBeam(slot.id, weapon),
         wide: true,
       });
       if (this.ship.hasHeatRoom()) {
@@ -3921,7 +3923,7 @@ export class Game {
     });
   }
 
-  private fireBeam(slotId: string, weapon: WeaponModule, dt: number): BeamSegment[] {
+  private fireBeam(slotId: string, weapon: WeaponModule): BeamSegment[] {
     const targets = this.collectEnergyTargets();
     const seen = new Set<string>();
     const segments = traceEnergyBeam({
@@ -3941,7 +3943,6 @@ export class Game {
           hit.id,
           weapon,
           hit.falloff,
-          dt,
           seen,
         );
         const deflect =
@@ -3952,40 +3953,55 @@ export class Game {
       },
     });
     const prefix = `${slotId}:`;
+    const now = this.combatClock;
     for (const key of [...this.beamContact.keys()]) {
-      if (key.startsWith(prefix) && !seen.has(key)) this.beamContact.delete(key);
+      if (!key.startsWith(prefix) || seen.has(key)) continue;
+      const prev = this.beamContact.get(key);
+      if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
+        this.beamContact.delete(key);
+      }
     }
     return segments;
   }
 
   /**
-   * Impact on first contact, then chunk damage while the beam stays on that
-   * hull. A frame with no contact drops the timer (the next touch is impact).
+   * Impact on a fresh contact, then chunk damage while the beam stays on
+   * that hull. The chunk interval is the gun time-on-target for this mark.
+   * A gap longer than the gun stream break resets the timer, and the next
+   * touch is impact again. A shorter gap keeps the chunk clock and does
+   * not pay impact a second time. The impact frame does not count toward
+   * the chunk timer. Guns still have no separate first hit.
    */
   private beamListedDamage(
     slotId: string,
     targetId: string,
     weapon: WeaponModule,
     falloff: number,
-    dt: number,
     seen: Set<string>,
   ): number {
     const key = `${slotId}:${targetId}`;
     seen.add(key);
-    const interval =
-      weapon.timeOnTarget > 0 ? weapon.timeOnTarget : WEAPONS.beam.chunkInterval;
+    const now = this.combatClock;
     const prev = this.beamContact.get(key);
-    if (prev === undefined) {
-      this.beamContact.set(key, 0);
+    if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
+      this.beamContact.set(key, { accumulated: 0, lastHit: now });
       return weapon.damage * falloff;
     }
-    let acc = prev + dt;
+    const interval = weapon.timeOnTarget;
+    if (interval <= 0) {
+      this.beamContact.set(key, { accumulated: 0, lastHit: now });
+      return 0;
+    }
+    let accumulated = prev.accumulated + (now - prev.lastHit);
     let chunks = 0;
-    while (acc + 1e-6 >= interval) {
-      acc -= interval;
+    while (accumulated + 1e-6 >= interval) {
+      accumulated -= interval;
       chunks += 1;
     }
-    this.beamContact.set(key, Math.max(0, acc));
+    this.beamContact.set(key, {
+      accumulated: Math.max(0, accumulated),
+      lastHit: now,
+    });
     return chunks * (weapon.chunkDamage ?? 0) * falloff;
   }
 

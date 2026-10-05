@@ -290,11 +290,16 @@ export const WEAPONS = {
     ],
   },
   /**
-   * Wide held beam. Same long reach on every mark (past the missile hold,
-   * so it already covers short through long). Marks raise impact and chunk
-   * damage and lower upfront heat, heat per second, and the restart cooldown.
+   * Held beam, drawn as a thick line. Same long reach on every mark (past
+   * the missile hold, so it already covers short through long). Marks raise
+   * impact and chunk damage, shorten the chunk interval with the gun
+   * time-on-target ladder, and lower upfront heat, heat per second, and
+   * the restart cooldown.
    * Impact stays under cannon Mk I (14) and above pulse damage.
-   * Chunks sit in the gun-chunk (6) neighborhood.
+   * Chunk damage stays 5 / 6 / 7. The interval is the gun ladder
+   * (1.00 / 0.70 / 0.45 s), stored on the module. A gap longer than
+   * `gunStreamBreakGap` off that hull resets the chunk timer.
+   * First contact is a separate impact. Guns have no first hit.
    * 100% shields, 100% core, 50% plating.
    * Each target after the first takes `falloff` of the previous listed damage.
    */
@@ -302,12 +307,14 @@ export const WEAPONS = {
     shieldMultiplier: 1,
     platingMultiplier: 0.5,
     range: 640,
-    /** Seconds of contact on one hull before each extra chunk. */
-    chunkInterval: 0.5,
     /** Listed-damage multiplier for each target after the previous one. */
     falloff: 0.6,
-    /** Added to hull radius so the beam is wide, not a hairline. */
-    halfWidth: 16,
+    /**
+     * Reach past the centerline that still counts as a hit.
+     * The drawn stroke is twice this (the camera is 1:1): a 7px line,
+     * thicker than the pulse (1.5) and not a corridor.
+     */
+    halfWidth: 3.5,
     marks: [
       { damage: 8, chunkDamage: 5, heat: 10, heatPerSecond: 14, fireCooldown: 0.45 },
       { damage: 10, chunkDamage: 6, heat: 7, heatPerSecond: 10, fireCooldown: 0.32 },

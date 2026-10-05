@@ -29,7 +29,8 @@ export function signedAngle(from: number, to: number): number {
 }
 
 /**
- * Outgoing heading after a plating deflection. The vertex is the target.
+ * Outgoing heading after a plating deflection. The vertex is the contact
+ * on the fired line, not the target center.
  *
  * A straight line through the ship is a 180° path. That happens when the
  * nose points at the attacker (head-on). Every degree the nose is off that
@@ -68,11 +69,14 @@ export function rayEntry(
 }
 
 /**
- * Walk a pulse or beam out to `range`.
+ * Walk a pulse or beam out to `range` along the fired heading.
+ * The line is not pulled through a target center. An edge overlap still
+ * hits, and the incoming piece ends on the fired line at that contact.
  * Pulse passes `stopAtFirst` and never uses the deflect flag.
  * A beam keeps going. `onHit` applies damage and says whether this hull's
- * plating bent the beam. Later targets use `falloff` of the previous
- * listed-damage scale. Already-hit hulls are skipped.
+ * plating bent the beam. A bend starts at that same contact. Later targets
+ * use `falloff` of the previous listed-damage scale. Already-hit hulls
+ * are skipped.
  */
 export function traceEnergyBeam(args: {
   x: number;
@@ -92,7 +96,15 @@ export function traceEnergyBeam(args: {
   let heading = args.heading;
   let remaining = args.range;
   let falloff = 1;
+  // Start of the current straight piece. Stays put across hits that do not bend.
+  let segX = x;
+  let segY = y;
   const limit = args.targets.length + 1;
+
+  const push = (x2: number, y2: number): void => {
+    if (Math.hypot(x2 - segX, y2 - segY) <= 1e-4) return;
+    segments.push({ x1: segX, y1: segY, x2, y2 });
+  };
 
   for (let step = 0; step < limit && remaining > 1e-4; step += 1) {
     const dx = Math.cos(heading);
@@ -110,22 +122,25 @@ export function traceEnergyBeam(args: {
       }
     }
     if (!best) {
-      segments.push({
-        x1: x,
-        y1: y,
-        x2: x + dx * remaining,
-        y2: y + dy * remaining,
-      });
+      push(x + dx * remaining, y + dy * remaining);
       break;
     }
-    segments.push({ x1: x, y1: y, x2: best.x, y2: best.y });
+    // Contact is on the fired line, where the width first meets the hull.
+    const hitX = x + dx * bestT;
+    const hitY = y + dy * bestT;
     seen.add(best.id);
     const reaction = args.onHit({ id: best.id, falloff });
-    remaining -= Math.hypot(best.x - x, best.y - y);
+    remaining -= bestT;
     falloff *= args.falloff;
-    if (args.stopAtFirst || remaining <= 1e-4) break;
-    x = best.x;
-    y = best.y;
+    const stop = args.stopAtFirst || remaining <= 1e-4;
+    if (stop || reaction.deflect) {
+      push(hitX, hitY);
+      if (stop) break;
+      segX = hitX;
+      segY = hitY;
+    }
+    x = hitX;
+    y = hitY;
     if (reaction.deflect) heading = deflectHeading(heading, reaction.nose);
   }
   return segments;

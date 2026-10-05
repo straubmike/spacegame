@@ -1501,6 +1501,13 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
         text: `${mod.chunkDamage ?? 0}`,
         value: mod.chunkDamage ?? 0,
       },
+      {
+        label: "Time on target",
+        text: `${mod.timeOnTarget.toFixed(2)} s`,
+        value: mod.timeOnTarget,
+        lowerIsBetter: true,
+        seconds: true,
+      },
     );
   } else {
     rows.push({

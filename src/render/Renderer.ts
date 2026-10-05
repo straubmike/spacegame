@@ -1,4 +1,4 @@
-import { BODY_COLORS, COMBAT, LOCAL, SHIP, STARS } from "../game/config";
+import { BODY_COLORS, COMBAT, LOCAL, SHIP, STARS, WEAPONS } from "../game/config";
 import { STAR_COLORS } from "../galaxy/generateLocal";
 import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
@@ -572,7 +572,7 @@ export class Renderer {
     }
     if (wide) {
       ctx.strokeStyle = "rgba(70, 170, 255, 0.35)";
-      ctx.lineWidth = 14;
+      ctx.lineWidth = WEAPONS.beam.halfWidth * 2;
       ctx.stroke();
       ctx.strokeStyle = "rgba(220, 245, 255, 0.95)";
       ctx.lineWidth = 3;
