@@ -53,6 +53,8 @@ export interface WeaponModule extends ModuleBase {
   pelletCount: number;
   /** Cone half-angle in radians. 0 fires straight ahead. */
   spread: number;
+  /** World units per second. Missile marks step this up; guns and cannons stay flat. */
+  speed: number;
 }
 
 export interface DriveModule extends ModuleBase {
@@ -162,6 +164,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: WEAPONS.gun.pelletCount,
     spread: WEAPONS.gun.spread,
+    speed: WEAPONS.gun.pelletSpeed,
   } satisfies WeaponModule,
 
   gunMk2: {
@@ -182,6 +185,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: WEAPONS.gun.pelletCount,
     spread: WEAPONS.gun.spread,
+    speed: WEAPONS.gun.pelletSpeed,
   } satisfies WeaponModule,
 
   gunMk3: {
@@ -202,6 +206,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: WEAPONS.gun.pelletCount,
     spread: WEAPONS.gun.spread,
+    speed: WEAPONS.gun.pelletSpeed,
   } satisfies WeaponModule,
 
   cannonMk1: {
@@ -222,6 +227,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.cannon.slugSpeed,
   } satisfies WeaponModule,
 
   cannonMk2: {
@@ -241,6 +247,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.cannon.slugSpeed,
   } satisfies WeaponModule,
 
   cannonMk3: {
@@ -260,6 +267,7 @@ export const MODULES = {
     trackSeconds: 0,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.cannon.slugSpeed,
   } satisfies WeaponModule,
 
   missileMk1: {
@@ -280,6 +288,7 @@ export const MODULES = {
     trackSeconds: WEAPONS.missile.trackSeconds,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.missile.marks[0].speed,
   } satisfies WeaponModule,
 
   missileMk2: {
@@ -300,6 +309,7 @@ export const MODULES = {
     trackSeconds: WEAPONS.missile.trackSeconds,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.missile.marks[1].speed,
   } satisfies WeaponModule,
 
   missileMk3: {
@@ -320,6 +330,7 @@ export const MODULES = {
     trackSeconds: WEAPONS.missile.trackSeconds,
     pelletCount: 1,
     spread: 0,
+    speed: WEAPONS.missile.marks[2].speed,
   } satisfies WeaponModule,
 
   // —— Drives ————————————————————————————————————————————————
@@ -1117,6 +1128,20 @@ export const WEAPON_SLOT_BINDINGS = ["Space", "L-click", "R-click"] as const;
 
 export function weaponSlotBinding(index: number): string | null {
   return WEAPON_SLOT_BINDINGS[index] ?? null;
+}
+
+/** Binding for a weapon slot id, counting only weapon hardpoints. */
+export function weaponSlotBindingForId(
+  slots: readonly { id: string; kind: SlotKind }[],
+  slotId: string,
+): string | null {
+  let ordinal = 0;
+  for (const slot of slots) {
+    if (slot.kind !== "weapon") continue;
+    if (slot.id === slotId) return weaponSlotBinding(ordinal);
+    ordinal += 1;
+  }
+  return null;
 }
 
 /** Stat-ladder SKUs only — same role, better numbers (weapons / shield / plating / cargo). */

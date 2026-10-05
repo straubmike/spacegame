@@ -62,7 +62,7 @@ export function fireNpcVolley(args: {
           args.hostile,
           {
             family: "gun",
-            speed: WEAPONS.gun.pelletSpeed,
+            speed: weapon.speed,
             radius: WEAPONS.gun.pelletRadius,
             damage: 0,
             shieldMultiplier: weapon.shieldMultiplier,
@@ -76,7 +76,7 @@ export function fireNpcVolley(args: {
       args.out.push(
         spawnNpcShot(args.x, args.y, args.heading, muzzle, args.source, args.hostile, {
           family: "cannon",
-          speed: WEAPONS.cannon.slugSpeed,
+          speed: weapon.speed,
           radius: WEAPONS.cannon.slugRadius,
           damage: weapon.damage,
           shieldMultiplier: weapon.shieldMultiplier,
@@ -86,7 +86,7 @@ export function fireNpcVolley(args: {
       args.out.push(
         spawnNpcShot(args.x, args.y, args.heading, muzzle, args.source, args.hostile, {
           family: "missile",
-          speed: WEAPONS.missile.speed,
+          speed: weapon.speed,
           radius: WEAPONS.missile.radius,
           damage: weapon.damage,
           shieldMultiplier: weapon.shieldMultiplier,
