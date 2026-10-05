@@ -2,8 +2,16 @@ import { COMBAT } from "../game/config";
 import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import {
   type PirateArchetypeId,
+  type PirateDifficulty,
   type ResolvedNpcFit,
 } from "../ship/npcLoadout";
+import {
+  aimOffset,
+  aimSwing,
+  missileAimScale,
+  type AimSwing,
+  type MissileAimScale,
+} from "./aimWander";
 import { nextCombatId } from "./combatId";
 import { fireNpcVolley, tickWeaponCooldowns } from "./npcVolley";
 import type { Projectile } from "./Projectile";
@@ -33,23 +41,34 @@ export class Pirate {
 
   readonly tier: PirateArchetypeId;
   readonly fit: ResolvedNpcFit;
+  /** Pack difficulty. Sets how wide the nose wanders while firing. */
+  readonly difficulty: PirateDifficulty;
   /** Shared pack tribute (same value on every wingmate). */
   readonly fee: number;
+  private readonly swing: AimSwing;
+  private readonly missileScale: MissileAimScale;
+  /** Wander phase. Seeded so wingmates do not swing together. */
+  private aimTime: number;
 
   constructor(
     public x: number,
     public y: number,
     public heading: number,
     fit: ResolvedNpcFit,
+    difficulty: PirateDifficulty,
     fee = 10,
   ) {
     this.tier = fit.hullId;
     this.fit = fit;
+    this.difficulty = difficulty;
     this.fee = fee;
     this.health = this.fit.coreMax;
     this.shield = this.fit.shieldMax;
     this.plating = this.fit.platingMax;
     this.weaponCooldowns = this.fit.weapons.map(() => 0);
+    this.swing = aimSwing(difficulty);
+    this.missileScale = missileAimScale(difficulty);
+    this.aimTime = Math.random() * this.swing.halfPeriod * 2;
   }
 
   get alive(): boolean {
@@ -183,8 +202,9 @@ export class Pirate {
       return;
     }
 
-    // aggro
-    this.turnToward(towardPlayer, dt);
+    // aggro — nose wanders around the true aim. Retreat and idle stay true.
+    this.aimTime += dt;
+    this.turnToward(towardPlayer + aimOffset(this.aimTime, this.swing), dt);
 
     if (dist > COMBAT.pirateEngageRange) {
       this.thrust(dt);
@@ -195,7 +215,8 @@ export class Pirate {
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, towardPlayer));
-    if (angleErr <= COMBAT.pirateFireCone && dist <= COMBAT.pirateThreatRange) {
+    const fireGate = Math.max(COMBAT.pirateFireCone, this.swing.width);
+    if (angleErr <= fireGate && dist <= COMBAT.pirateThreatRange) {
       fireNpcVolley({
         fit: this.fit,
         ownerId: this.id,
@@ -207,6 +228,8 @@ export class Pirate {
         source: "pirate",
         lockId: targetId,
         out: outShots,
+        missileTrackScale: this.missileScale.trackScale,
+        missileTurnScale: this.missileScale.turnScale,
       });
     }
   }

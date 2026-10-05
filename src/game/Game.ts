@@ -536,6 +536,7 @@ export class Game {
               ship.y,
               ship.heading,
               pirateFitById(ship.fitId),
+              ship.difficulty,
               encounter.fee,
             ),
           );
@@ -3526,13 +3527,14 @@ export class Game {
     const heading = ang + Math.PI;
 
     if (mission.distressOutcome === "bait") {
-      const fit = heatPirateFits(
+      const bait = heatPirateFits(
         this.galaxy,
         this.local.poiId,
         Math.random,
         true,
-      )[0]!;
-      this.baitPirate = new Pirate(x, y, heading, fit, 0);
+      );
+      const fit = bait.fits[0]!;
+      this.baitPirate = new Pirate(x, y, heading, fit, bait.difficulty, 0);
       this.baitPirate.setPeaceful();
       this.baitPack = {
         phase: "comms",
@@ -3634,7 +3636,8 @@ export class Game {
 
   /** Drop a difficulty pack for this system into the current local view. */
   private spawnPirateIntrusion(): void {
-    const fits = heatPirateFits(this.galaxy, this.local.poiId, Math.random);
+    const intrusion = heatPirateFits(this.galaxy, this.local.poiId, Math.random);
+    const fits = intrusion.fits;
     const count = fits.length;
     const fee = ENCOUNTERS.feeByTemplate.scout;
     const angle = Math.random() * Math.PI * 2;
@@ -3656,6 +3659,7 @@ export class Game {
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
           fits[i]!,
+          intrusion.difficulty,
           fee,
         ),
       );
@@ -3681,10 +3685,8 @@ export class Game {
    * Difficulty scales with passengers aboard, with overlap.
    */
   private spawnPassengerIntercept(passengers: number): void {
-    const tiers = pirateRecipeFits(
-      rollPassengerDifficulty(passengers, Math.random),
-      Math.random,
-    );
+    const difficulty = rollPassengerDifficulty(passengers, Math.random);
+    const tiers = pirateRecipeFits(difficulty, Math.random);
     const angle = Math.random() * Math.PI * 2;
     const dist =
       COMBAT.pirateSpawnMin +
@@ -3705,6 +3707,7 @@ export class Game {
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
           tiers[i]!,
+          difficulty,
           0,
         ),
       );
@@ -4830,10 +4833,8 @@ export class Game {
 
   private spawnDistressPirates(): void {
     const plan = distressPiratePlan(this.reputation.fuelRatsRep());
-    const fits = pirateRecipeFits(
-      rollDistressDifficulty(plan.tierWeights, Math.random),
-      Math.random,
-    );
+    const difficulty = rollDistressDifficulty(plan.tierWeights, Math.random);
+    const fits = pirateRecipeFits(difficulty, Math.random);
     const n = fits.length;
     const fee = plan.fee;
     const angle0 = Math.random() * Math.PI * 2;
@@ -4849,6 +4850,7 @@ export class Game {
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
           fits[i]!,
+          difficulty,
           fee,
         ),
       );

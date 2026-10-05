@@ -1,6 +1,14 @@
 import { COMBAT, PATROL } from "../game/config";
 import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import type { ResolvedNpcFit } from "../ship/npcLoadout";
+import {
+  aimOffset,
+  aimSwing,
+  missileAimScale,
+  PATROL_AIM_DIFFICULTY,
+  type AimSwing,
+  type MissileAimScale,
+} from "./aimWander";
 import { nextCombatId } from "./combatId";
 import { fireNpcVolley, PLAYER_LOCK_ID, tickWeaponCooldowns } from "./npcVolley";
 import type { Projectile } from "./Projectile";
@@ -61,6 +69,10 @@ export class StationPatrol {
   private stance: PatrolStance = "idle";
   private stanceTimer: number;
   private wanderTarget: { x: number; y: number } | null = null;
+  /** Steady accuracy, about a difficulty 4–5 pirate. Not on the ladder. */
+  private readonly swing: AimSwing = aimSwing(PATROL_AIM_DIFFICULTY);
+  private readonly missileScale: MissileAimScale = missileAimScale(PATROL_AIM_DIFFICULTY);
+  private aimTime = Math.random() * this.swing.halfPeriod * 2;
 
   constructor(
     public x: number,
@@ -383,7 +395,8 @@ export class StationPatrol {
     const dy = ty - this.y;
     const dist = Math.hypot(dx, dy);
     const toward = Math.atan2(dy, dx);
-    this.turnToward(toward, dt);
+    this.aimTime += dt;
+    this.turnToward(toward + aimOffset(this.aimTime, this.swing), dt);
 
     if (dist > PATROL.engageRange) {
       this.thrust(dt);
@@ -393,7 +406,8 @@ export class StationPatrol {
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, toward));
-    if (angleErr <= COMBAT.pirateFireCone && dist <= PATROL.huntRange) {
+    const fireGate = Math.max(COMBAT.pirateFireCone, this.swing.width);
+    if (angleErr <= fireGate && dist <= PATROL.huntRange) {
       fireNpcVolley({
         fit: this.fit,
         ownerId: this.id,
@@ -405,6 +419,8 @@ export class StationPatrol {
         source: "patrol",
         lockId: targetId,
         out: outShots,
+        missileTrackScale: this.missileScale.trackScale,
+        missileTurnScale: this.missileScale.turnScale,
       });
     }
   }

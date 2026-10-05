@@ -11,6 +11,7 @@ import type { Galaxy } from "./Galaxy";
 import {
   pirateRecipeFits,
   rollHeatDifficulty,
+  type PirateDifficulty,
   type ResolvedNpcFit,
 } from "../ship/npcLoadout";
 import type {
@@ -123,6 +124,7 @@ function offsetFrom(
 function buildShips(
   rng: () => number,
   template: EncounterTemplate,
+  difficulty: PirateDifficulty,
   fits: readonly ResolvedNpcFit[],
 ): PirateShipSpawn[] {
   const anchor = placeAnchor(rng, template);
@@ -133,9 +135,15 @@ function buildShips(
       y: pos.y,
       heading: randomHeading(rng),
       fitId: fit.id,
+      difficulty,
     };
   });
 }
+
+export type HeatPiratePack = {
+  difficulty: PirateDifficulty;
+  fits: ResolvedNpcFit[];
+};
 
 /**
  * Difficulty pack for a system's chart distance. Wealthy systems (not near
@@ -147,11 +155,11 @@ export function heatPirateFits(
   poiId: number,
   rng: () => number,
   solo = false,
-): ResolvedNpcFit[] {
+): HeatPiratePack {
   const band = heatBandForPoi(galaxy, poiId);
   const wealthy = isWealthySystem(galaxy, poiId);
   const difficulty = rollHeatDifficulty(band, wealthy, rng);
-  return pirateRecipeFits(difficulty, rng, solo);
+  return { difficulty, fits: pirateRecipeFits(difficulty, rng, solo) };
 }
 
 /**
@@ -181,6 +189,7 @@ export function pirateEncounterFor(
   const ships = buildShips(
     rng,
     template,
+    difficulty,
     pirateRecipeFits(difficulty, rng),
   );
   const fee = ENCOUNTERS.feeByTemplate[template];

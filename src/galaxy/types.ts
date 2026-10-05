@@ -80,6 +80,8 @@ export interface PirateShipSpawn {
   heading: number;
   /** Pirate fit id from the difficulty ladder. */
   fitId: string;
+  /** Pack difficulty. Same on every ship in the encounter. */
+  difficulty: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 }
 
 /**

@@ -21,6 +21,10 @@ export function fireNpcVolley(args: {
   source: Exclude<ProjectileSource, "player">;
   lockId: string;
   out: Projectile[];
+  /** Fraction of the module lock. Omitted keeps the module (NPC aim only). */
+  missileTrackScale?: number;
+  /** Fraction of the module turn rate. Omitted keeps the module. */
+  missileTurnScale?: number;
 }): void {
   const muzzle = args.fit.size;
   for (let i = 0; i < args.fit.weapons.length; i += 1) {
@@ -66,8 +70,8 @@ export function fireNpcVolley(args: {
           radius: WEAPONS.missile.radius,
           damage: weapon.damage,
           shieldMultiplier: weapon.shieldMultiplier,
-          turnRate: weapon.trackingTurn,
-          trackSeconds: weapon.trackSeconds,
+          turnRate: weapon.trackingTurn * (args.missileTurnScale ?? 1),
+          trackSeconds: weapon.trackSeconds * (args.missileTrackScale ?? 1),
           lockId: args.lockId,
         }),
       );
