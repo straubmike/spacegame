@@ -9,50 +9,70 @@ export interface DefenseBanks {
   shieldBreakRemaining: number;
 }
 
+/** Which bank actually took the hit. Beams bend only on `"plating"`. */
+export type DefenseLayer = "shield" | "plating" | "core" | "none";
+
 /**
- * Kinetic hit against the three defense banks.
+ * One hit against shields, then plating, then core.
  *
  * Shields are first. Damage against them is `amount * shieldMultiplier`.
  * A multiplier of 0 (guns) leaves an intact shield untouched and does not
  * spill. If the scaled damage is at least the current shield, the shield
- * breaks, excess is wiped, and recharge waits out `breakDowntime`
- * (the equipped shield module's stat). That hit does not continue into
- * plating or core.
+ * breaks, excess is wiped, and recharge waits out `breakDowntime`.
+ * That hit does not continue into plating or core.
  *
- * Once the shield bank is empty, the full amount hits plating (kinetic is
- * unreduced there) and any leftover spills into core.
+ * With shields down and plating still up, plating takes
+ * `amount * platingMultiplier`. Leftover of that reduced hit spills into
+ * core. Kinetic weapons pass 1, so plating takes the full amount.
+ *
+ * With plating also empty, core takes 100% of `amount`.
  */
+export function applyDefenseHit(
+  state: DefenseBanks,
+  amount: number,
+  shieldMultiplier: number,
+  platingMultiplier: number,
+  breakDowntime: number,
+): DefenseLayer {
+  if (amount <= 0 || !Number.isFinite(amount)) return "none";
+
+  if (state.shield > 0) {
+    const shieldDamage = amount * Math.max(0, shieldMultiplier);
+    if (shieldDamage <= 0) return "none";
+    state.timeSinceDamage = 0;
+    if (shieldDamage >= state.shield) {
+      state.shield = 0;
+      state.shieldBreakRemaining = breakDowntime;
+    } else {
+      state.shield -= shieldDamage;
+    }
+    return "shield";
+  }
+
+  state.timeSinceDamage = 0;
+  if (state.plating > 0) {
+    let remaining = amount * Math.max(0, platingMultiplier);
+    const absorbed = Math.min(state.plating, remaining);
+    state.plating -= absorbed;
+    remaining -= absorbed;
+    if (remaining > 0) {
+      state.core = Math.max(0, state.core - remaining);
+    }
+    return "plating";
+  }
+
+  state.core = Math.max(0, state.core - amount);
+  return "core";
+}
+
+/** Kinetic hit. Plating takes the full amount once shields are down. */
 export function applyKineticHit(
   state: DefenseBanks,
   amount: number,
   shieldMultiplier: number,
   breakDowntime: number,
 ): void {
-  if (amount <= 0 || !Number.isFinite(amount)) return;
-
-  if (state.shield > 0) {
-    const shieldDamage = amount * Math.max(0, shieldMultiplier);
-    if (shieldDamage <= 0) return;
-    state.timeSinceDamage = 0;
-    if (shieldDamage >= state.shield) {
-      state.shield = 0;
-      state.shieldBreakRemaining = breakDowntime;
-      return;
-    }
-    state.shield -= shieldDamage;
-    return;
-  }
-
-  state.timeSinceDamage = 0;
-  let remaining = amount;
-  if (state.plating > 0) {
-    const absorbed = Math.min(state.plating, remaining);
-    state.plating -= absorbed;
-    remaining -= absorbed;
-  }
-  if (remaining > 0) {
-    state.core = Math.max(0, state.core - remaining);
-  }
+  applyDefenseHit(state, amount, shieldMultiplier, 1, breakDowntime);
 }
 
 /**

@@ -39,6 +39,8 @@ export function fireNpcVolley(args: {
   for (let i = 0; i < args.fit.weapons.length; i += 1) {
     if ((args.cooldowns[i] ?? 0) > 0) continue;
     const weapon = args.fit.weapons[i]!.module;
+    // Energy weapons are player-only. Do not invent a kinetic shot for them.
+    if (weapon.family === "pulse" || weapon.family === "beam") continue;
     const onBracket = weapon.family === primary;
     let cooldown = weapon.fireCooldown;
     if (!onBracket) {
@@ -82,7 +84,7 @@ export function fireNpcVolley(args: {
           shieldMultiplier: weapon.shieldMultiplier,
         }),
       );
-    } else {
+    } else if (weapon.family === "missile") {
       args.out.push(
         spawnNpcShot(args.x, args.y, args.heading, muzzle, args.source, args.hostile, {
           family: "missile",

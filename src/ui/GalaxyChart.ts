@@ -73,6 +73,8 @@ export class GalaxyChart {
       fuel: 0,
       costForSelected: null,
     },
+    /** Full drive sink — a hyperspace jump will not commit. */
+    heatFull = false,
   ): void {
     const margin = Math.max(40, Math.min(width, height) * 0.06);
     const panel: Rect = {
@@ -186,7 +188,7 @@ export class GalaxyChart {
       const dist = galaxy.distance(current, sel);
       const inJumpRange =
         this.selectedId !== currentId && dist <= jumpRange;
-      canJump = inJumpRange;
+      canJump = inJumpRange && !heatFull;
       const visited = hints.visitedPoiIds.has(this.selectedId);
       const questTag = hints.questPoiIds.has(this.selectedId)
         ? "  ·  mission"
@@ -210,7 +212,8 @@ export class GalaxyChart {
             ? `  ·  ${fuelInfo.costForSelected} fuel`
             : "";
         const rangeBit = inJumpRange ? "" : "  ·  out of range";
-        status = `  ${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${rangeBit}${questTag}`;
+        const heatBit = inJumpRange && heatFull ? "  ·  heat" : "";
+        status = `  ${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${rangeBit}${heatBit}${questTag}`;
         ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
         ctx.fillText(status, statusX, statusY);
 
@@ -273,6 +276,7 @@ export class GalaxyChart {
     py: number,
     jumpRange: number,
     hints: ChartPoiHints = EMPTY_HINTS,
+    heatFull = false,
   ): GalaxyClickResult {
     if (hit(this.closeBtn, px, py)) return "close";
 
@@ -280,7 +284,8 @@ export class GalaxyChart {
       this.selectedId !== null &&
       this.selectedId !== currentId &&
       galaxy.distance(galaxy.get(currentId), galaxy.get(this.selectedId)) <=
-        jumpRange;
+        jumpRange &&
+      !heatFull;
 
     if (hit(this.jumpBtn, px, py)) {
       return canJump ? "jump" : null;

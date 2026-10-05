@@ -7,6 +7,7 @@ import type { FuelRat } from "../entities/FuelRat";
 import type { StrandedPilot } from "../entities/StrandedPilot";
 import type { StationPatrol } from "../entities/StationPatrol";
 import type { Projectile } from "../entities/Projectile";
+import type { BeamSegment } from "../entities/energyBeam";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
 import { Hud, type WeaponHudRow } from "../ui/Hud";
@@ -98,6 +99,8 @@ export class Renderer {
     /** World position of the missile cursor-lock, if a missile is equipped. */
     missileLock: { x: number; y: number } | null;
     projectiles: Projectile[];
+    /** Pulse flashes and the beam currently held. */
+    energyBeams: { segments: BeamSegment[]; wide: boolean }[];
     alpha: number;
     thrusting: boolean;
     chartOpen: boolean;
@@ -265,6 +268,10 @@ export class Renderer {
       this.drawProjectile(p.x, p.y, shot);
     }
 
+    for (const beam of args.energyBeams) {
+      this.drawEnergyBeam(beam.segments, beam.wide, args.camera, w, h);
+    }
+
     if (args.ship.alive) {
       this.drawShip(
         shipScreen.x,
@@ -296,6 +303,7 @@ export class Renderer {
           args.ship.jumpRange(),
           args.chartHints,
           { fuel: args.ship.fuel, costForSelected },
+          !args.ship.hasHeatRoom(),
         );
       }
     } else if (args.panelOpen) {
@@ -541,6 +549,39 @@ export class Renderer {
     ctx.strokeStyle = pilot.stroke;
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawEnergyBeam(
+    segments: BeamSegment[],
+    wide: boolean,
+    camera: Camera,
+    viewW: number,
+    viewH: number,
+  ): void {
+    if (segments.length === 0) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (const segment of segments) {
+      const a = camera.worldToScreen(segment.x1, segment.y1, viewW, viewH);
+      const b = camera.worldToScreen(segment.x2, segment.y2, viewW, viewH);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    if (wide) {
+      ctx.strokeStyle = "rgba(70, 170, 255, 0.35)";
+      ctx.lineWidth = 14;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(220, 245, 255, 0.95)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(190, 240, 255, 0.95)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

@@ -49,8 +49,10 @@ interface StatRow {
   label: string;
   text: string;
   value: number | null;
-  /** A smaller number is the upgrade (gun time-on-target). */
+  /** A smaller number is the upgrade (cooldown, heat, vent delay). */
   lowerIsBetter?: boolean;
+  /** Format the delta as signed seconds. */
+  seconds?: boolean;
 }
 
 interface CargoRowWidgets {
@@ -1025,7 +1027,7 @@ export class ShipMenu {
       ctx.fillText(`${row.label}  ${row.text}`, x, by);
 
       if (otherRows && compareAgainst) {
-        const other = otherRows[i];
+        const other = otherRows.find((candidate) => candidate.label === row.label);
         const crossAmmo =
           row.label === "Ammunition" &&
           mod.kind === "weapon" &&
@@ -1044,20 +1046,13 @@ export class ShipMenu {
         ) {
           const delta = other.value - row.value;
           if (Math.abs(delta) > 1e-6) {
-            const label = row.lowerIsBetter
+            const label = row.seconds
               ? formatSignedSeconds(delta)
               : formatDelta(delta);
-            if (row.lowerIsBetter) {
-              ctx.fillStyle =
-                delta < 0
-                  ? "rgba(90, 210, 130, 0.95)"
-                  : "rgba(230, 100, 100, 0.95)";
-            } else {
-              ctx.fillStyle =
-                delta > 0
-                  ? "rgba(90, 210, 130, 0.95)"
-                  : "rgba(230, 100, 100, 0.95)";
-            }
+            const improved = row.lowerIsBetter ? delta < 0 : delta > 0;
+            ctx.fillStyle = improved
+              ? "rgba(90, 210, 130, 0.95)"
+              : "rgba(230, 100, 100, 0.95)";
             ctx.fillText(label, x + tw + 8, by);
           }
         }
@@ -1366,6 +1361,23 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
         text: `${mod.fuelCapacity}`,
         value: mod.fuelCapacity,
       },
+      {
+        label: "Heat sink",
+        text: `${mod.heatSink}`,
+        value: mod.heatSink,
+      },
+      {
+        label: "Vent delay",
+        text: `${mod.ventDelay.toFixed(2)} s`,
+        value: mod.ventDelay,
+        lowerIsBetter: true,
+        seconds: true,
+      },
+      {
+        label: "Vent rate",
+        text: `${mod.ventRate.toFixed(0)} /s`,
+        value: mod.ventRate,
+      },
     ];
   }
   return [
@@ -1392,6 +1404,7 @@ function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
           : "—",
       value: mod.shieldBreakDowntime,
       lowerIsBetter: true,
+      seconds: true,
     },
     {
       label: "Ammo bonus",
@@ -1462,48 +1475,104 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
     magazine !== null && bonusPct > 0
       ? `${formatAmmo(magazine, ammo)} (+${bonusPct}%)`
       : formatAmmo(magazine, ammo);
+  const energy = mod.family === "pulse" || mod.family === "beam";
   const rof = rateOfFire(mod.fireCooldown);
   const shieldPct = Math.round(mod.shieldMultiplier * 100);
+  const platingPct = Math.round((mod.platingMultiplier ?? 1) * 100);
   const trackDeg = (mod.trackingTurn * 180) / Math.PI;
-  return [
+  const rows: StatRow[] = [
     {
       label: "Ammunition",
+      // null on energy so a mark step is not a fake ammo delta.
+      // A different family still prints TYPE CHANGE.
       text: ammoText,
-      value: magazine,
+      value: energy ? null : magazine,
     },
-    {
+  ];
+  if (mod.family === "beam") {
+    rows.push(
+      {
+        label: "Impact",
+        text: `${mod.damage}`,
+        value: mod.damage,
+      },
+      {
+        label: "Chunk",
+        text: `${mod.chunkDamage ?? 0}`,
+        value: mod.chunkDamage ?? 0,
+      },
+    );
+  } else {
+    rows.push({
       label: "Damage",
       text: mod.family === "gun" ? `${mod.damage} / chunk` : `${mod.damage}`,
       value: mod.damage,
-    },
-    {
-      label: "Shield hit",
-      text: `${shieldPct}%`,
-      value: shieldPct,
-    },
-    {
-      label: "Rate of fire",
-      text: `${rof.toFixed(2)} /s`,
-      value: rof,
-    },
-    {
-      label: "Speed",
-      text: `${mod.speed.toFixed(0)}`,
-      value: mod.speed,
-    },
-    {
-      label: "Time on target",
-      text: mod.family === "gun" ? `${mod.timeOnTarget.toFixed(2)} s` : "—",
-      // Raw seconds. A negative delta is a shorter chunk timer (an upgrade).
-      value: mod.family === "gun" ? mod.timeOnTarget : null,
-      lowerIsBetter: mod.family === "gun",
-    },
-    {
-      label: "Tracking",
-      text: mod.family === "missile" ? `${trackDeg.toFixed(0)}°/s` : "—",
-      value: mod.family === "missile" ? trackDeg : null,
-    },
-  ];
+    });
+  }
+  rows.push({
+    label: "Shield hit",
+    text: `${shieldPct}%`,
+    value: shieldPct,
+  });
+  rows.push({
+    label: "Plating hit",
+    text: `${platingPct}%`,
+    value: platingPct,
+  });
+  if (energy) {
+    rows.push({
+      label: "Range",
+      text: `${mod.range ?? 0} u`,
+      value: mod.range ?? 0,
+    });
+    rows.push({
+      label: "Cooldown",
+      text: `${mod.fireCooldown.toFixed(2)} s`,
+      value: mod.fireCooldown,
+      lowerIsBetter: true,
+      seconds: true,
+    });
+    rows.push({
+      label: "Heat",
+      text: `${mod.heatCost ?? 0}`,
+      value: mod.heatCost ?? 0,
+      lowerIsBetter: true,
+    });
+    if (mod.family === "beam") {
+      rows.push({
+        label: "Heat tick",
+        text: `${mod.heatPerSecond ?? 0} /s`,
+        value: mod.heatPerSecond ?? 0,
+        lowerIsBetter: true,
+      });
+    }
+  } else {
+    rows.push(
+      {
+        label: "Rate of fire",
+        text: `${rof.toFixed(2)} /s`,
+        value: rof,
+      },
+      {
+        label: "Speed",
+        text: `${mod.speed.toFixed(0)}`,
+        value: mod.speed,
+      },
+      {
+        label: "Time on target",
+        text: mod.family === "gun" ? `${mod.timeOnTarget.toFixed(2)} s` : "—",
+        value: mod.family === "gun" ? mod.timeOnTarget : null,
+        lowerIsBetter: mod.family === "gun",
+        seconds: mod.family === "gun",
+      },
+      {
+        label: "Tracking",
+        text: mod.family === "missile" ? `${trackDeg.toFixed(0)}°/s` : "—",
+        value: mod.family === "missile" ? trackDeg : null,
+      },
+    );
+  }
+  return rows;
 }
 
 /** Signed seconds, two decimals, so a shorter gun timer reads as a reduction. */

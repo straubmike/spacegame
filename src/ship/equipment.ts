@@ -19,8 +19,8 @@ interface ModuleBase {
   tier: ModuleTier;
 }
 
-/** Kinetic family. Mark is the tier rung, not a separate name. */
-export type WeaponFamily = "gun" | "cannon" | "missile";
+/** Kinetic families plus energy pulse and beam. Mark is the tier rung. */
+export type WeaponFamily = "gun" | "cannon" | "missile" | "pulse" | "beam";
 
 export interface WeaponModule extends ModuleBase {
   kind: "weapon";
@@ -43,8 +43,26 @@ export interface WeaponModule extends ModuleBase {
    * Excess over the current shield is wiped.
    */
   shieldMultiplier: number;
+  /**
+   * Fraction of listed damage plating takes once shields are down.
+   * Leftover of that reduced hit spills to core.
+   * Omitted on kinetics — plating takes the full amount (1).
+   * With plating empty, core takes 100% of listed damage regardless.
+   */
+  platingMultiplier?: number;
   /** Gun: seconds of sustained impacts before a chunk. 0 on other families. */
   timeOnTarget: number;
+  /** Energy reach in world units. Omitted on kinetics (they fly out). */
+  range?: number;
+  /**
+   * Heat added when an energy weapon starts (one pulse, or a beam's upfront).
+   * 0 / omitted on kinetics — they do not heat the drive.
+   */
+  heatCost?: number;
+  /** Beam only: heat added per second while the beam is held. */
+  heatPerSecond?: number;
+  /** Beam only: extra damage per sustained-contact chunk. Impact is `damage`. */
+  chunkDamage?: number;
   /** Missile steering, radians per second. 0 on other families. */
   trackingTurn: number;
   /** Missile lock window. After this the round flies straight. */
@@ -76,6 +94,18 @@ export interface DriveModule extends ModuleBase {
   fuelCapacity: number;
   /** null = unlimited warp charges between repairs (legacy; travel uses fuel). */
   warpChargesMax: number | null;
+  /**
+   * Heat capacity. Current heat cannot rise past this.
+   * Energy fire and a committed hyperspace jump both add heat.
+   */
+  heatSink: number;
+  /**
+   * Seconds after the last heat gain before heat starts to drop.
+   * Any new heat resets this wait.
+   */
+  ventDelay: number;
+  /** Heat shed per second once the vent delay has passed. */
+  ventRate: number;
 }
 
 export interface UtilityModule extends ModuleBase {
@@ -145,7 +175,7 @@ export interface ShipSlot {
  * - Tier 3 (~480–720): multi-loop goal; trade-in softens the step up
  */
 export const MODULES = {
-  // —— Weapons (kinetic only: Gun / Cannon / Missile, Mk I–III) ———
+  // —— Weapons (Gun / Cannon / Missile / Energy Pulse / Energy Beam) ———
   gunMk1: {
     kind: "weapon",
     family: "gun",
@@ -333,6 +363,152 @@ export const MODULES = {
     speed: WEAPONS.missile.marks[2].speed,
   } satisfies WeaponModule,
 
+  pulseMk1: {
+    kind: "weapon",
+    family: "pulse",
+    id: "pulse_mk1",
+    name: "Energy Pulse",
+    blurb:
+      "Thin instant beam. Stops on the first target. Low damage, light on plating, heats the drive.",
+    price: 80,
+    tier: 1,
+    fireCooldown: WEAPONS.pulse.marks[0].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.pulse.marks[0].damage,
+    shieldMultiplier: WEAPONS.pulse.shieldMultiplier,
+    platingMultiplier: WEAPONS.pulse.platingMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.pulse.marks[0].range,
+    heatCost: WEAPONS.pulse.marks[0].heat,
+  } satisfies WeaponModule,
+
+  pulseMk2: {
+    kind: "weapon",
+    family: "pulse",
+    id: "pulse_mk2",
+    name: "Energy Pulse",
+    blurb: "Farther and harder than Mk I, with a shorter wait and less heat.",
+    price: 250,
+    tier: 2,
+    fireCooldown: WEAPONS.pulse.marks[1].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.pulse.marks[1].damage,
+    shieldMultiplier: WEAPONS.pulse.shieldMultiplier,
+    platingMultiplier: WEAPONS.pulse.platingMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.pulse.marks[1].range,
+    heatCost: WEAPONS.pulse.marks[1].heat,
+  } satisfies WeaponModule,
+
+  pulseMk3: {
+    kind: "weapon",
+    family: "pulse",
+    id: "pulse_mk3",
+    name: "Energy Pulse",
+    blurb: "Longest pulse. Highest damage, fastest cycle, lowest heat.",
+    price: 540,
+    tier: 3,
+    fireCooldown: WEAPONS.pulse.marks[2].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.pulse.marks[2].damage,
+    shieldMultiplier: WEAPONS.pulse.shieldMultiplier,
+    platingMultiplier: WEAPONS.pulse.platingMultiplier,
+    timeOnTarget: 0,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.pulse.marks[2].range,
+    heatCost: WEAPONS.pulse.marks[2].heat,
+  } satisfies WeaponModule,
+
+  beamMk1: {
+    kind: "weapon",
+    family: "beam",
+    id: "beam_mk1",
+    name: "Energy Beam",
+    blurb:
+      "Wide beam, held to fire. Long reach. Punches through and bends off plating. Heats while it runs.",
+    price: 100,
+    tier: 1,
+    fireCooldown: WEAPONS.beam.marks[0].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.beam.marks[0].damage,
+    shieldMultiplier: WEAPONS.beam.shieldMultiplier,
+    platingMultiplier: WEAPONS.beam.platingMultiplier,
+    timeOnTarget: WEAPONS.beam.chunkInterval,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.beam.range,
+    heatCost: WEAPONS.beam.marks[0].heat,
+    heatPerSecond: WEAPONS.beam.marks[0].heatPerSecond,
+    chunkDamage: WEAPONS.beam.marks[0].chunkDamage,
+  } satisfies WeaponModule,
+
+  beamMk2: {
+    kind: "weapon",
+    family: "beam",
+    id: "beam_mk2",
+    name: "Energy Beam",
+    blurb: "Harder impact and chunk. Less heat to start and to hold. Shorter restart.",
+    price: 290,
+    tier: 2,
+    fireCooldown: WEAPONS.beam.marks[1].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.beam.marks[1].damage,
+    shieldMultiplier: WEAPONS.beam.shieldMultiplier,
+    platingMultiplier: WEAPONS.beam.platingMultiplier,
+    timeOnTarget: WEAPONS.beam.chunkInterval,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.beam.range,
+    heatCost: WEAPONS.beam.marks[1].heat,
+    heatPerSecond: WEAPONS.beam.marks[1].heatPerSecond,
+    chunkDamage: WEAPONS.beam.marks[1].chunkDamage,
+  } satisfies WeaponModule,
+
+  beamMk3: {
+    kind: "weapon",
+    family: "beam",
+    id: "beam_mk3",
+    name: "Energy Beam",
+    blurb: "Strongest beam. Lowest heat and the quickest restart. Same long reach.",
+    price: 610,
+    tier: 3,
+    fireCooldown: WEAPONS.beam.marks[2].fireCooldown,
+    ammoMax: null,
+    damage: WEAPONS.beam.marks[2].damage,
+    shieldMultiplier: WEAPONS.beam.shieldMultiplier,
+    platingMultiplier: WEAPONS.beam.platingMultiplier,
+    timeOnTarget: WEAPONS.beam.chunkInterval,
+    trackingTurn: 0,
+    trackSeconds: 0,
+    pelletCount: 1,
+    spread: 0,
+    speed: 0,
+    range: WEAPONS.beam.range,
+    heatCost: WEAPONS.beam.marks[2].heat,
+    heatPerSecond: WEAPONS.beam.marks[2].heatPerSecond,
+    chunkDamage: WEAPONS.beam.marks[2].chunkDamage,
+  } satisfies WeaponModule,
+
   // —— Drives ————————————————————————————————————————————————
   basicDrive: {
     kind: "drive",
@@ -349,6 +525,10 @@ export const MODULES = {
     maxJumpRange: 48,
     fuelCapacity: 24,
     warpChargesMax: null,
+    // Not a jump-range copy. Sink fits five Pulse Mk I (6) plus one jump (14).
+    heatSink: 48,
+    ventDelay: 1.8,
+    ventRate: 7,
   } satisfies DriveModule,
 
   racingDrive: {
@@ -366,6 +546,9 @@ export const MODULES = {
     maxJumpRange: 32,
     fuelCapacity: 18,
     warpChargesMax: null,
+    heatSink: 34,
+    ventDelay: 0.6,
+    ventRate: 15,
   } satisfies DriveModule,
 
   longRangeDrive: {
@@ -383,6 +566,9 @@ export const MODULES = {
     maxJumpRange: 64,
     fuelCapacity: 32,
     warpChargesMax: null,
+    heatSink: 42,
+    ventDelay: 2.6,
+    ventRate: 4,
   } satisfies DriveModule,
 
   courierDrive: {
@@ -400,6 +586,9 @@ export const MODULES = {
     maxJumpRange: 56,
     fuelCapacity: 28,
     warpChargesMax: null,
+    heatSink: 40,
+    ventDelay: 1.2,
+    ventRate: 10,
   } satisfies DriveModule,
 
   interceptorDrive: {
@@ -417,6 +606,9 @@ export const MODULES = {
     maxJumpRange: 36,
     fuelCapacity: 17,
     warpChargesMax: null,
+    heatSink: 62,
+    ventDelay: 0.45,
+    ventRate: 12,
   } satisfies DriveModule,
 
   explorerCoil: {
@@ -434,6 +626,9 @@ export const MODULES = {
     maxJumpRange: 80,
     fuelCapacity: 37,
     warpChargesMax: null,
+    heatSink: 36,
+    ventDelay: 2.2,
+    ventRate: 8,
   } satisfies DriveModule,
 
   afterburnCore: {
@@ -451,6 +646,9 @@ export const MODULES = {
     maxJumpRange: 40,
     fuelCapacity: 20,
     warpChargesMax: null,
+    heatSink: 55,
+    ventDelay: 0.7,
+    ventRate: 18,
   } satisfies DriveModule,
 
   deepJumpArray: {
@@ -468,6 +666,9 @@ export const MODULES = {
     maxJumpRange: 96,
     fuelCapacity: 44,
     warpChargesMax: null,
+    heatSink: 30,
+    ventDelay: 3.2,
+    ventRate: 3,
   } satisfies DriveModule,
 
   balancedHyperdrive: {
@@ -485,6 +686,9 @@ export const MODULES = {
     maxJumpRange: 72,
     fuelCapacity: 34,
     warpChargesMax: null,
+    heatSink: 50,
+    ventDelay: 1.5,
+    ventRate: 9,
   } satisfies DriveModule,
 
   // —— Utilities —————————————————————————————————————————————
@@ -1010,6 +1214,12 @@ export const CATALOG: EquipModule[] = [
   MODULES.missileMk1,
   MODULES.missileMk2,
   MODULES.missileMk3,
+  MODULES.pulseMk1,
+  MODULES.pulseMk2,
+  MODULES.pulseMk3,
+  MODULES.beamMk1,
+  MODULES.beamMk2,
+  MODULES.beamMk3,
   MODULES.basicDrive,
   MODULES.racingDrive,
   MODULES.longRangeDrive,
@@ -1155,6 +1365,12 @@ const TIER_MARK_MODULE_IDS = new Set<string>([
   "missile_mk1",
   "missile_mk2",
   "missile_mk3",
+  "pulse_mk1",
+  "pulse_mk2",
+  "pulse_mk3",
+  "beam_mk1",
+  "beam_mk2",
+  "beam_mk3",
   "light_shield",
   "medium_shield",
   "heavy_shield",

@@ -1,5 +1,8 @@
 import type { WeaponFamily } from "../ship/equipment";
 
+/** Families that own a standoff band. Energy weapons are not NPC brackets. */
+export type KineticFamily = "gun" | "cannon" | "missile";
+
 /**
  * Combat standoff. Near stays well outside hull contact (~30) so aim wander
  * and a dodge still decide hits. Bands sit inside the existing fight
@@ -26,16 +29,17 @@ const GUN_MISSILE_EDGE = (RANGE_BAND.gun + RANGE_BAND.missile) / 2;
 export const OFF_BRACKET_FIRE_CHANCE = 0.25;
 export const OFF_BRACKET_GUN_INTERVAL = 1;
 
-export function rangeBracket(dist: number): WeaponFamily {
+export function rangeBracket(dist: number): KineticFamily {
   if (dist < CANNON_GUN_EDGE) return "cannon";
   if (dist < GUN_MISSILE_EDGE) return "gun";
   return "missile";
 }
 
 /** One band per fight. A single family is fixed. Several families roll once. */
-export function pickStandoffFamily(families: readonly WeaponFamily[]): WeaponFamily {
-  const unique: WeaponFamily[] = [];
+export function pickStandoffFamily(families: readonly WeaponFamily[]): KineticFamily {
+  const unique: KineticFamily[] = [];
   for (const family of families) {
+    if (family !== "gun" && family !== "cannon" && family !== "missile") continue;
     if (!unique.includes(family)) unique.push(family);
   }
   if (unique.length === 0) return "gun";
