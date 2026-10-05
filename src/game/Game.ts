@@ -103,7 +103,7 @@ import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
 import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
-import { HUD_WEAPON_BINDINGS, type WeaponHudRow } from "../ui/Hud";
+import type { WeaponHudRow } from "../ui/Hud";
 import { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { factoryPassengerCapacity, hullById } from "../ship/hulls";
 import {
@@ -3794,27 +3794,25 @@ export class Game {
   }
 
   /**
-   * Equipped hardpoints in slot order for the HUD.
-   * Empty slots are skipped. The binding stays the hardpoint index:
-   * slot 1 Space, slot 2 LMB, slot 3 RMB.
+   * Three HUD columns: left click, Space, right click.
+   * An empty or missing hardpoint is null so the other columns stay put.
    */
-  private weaponHudRows(): WeaponHudRow[] {
+  private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");
-    const rows: WeaponHudRow[] = [];
-    for (let i = 0; i < slots.length && i < HUD_WEAPON_BINDINGS.length; i += 1) {
-      const slot = slots[i]!;
-      const weapon = slot.equipped;
-      if (!weapon || weapon.kind !== "weapon") continue;
-      rows.push({
-        binding: HUD_WEAPON_BINDINGS[i]!,
+    const columnSlot = [1, 0, 2];
+    return columnSlot.map((slotIndex) => {
+      const slot = slots[slotIndex];
+      const weapon = slot?.equipped;
+      if (!slot || !weapon || weapon.kind !== "weapon") return null;
+      return {
+        name: weapon.name,
         family: weapon.family,
         ammoMax: weapon.ammoMax,
         ammo: this.ship.loadout.ammoIn(slot.id),
-        held: this.weaponTriggerHeld(i),
+        held: this.weaponTriggerHeld(slotIndex),
         cooldown: Math.max(0, this.weaponCooldowns.get(slot.id) ?? 0),
-      });
-    }
-    return rows;
+      };
+    });
   }
 
   private weaponTriggerHeld(index: number): boolean {

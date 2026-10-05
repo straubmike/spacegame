@@ -93,7 +93,7 @@ export class Renderer {
     pointerX: number;
     pointerY: number;
     fadeAlpha: number;
-    weaponRows: WeaponHudRow[];
+    weaponRows: readonly (WeaponHudRow | null)[];
   }): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
