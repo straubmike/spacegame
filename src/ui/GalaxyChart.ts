@@ -73,7 +73,7 @@ export class GalaxyChart {
       fuel: 0,
       costForSelected: null,
     },
-    /** Full drive sink — a hyperspace jump will not commit. */
+    /** Sink cannot take the whole jump heat — the Jump button stays disabled. */
     heatFull = false,
   ): void {
     const margin = Math.max(40, Math.min(width, height) * 0.06);

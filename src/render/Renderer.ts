@@ -303,7 +303,7 @@ export class Renderer {
           args.ship.jumpRange(),
           args.chartHints,
           { fuel: args.ship.fuel, costForSelected },
-          !args.ship.hasHeatRoom(),
+          !args.ship.jumpHeatFits(),
         );
       }
     } else if (args.panelOpen) {

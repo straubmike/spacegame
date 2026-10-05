@@ -327,7 +327,9 @@ export const WEAPONS = {
  * Drive heat. Energy weapons and a committed hyperspace jump add heat.
  * The equipped drive supplies sink, vent delay, and vent rate.
  * Jump heat is flat — it does not scale with distance.
- * 14 is under the Basic sink (48), so one jump does not fill it,
+ * A jump commits only when the sink can take all of it first
+ * (`heat + jump` at or under the sink). Landing on the cap is allowed.
+ * 14 is under the Basic sink (48), so one jump from a cold drive fits,
  * and five Pulse Mk I shots (6 each) still leave room for that jump.
  */
 export const HEAT = {
