@@ -18,6 +18,11 @@ export interface WeaponHudRow {
   /** Rounds left. Ignored when the weapon has no magazine. */
   ammo: number;
   held: boolean;
+  /**
+   * This key hold began on an open fire window, or reached one and is still down.
+   * A press that started during a cooldown is false until that window opens.
+   */
+  holdArmed: boolean;
   /** Seconds until the next shot is allowed. 0 when the slot is ready. */
   cooldown: number;
 }
@@ -53,11 +58,27 @@ export function weaponAmmoLabel(row: WeaponHudRow): string | null {
 }
 
 /**
- * Yellow wins over a cooldown while the key is held and the weapon can still fire.
- * Cannon, missile, pulse, and beam stay yellow for that whole hold.
- * Red only for an empty magazine, an energy weapon at a full heat sink,
- * or a cooldown that is still running after the key is released.
- * Key up, not cooling, and able to fire stays the normal HUD color.
+ * Remember a hold that started when the weapon could fire.
+ * Releasing the key clears it. A press during a cooldown stays unarmed
+ * until that cooldown reaches 0 while the key is still down.
+ */
+export function weaponHoldArmedNext(state: {
+  held: boolean;
+  armed: boolean;
+  cooldown: number;
+  canFire: boolean;
+}): boolean {
+  if (!state.held) return false;
+  if (state.cooldown <= 0 && state.canFire) return true;
+  return state.armed;
+}
+
+/**
+ * Yellow only for a hold that began when the weapon was ready to fire,
+ * including the wait after a shot that hold already started.
+ * A press during an existing cooldown stays red until the window opens.
+ * Red also covers an empty magazine, an energy weapon at a full heat sink,
+ * and any cooldown while the key is up.
  */
 export function weaponRowTone(
   row: WeaponHudRow,
@@ -72,7 +93,7 @@ export function weaponRowTone(
     return "blocked";
   }
 
-  if (row.held) return "ready";
+  if (row.held && (row.holdArmed || row.cooldown <= 0)) return "ready";
   if (row.cooldown > 0) return "blocked";
   return "normal";
 }
