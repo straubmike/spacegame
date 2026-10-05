@@ -103,6 +103,13 @@ import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
 import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
+import {
+  WEAPON_HUD_INPUTS,
+  weaponCompleteName,
+  weaponHoldArmedNext,
+  weaponRowIsEnergy,
+  type WeaponHudRow,
+} from "../ui/Hud";
 import { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { factoryPassengerCapacity, hullById } from "../ship/hulls";
 import {
@@ -297,6 +304,11 @@ export class Game {
   private projectiles: Projectile[] = [];
   /** Per weapon-slot seconds until that hardpoint can fire again. */
   private weaponCooldowns = new Map<string, number>();
+  /**
+   * Slot ids whose current key hold started on an open fire window.
+   * A press that begins during a cooldown is absent until that window opens.
+   */
+  private weaponHoldArmed = new Set<string>();
   /** Gun time-on-target, keyed by slot id + target id. */
   private gunStreams = new Map<string, { accumulated: number; lastHit: number }>();
   private combatClock = 0;
@@ -489,6 +501,7 @@ export class Game {
     this.panel.selectedBodyId = this.local.bodyId;
     this.projectiles = [];
     this.weaponCooldowns.clear();
+    this.weaponHoldArmed.clear();
     this.gunStreams.clear();
     this.combatClock = 0;
     this.scoopProgress = 0;
@@ -3792,6 +3805,69 @@ export class Game {
     );
   }
 
+  /**
+   * Latch holds before a shot sets the next cooldown.
+   * A key that goes down on an open window stays armed through the wait.
+   * A key that goes down while cooling stays unarmed until the window opens.
+   */
+  private latchWeaponHolds(): void {
+    const slots = this.ship.loadout.slotsOfKind("weapon");
+    const next = new Set<string>();
+    for (let i = 0; i < slots.length && i < WEAPON_HUD_INPUTS.length; i += 1) {
+      const slot = slots[i];
+      const weapon = slot?.equipped;
+      if (!slot || !weapon || weapon.kind !== "weapon") continue;
+      const ammo = this.ship.loadout.ammoIn(slot.id);
+      const energy = weaponRowIsEnergy({
+        input: "",
+        name: "",
+        family: weapon.family,
+        ammoMax: weapon.ammoMax,
+        ammo,
+        held: false,
+        holdArmed: false,
+        cooldown: 0,
+      });
+      const heatBlocked =
+        energy &&
+        this.ship.heatSinkCapacity > 0 &&
+        this.ship.heat >= this.ship.heatSinkCapacity;
+      const canFire = (energy || ammo > 0) && !heatBlocked;
+      const armed = weaponHoldArmedNext({
+        held: this.weaponTriggerHeld(i),
+        armed: this.weaponHoldArmed.has(slot.id),
+        cooldown: Math.max(0, this.weaponCooldowns.get(slot.id) ?? 0),
+        canFire,
+      });
+      if (armed) next.add(slot.id);
+    }
+    this.weaponHoldArmed = next;
+  }
+
+  /**
+   * Three HUD columns: left click, Space, right click.
+   * An empty or missing hardpoint is null so the other columns stay put.
+   */
+  private weaponHudRows(): (WeaponHudRow | null)[] {
+    const slots = this.ship.loadout.slotsOfKind("weapon");
+    const columnSlot = [1, 0, 2];
+    return columnSlot.map((slotIndex, column) => {
+      const slot = slots[slotIndex];
+      const weapon = slot?.equipped;
+      if (!slot || !weapon || weapon.kind !== "weapon") return null;
+      return {
+        input: WEAPON_HUD_INPUTS[column] ?? "SPACE",
+        name: weaponCompleteName(weapon.name, weapon.tier),
+        family: weapon.family,
+        ammoMax: weapon.ammoMax,
+        ammo: this.ship.loadout.ammoIn(slot.id),
+        held: this.weaponTriggerHeld(slotIndex),
+        holdArmed: this.weaponHoldArmed.has(slot.id),
+        cooldown: Math.max(0, this.weaponCooldowns.get(slot.id) ?? 0),
+      };
+    });
+  }
+
   private weaponTriggerHeld(index: number): boolean {
     if (index === 0) return this.keyboard.state.fire;
     const mouseBlocked =
@@ -3970,6 +4046,7 @@ export class Game {
     for (const [id, cd] of this.weaponCooldowns) {
       if (cd > 0) this.weaponCooldowns.set(id, cd - dt);
     }
+    this.latchWeaponHolds();
     this.updatePirateIntrusion(dt);
     this.firePlayerWeapons();
 
@@ -5173,6 +5250,7 @@ export class Game {
       pointerX: this.pointer.x,
       pointerY: this.pointer.y,
       fadeAlpha: this.fadeAlpha,
+      weaponRows: this.weaponHudRows(),
     });
 
     if (this.phase === "gameover") {
