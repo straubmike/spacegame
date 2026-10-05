@@ -246,9 +246,13 @@ export const WEAPONS = {
   },
   missile: {
     shieldMultiplier: 0.25,
-    speed: 320,
     radius: 3.1,
-    /** Same launch rate on every mark — ladder is damage, tracking, ammo. */
+    /**
+     * Same launch rate on every mark. The ladder is damage, tracking,
+     * ammo, and speed. Mk I stays at 320. Mk II and Mk III step up and
+     * stay under the gun pellet (760), so a missile is still the slower
+     * homing shot.
+     */
     fireCooldown: 0.85,
     /**
      * Lock steering window. After this the missile keeps its heading
@@ -260,9 +264,9 @@ export const WEAPONS = {
      * (6 / ~8.6 / ~13.3) and under the same-mark cannon slug.
      */
     marks: [
-      { damage: 4, trackingTurn: 1.6, ammo: 20 },
-      { damage: 7, trackingTurn: 2.7, ammo: 32 },
-      { damage: 11, trackingTurn: 4.2, ammo: 46 },
+      { damage: 4, trackingTurn: 1.6, ammo: 20, speed: 320 },
+      { damage: 7, trackingTurn: 2.7, ammo: 32, speed: 480 },
+      { damage: 11, trackingTurn: 4.2, ammo: 46, speed: 640 },
     ],
   },
 } as const;

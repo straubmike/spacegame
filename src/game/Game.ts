@@ -13,7 +13,7 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import { moduleStockLabel, swapCost, type EquipModule, type WeaponModule } from "../ship/equipment";
+import { moduleStockLabel, swapCost, weaponSlotBindingForId, type EquipModule, type WeaponModule } from "../ship/equipment";
 import {
   stationBayStock,
   stationBayWealth,
@@ -3817,7 +3817,7 @@ export class Game {
           muzzle,
           {
             family: "gun",
-            speed: WEAPONS.gun.pelletSpeed,
+            speed: weapon.speed,
             radius: WEAPONS.gun.pelletRadius,
             damage: 0,
             shieldMultiplier: weapon.shieldMultiplier,
@@ -3832,7 +3832,7 @@ export class Game {
       this.projectiles.push(
         spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {
           family: "cannon",
-          speed: WEAPONS.cannon.slugSpeed,
+          speed: weapon.speed,
           radius: WEAPONS.cannon.slugRadius,
           damage: weapon.damage,
           shieldMultiplier: weapon.shieldMultiplier,
@@ -3844,7 +3844,7 @@ export class Game {
       this.projectiles.push(
         spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {
           family: "missile",
-          speed: WEAPONS.missile.speed,
+          speed: weapon.speed,
           radius: WEAPONS.missile.radius,
           damage: weapon.damage,
           shieldMultiplier: weapon.shieldMultiplier,
@@ -4695,6 +4695,42 @@ export class Game {
     }
   }
 
+  /**
+   * Rebind two weapon hardpoints. The hull's slot count does not change.
+   * Ammo stays with each module. The slot's input binding does not.
+   */
+  private trySwapWeaponSlots(slotId: string, otherSlotId: string): void {
+    const slots = this.ship.loadout.slots;
+    const a = slots.find((s) => s.id === slotId);
+    const b = slots.find((s) => s.id === otherSlotId);
+    if (!a || !b || a.kind !== "weapon" || b.kind !== "weapon") return;
+    const aName = a.equipped ? moduleStockLabel(a.equipped) : null;
+    const bName = b.equipped ? moduleStockLabel(b.equipped) : null;
+    if (!this.ship.loadout.swapWeaponModules(slotId, otherSlotId)) return;
+    const coolA = this.weaponCooldowns.get(slotId) ?? 0;
+    const coolB = this.weaponCooldowns.get(otherSlotId) ?? 0;
+    if (coolB > 0) this.weaponCooldowns.set(slotId, coolB);
+    else this.weaponCooldowns.delete(slotId);
+    if (coolA > 0) this.weaponCooldowns.set(otherSlotId, coolA);
+    else this.weaponCooldowns.delete(otherSlotId);
+
+    let line: string | null = null;
+    if (aName && bName) {
+      line = `Bay: Swapped ${aName} and ${bName}.`;
+    } else if (aName) {
+      const binding = weaponSlotBindingForId(slots, otherSlotId);
+      line = binding
+        ? `Bay: Moved ${aName} to ${binding}.`
+        : `Bay: Moved ${aName}.`;
+    } else if (bName) {
+      const binding = weaponSlotBindingForId(slots, slotId);
+      line = binding
+        ? `Bay: Moved ${bName} to ${binding}.`
+        : `Bay: Moved ${bName}.`;
+    }
+    if (line) this.messages.push(line, "station");
+  }
+
   private tryInstallModule(module: EquipModule): void {
     const slot = this.ship.loadout.slots[this.shipMenu.selectedIndex];
     if (!slot || module.kind !== slot.kind) return;
@@ -4771,6 +4807,10 @@ export class Game {
     }
     if (result && typeof result === "object" && result.action === "install") {
       this.tryInstallModule(result.module);
+      return;
+    }
+    if (result && typeof result === "object" && result.action === "swapWeapons") {
+      this.trySwapWeaponSlots(result.slotId, result.otherSlotId);
       return;
     }
     if (result && typeof result === "object" && result.action === "eject") {

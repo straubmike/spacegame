@@ -39,6 +39,7 @@ export type ShipMenuMode = "view" | "bay";
 export type ShipMenuClickResult =
   | "close"
   | { action: "install"; module: EquipModule }
+  | { action: "swapWeapons"; slotId: string; otherSlotId: string }
   | { action: "eject"; commodityId: string; cu: number }
   | { action: "cancelMission"; missionId: string }
   | { action: "distress" }
@@ -87,6 +88,7 @@ export class ShipMenu {
   reputation: ReputationListing = EMPTY_REP;
 
   private slotRects: Rect[] = [];
+  private swapBtns: { rect: Rect; otherSlotId: string }[] = [];
   private offerRects: Rect[] = [];
   private installBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private closeBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -217,6 +219,7 @@ export class ShipMenu {
     this.confirmNoBtn = { x: 0, y: 0, w: 0, h: 0 };
 
     this.slotRects = [];
+    this.swapBtns = [];
     let weaponOrdinal = 0;
     loadout.slots.forEach((slot, i) => {
       const row: Rect = {
@@ -259,6 +262,19 @@ export class ShipMenu {
       );
       ctx.restore();
     });
+
+    if (this.mode === "bay") {
+      this.drawWeaponSwapButtons(
+        ctx,
+        loadout,
+        listX,
+        listY + loadout.slots.length * rowH + 8,
+        listW,
+        panel.y + panel.h - 16 - btnH - 6,
+        pointerX,
+        pointerY,
+      );
+    }
 
     const slot = loadout.slots[this.selectedIndex] ?? loadout.slots[0]!;
     this.offerRects = [];
@@ -1151,6 +1167,53 @@ export class ShipMenu {
     );
   }
 
+  /**
+   * Bay only. Moves a fitted weapon between hardpoints this hull already has.
+   * Bindings stay on the slot: Space, left click, right click.
+   */
+  private drawWeaponSwapButtons(
+    ctx: CanvasRenderingContext2D,
+    loadout: ShipLoadout,
+    x: number,
+    y: number,
+    w: number,
+    bottom: number,
+    pointerX: number,
+    pointerY: number,
+  ): void {
+    const selected = loadout.slots[this.selectedIndex];
+    if (!selected || selected.kind !== "weapon") return;
+
+    const weapons: { slot: ShipSlot; index: number; ordinal: number }[] = [];
+    let ordinal = 0;
+    loadout.slots.forEach((slot, index) => {
+      if (slot.kind !== "weapon") return;
+      weapons.push({ slot, index, ordinal });
+      ordinal += 1;
+    });
+    if (weapons.length < 2) return;
+
+    let by = y;
+    for (const other of weapons) {
+      if (other.index === this.selectedIndex) continue;
+      if (!selected.equipped && !other.slot.equipped) continue;
+      if (by + 32 > bottom) break;
+      const rect: Rect = { x, y: by, w, h: 32 };
+      const binding = weaponSlotBinding(other.ordinal) ?? other.slot.label;
+      const label =
+        selected.equipped && other.slot.equipped
+          ? `Swap · ${binding}`
+          : selected.equipped
+            ? `Move to ${binding}`
+            : `Move from ${binding}`;
+      this.swapBtns.push({ rect, otherSlotId: other.slot.id });
+      drawButton(ctx, rect, label, {
+        hover: hit(rect, pointerX, pointerY),
+      });
+      by += 36;
+    }
+  }
+
   handleClick(
     loadout: ShipLoadout,
     px: number,
@@ -1225,6 +1288,17 @@ export class ShipMenu {
     }
 
     if (this.mode === "bay") {
+      for (const btn of this.swapBtns) {
+        if (hit(btn.rect, px, py)) {
+          const slot = loadout.slots[this.selectedIndex];
+          if (!slot || slot.kind !== "weapon") return null;
+          return {
+            action: "swapWeapons",
+            slotId: slot.id,
+            otherSlotId: btn.otherSlotId,
+          };
+        }
+      }
       for (let i = 0; i < this.offerRects.length; i += 1) {
         if (hit(this.offerRects[i]!, px, py) && this.offers[i]) {
           this.selectedOfferIndex = i;
@@ -1411,6 +1485,11 @@ function weaponStatRows(mod: WeaponModule, loadout: ShipLoadout): StatRow[] {
       label: "Rate of fire",
       text: `${rof.toFixed(2)} /s`,
       value: rof,
+    },
+    {
+      label: "Speed",
+      text: `${mod.speed.toFixed(0)}`,
+      value: mod.speed,
     },
     {
       label: "Time on target",

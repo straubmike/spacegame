@@ -299,7 +299,7 @@ export function hullById(id: string): HullDef | undefined {
 }
 
 export function createSlotsForHull(hull: HullDef): ShipSlot[] {
-  return hull.slots.map((spec, i) => {
+  const slots = hull.slots.map((spec, i) => {
     const modId = hull.defaultLoadout[i] ?? null;
     const mod = modId ? MODULE_BY_ID[modId] : undefined;
     return {
@@ -309,6 +309,20 @@ export function createSlotsForHull(hull: HullDef): ShipSlot[] {
       equipped: mod ? cloneModule(mod) : null,
     };
   });
+  // TEMP(bay-weapon-swap): strip before merge.
+  // Starter Sparrow only — NPC Sparrows still read hull.slots (one weapon).
+  // Sparrow goes back to one weapon slot when this block is removed.
+  if (hull.id === HULLS.sparrow.id) {
+    const firstWeapon = slots.findIndex((s) => s.kind === "weapon");
+    const at = firstWeapon >= 0 ? firstWeapon + 1 : 0;
+    slots.splice(at, 0, {
+      id: `slot_${hull.id}_weapon_temp`,
+      kind: "weapon",
+      label: "Weapon B",
+      equipped: cloneModule(MODULES.cannonMk1),
+    });
+  }
+  return slots;
 }
 
 /** Slot layout summary e.g. "1W / 1D / 2U". */

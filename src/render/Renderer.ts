@@ -122,14 +122,38 @@ export class Renderer {
 
     const pose = args.ship.sample(args.alpha);
     const shipScreen = args.camera.worldToScreen(pose.x, pose.y, w, h);
+    const showEdgeMarkers =
+      !args.chartOpen &&
+      !args.panelOpen &&
+      !args.shipMenuOpen &&
+      !args.marketMenuOpen &&
+      !args.missionBoardOpen &&
+      !args.hangarMenuOpen;
 
     for (const pirate of args.pirates) {
       if (!pirate.alive) continue;
       const p = args.camera.worldToScreen(pirate.x, pirate.y, w, h);
       if (this.isOnScreen(p.x, p.y, w, h)) {
         this.drawPirate(p.x, p.y, pirate);
-      } else if (!args.chartOpen && !args.panelOpen && !args.shipMenuOpen && !args.marketMenuOpen && !args.missionBoardOpen && !args.hangarMenuOpen) {
+      } else if (showEdgeMarkers) {
         this.drawOffscreenPirateMarker(shipScreen.x, shipScreen.y, p.x, p.y, w, h);
+      }
+    }
+
+    if (showEdgeMarkers) {
+      const landmarks = [args.local.focus, ...args.local.companions];
+      for (const body of landmarks) {
+        if (body.kind === "debris") continue;
+        const p = args.camera.worldToScreen(body.x, body.y, w, h);
+        if (this.isOnScreen(p.x, p.y, w, h)) continue;
+        this.drawOffscreenPoiMarker(
+          shipScreen.x,
+          shipScreen.y,
+          p.x,
+          p.y,
+          w,
+          h,
+        );
       }
     }
 
@@ -531,6 +555,52 @@ export class Renderer {
     w: number,
     h: number,
   ): void {
+    this.drawOffscreenChevron(
+      fromX,
+      fromY,
+      toX,
+      toY,
+      w,
+      h,
+      "rgba(220, 90, 70, 0.9)",
+      "rgba(255, 180, 160, 0.7)",
+    );
+  }
+
+  /**
+   * Same edge chevron as an off-screen pirate, in nav blue, aimed at a landmark
+   * outside the current view.
+   */
+  private drawOffscreenPoiMarker(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    w: number,
+    h: number,
+  ): void {
+    this.drawOffscreenChevron(
+      fromX,
+      fromY,
+      toX,
+      toY,
+      w,
+      h,
+      "rgba(140, 200, 235, 0.92)",
+      "rgba(210, 235, 255, 0.75)",
+    );
+  }
+
+  private drawOffscreenChevron(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    w: number,
+    h: number,
+    fill: string,
+    stroke: string,
+  ): void {
     const edge = intersectScreenEdge(
       fromX,
       fromY,
@@ -552,9 +622,9 @@ export class Renderer {
     ctx.lineTo(-size * 0.7, size * 0.75);
     ctx.lineTo(-size * 0.7, -size * 0.75);
     ctx.closePath();
-    ctx.fillStyle = "rgba(220, 90, 70, 0.9)";
+    ctx.fillStyle = fill;
     ctx.fill();
-    ctx.strokeStyle = "rgba(255, 180, 160, 0.7)";
+    ctx.strokeStyle = stroke;
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();

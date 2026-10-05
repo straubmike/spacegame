@@ -178,6 +178,31 @@ export class ShipLoadout {
     return this.utilities().some((u) => u.poiScan);
   }
 
+  /**
+   * Exchange two weapon hardpoints the hull already has.
+   * Two occupied slots trade modules. A fitted weapon can move into an
+   * empty weapon slot. This does not add a slot. Remaining ammo stays
+   * with the module.
+   */
+  swapWeaponModules(slotIdA: string, slotIdB: string): boolean {
+    if (slotIdA === slotIdB) return false;
+    const a = this.slots.find((s) => s.id === slotIdA);
+    const b = this.slots.find((s) => s.id === slotIdB);
+    if (!a || !b) return false;
+    if (a.kind !== "weapon" || b.kind !== "weapon") return false;
+    if (!a.equipped && !b.equipped) return false;
+    const ammoA = this.ammo.get(slotIdA);
+    const ammoB = this.ammo.get(slotIdB);
+    const equippedA = a.equipped;
+    a.equipped = b.equipped;
+    b.equipped = equippedA;
+    if (ammoB === undefined) this.ammo.delete(slotIdA);
+    else this.ammo.set(slotIdA, ammoB);
+    if (ammoA === undefined) this.ammo.delete(slotIdB);
+    else this.ammo.set(slotIdB, ammoA);
+    return true;
+  }
+
   equip(slotId: string, module: EquipModule | null): boolean {
     const slot = this.slots.find((s) => s.id === slotId);
     if (!slot) return false;
