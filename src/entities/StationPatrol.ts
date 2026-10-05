@@ -1,6 +1,10 @@
 import { COMBAT, PATROL } from "../game/config";
-import type { WeaponFamily } from "../ship/equipment";
-import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
+import {
+  applyDefenseHit,
+  tickShieldRegen,
+  type DefenseBanks,
+  type DefenseLayer,
+} from "../ship/defense";
 import type { ResolvedNpcFit } from "../ship/npcLoadout";
 import {
   aimOffset,
@@ -17,6 +21,7 @@ import {
   pickStandoffFamily,
   RANGE_BAND,
   rangeHeading,
+  type KineticFamily,
 } from "./rangeBand";
 import type { Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
@@ -81,7 +86,7 @@ export class StationPatrol {
   private readonly missileScale: MissileAimScale = missileAimScale(PATROL_AIM_DIFFICULTY);
   private aimTime = Math.random() * this.swing.halfPeriod * 2;
   /** Weapon band chosen the first time this patrol fights. Not re-rolled. */
-  private standoffFamily: WeaponFamily | null = null;
+  private standoffFamily: KineticFamily | null = null;
 
   constructor(
     public x: number,
@@ -141,16 +146,22 @@ export class StationPatrol {
     return this.fit.stroke;
   }
 
-  takeDamage(amount: number, shieldMultiplier: number): void {
-    if (amount <= 0) return;
+  takeDamage(
+    amount: number,
+    shieldMultiplier: number,
+    platingMultiplier = 1,
+  ): DefenseLayer {
+    if (amount <= 0) return "none";
     const state = this.defenseState();
-    applyKineticHit(
+    const layer = applyDefenseHit(
       state,
       amount,
       shieldMultiplier,
+      platingMultiplier,
       this.fit.shieldBreakDowntime,
     );
     this.writeDefense(state);
+    return layer;
   }
 
   /** Player attacked this ship — return fire regardless of standing. */
@@ -440,7 +451,7 @@ export class StationPatrol {
   }
 
   /** First fight picks the band. A one-weapon patrol has nothing to vary. */
-  private standoff(): WeaponFamily {
+  private standoff(): KineticFamily {
     if (this.standoffFamily) return this.standoffFamily;
     this.standoffFamily = pickStandoffFamily(
       this.fit.weapons.map((weapon) => weapon.module.family),

@@ -191,13 +191,15 @@ export const COMBAT = {
 } as const;
 
 /**
- * Player kinetic weapons. Three families, each a Mk I–III ladder.
- * All damage is kinetic — no energy / beam types.
+ * Player weapons. Kinetic families (gun / cannon / missile) plus energy
+ * pulse and beam. Marks are a stat ladder inside one family.
  *
  * Shields take `shieldMultiplier` of a hit. If that scaled damage meets or
  * exceeds the shield bank, the shield breaks and the excess is wiped
  * (no spill into plating or core). How long the break lasts is the
- * shield module's own stat. Plating then core take full kinetic.
+ * shield module's own stat. With shields down, plating takes
+ * `platingMultiplier` (kinetic is 1) and leftover of that reduced hit
+ * spills to core. With plating empty, core takes the full listed amount.
  * Guns never touch shields (multiplier 0).
  */
 export const WEAPONS = {
@@ -269,6 +271,67 @@ export const WEAPONS = {
       { damage: 11, trackingTurn: 4.2, ammo: 46, speed: 640 },
     ],
   },
+  /**
+   * Thin instant beam. Stops on the first target. No deflection.
+   * Marks raise range and damage, and lower cooldown and heat.
+   * Range stays short-to-mid: under the missile hold (420) and
+   * shorter than the beam. Mk I damage stays under the gun chunk (6).
+   * 100% shields, 100% core, 25% plating.
+   */
+  pulse: {
+    shieldMultiplier: 1,
+    platingMultiplier: 0.25,
+    /** How long the instant line stays drawn. */
+    flashSeconds: 0.08,
+    marks: [
+      { damage: 4, range: 180, fireCooldown: 0.55, heat: 6 },
+      { damage: 5, range: 250, fireCooldown: 0.4, heat: 4 },
+      { damage: 7, range: 300, fireCooldown: 0.28, heat: 3 },
+    ],
+  },
+  /**
+   * Held beam, drawn as a thick line. Same long reach on every mark (past
+   * the missile hold, so it already covers short through long). Marks raise
+   * impact and chunk damage, shorten the chunk interval with the gun
+   * time-on-target ladder, and lower upfront heat, heat per second, and
+   * the restart cooldown.
+   * Impact stays under cannon Mk I (14) and above pulse damage.
+   * Chunk damage stays 5 / 6 / 7. The interval is the gun ladder
+   * (1.00 / 0.70 / 0.45 s), stored on the module. A gap longer than
+   * `gunStreamBreakGap` off that hull resets the chunk timer.
+   * First contact is a separate impact. Guns have no first hit.
+   * 100% shields, 100% core, 50% plating.
+   * Each target after the first takes `falloff` of the previous listed damage.
+   */
+  beam: {
+    shieldMultiplier: 1,
+    platingMultiplier: 0.5,
+    range: 640,
+    /** Listed-damage multiplier for each target after the previous one. */
+    falloff: 0.6,
+    /**
+     * Reach past the centerline that still counts as a hit.
+     * The drawn stroke is twice this (the camera is 1:1): a 7px line,
+     * thicker than the pulse (1.5) and not a corridor.
+     */
+    halfWidth: 3.5,
+    marks: [
+      { damage: 8, chunkDamage: 5, heat: 10, heatPerSecond: 14, fireCooldown: 0.45 },
+      { damage: 10, chunkDamage: 6, heat: 7, heatPerSecond: 10, fireCooldown: 0.32 },
+      { damage: 12, chunkDamage: 7, heat: 5, heatPerSecond: 7, fireCooldown: 0.22 },
+    ],
+  },
+} as const;
+
+/**
+ * Drive heat. Energy weapons and a committed hyperspace jump add heat.
+ * The equipped drive supplies sink, vent delay, and vent rate.
+ * Jump heat is flat — it does not scale with distance.
+ * 14 is under the Basic sink (48), so one jump does not fill it,
+ * and five Pulse Mk I shots (6 each) still leave room for that jump.
+ */
+export const HEAT = {
+  jump: 14,
 } as const;
 
 /**

@@ -1,6 +1,10 @@
 import { COMBAT } from "../game/config";
-import type { WeaponFamily } from "../ship/equipment";
-import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
+import {
+  applyDefenseHit,
+  tickShieldRegen,
+  type DefenseBanks,
+  type DefenseLayer,
+} from "../ship/defense";
 import {
   type PirateArchetypeId,
   type PirateDifficulty,
@@ -20,6 +24,7 @@ import {
   pickStandoffFamily,
   RANGE_BAND,
   rangeHeading,
+  type KineticFamily,
 } from "./rangeBand";
 import type { Projectile } from "./Projectile";
 
@@ -57,7 +62,7 @@ export class Pirate {
   /** Wander phase. Seeded so wingmates do not swing together. */
   private aimTime: number;
   /** Weapon band chosen the first time this ship fights. Not re-rolled. */
-  private standoffFamily: WeaponFamily | null = null;
+  private standoffFamily: KineticFamily | null = null;
 
   constructor(
     public x: number,
@@ -130,25 +135,29 @@ export class Pirate {
     amount: number,
     shieldMultiplier: number,
     retaliateAgainstPlayer = true,
-  ): void {
+    platingMultiplier = 1,
+  ): DefenseLayer {
+    let layer: DefenseLayer = "none";
     if (amount > 0) {
       const state = this.defenseState();
-      applyKineticHit(
+      layer = applyDefenseHit(
         state,
         amount,
         shieldMultiplier,
+        platingMultiplier,
         this.fit.shieldBreakDowntime,
       );
       this.writeDefense(state);
     }
     if (this.health <= this.retreatCore && this.health > 0) {
       this.mode = "retreat";
-      return;
+      return layer;
     }
-    if (!retaliateAgainstPlayer) return;
+    if (!retaliateAgainstPlayer) return layer;
     if (this.mode !== "retreat") {
       this.mode = "aggro";
     }
+    return layer;
   }
 
   /** Stand down after pack tribute (or while the fee window is open). */
@@ -249,7 +258,7 @@ export class Pirate {
   }
 
   /** First aggro picks the band. A one-weapon ship has nothing to vary. */
-  private standoff(): WeaponFamily {
+  private standoff(): KineticFamily {
     if (this.standoffFamily) return this.standoffFamily;
     this.standoffFamily = pickStandoffFamily(
       this.fit.weapons.map((weapon) => weapon.module.family),

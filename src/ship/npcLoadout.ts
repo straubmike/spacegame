@@ -122,10 +122,13 @@ function resolveFit(spec: FitSpec): ResolvedNpcFit {
     );
   }
 
-  const weapons = spec.weaponIds.map((id, slotIndex) => ({
-    module: mustWeapon(id),
-    slotIndex,
-  }));
+  const weapons = spec.weaponIds.map((id, slotIndex) => {
+    const module = mustWeapon(id);
+    if (module.family === "pulse" || module.family === "beam") {
+      throw new Error(`${spec.id} cannot fit energy weapon ${id}`);
+    }
+    return { module, slotIndex };
+  });
   const utilities = spec.utilityIds.map((id) => mustUtility(id));
   const drive = mustDrive(factoryDriveId(hull));
   const shields = utilities.filter((util) => util.shieldMax > 0);

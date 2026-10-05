@@ -1,6 +1,10 @@
 import { SHIP, COMBAT, DOCK, ECONOMY, WEAPONS } from "../game/config";
 import type { InputState } from "../input/Keyboard";
-import { applyKineticHit, tickShieldRegen } from "../ship/defense";
+import {
+  applyDefenseHit,
+  tickShieldRegen,
+  type DefenseLayer,
+} from "../ship/defense";
 import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
 import { Fleet, type OwnedShipSnapshot } from "../ship/Fleet";
@@ -27,16 +31,15 @@ export class Ship {
   shieldBreakRemaining = 0;
   /** Current hyperspace / supercruise fuel. */
   fuel = 0;
-  /**
-   * Current drive heat. Energy weapons write this.
-   * Stays 0 until that work lands — nothing here adds heat.
-   */
+  /** Current drive heat. Cannot rise past `heatSinkCapacity`. */
   heat = 0;
   /**
-   * Heat sink size. The HUD gauge stays hidden while this is 0.
-   * Stays 0 until energy-weapon drives set it.
+   * Equipped drive's heat sink. 0 means this drive has no sink.
+   * Kept in step with the drive so the HUD can read it directly.
    */
   heatSinkCapacity = 0;
+  /** Seconds since the last heat gain. Vent waits out the drive's delay. */
+  private sinceHeatGain = 0;
   /** Seconds since a hit that dealt shield, plating, or core damage. */
   private timeSinceDamage = Number.POSITIVE_INFINITY;
   credits: number = ECONOMY.startingCredits;
@@ -112,6 +115,41 @@ export class Ship {
    */
   jumpRange(): number {
     return this.loadout.drive?.maxJumpRange ?? 0;
+  }
+
+  /**
+   * True when heat is still under the sink.
+   * A full sink, or a drive with no sink, will not start an energy weapon
+   * or commit a jump.
+   */
+  hasHeatRoom(): boolean {
+    return this.heatSinkCapacity > 0 && this.heat < this.heatSinkCapacity - 1e-4;
+  }
+
+  /** Add heat, clamped to the sink. Resets the vent delay. */
+  addHeat(amount: number): void {
+    if (!(amount > 0)) return;
+    const sink = this.heatSinkCapacity;
+    if (sink <= 0) return;
+    this.heat = Math.min(sink, this.heat + amount);
+    this.sinceHeatGain = 0;
+  }
+
+  /**
+   * After `ventDelay` with no new heat, shed `ventRate` per second.
+   * The frame that crosses the delay only sheds the time past it.
+   */
+  tickHeat(dt: number): void {
+    const sink = this.heatSinkCapacity;
+    if (this.heat > sink) this.heat = Math.max(0, sink);
+    if (this.heat <= 0 || dt <= 0) return;
+    this.sinceHeatGain += dt;
+    const drive = this.loadout.drive;
+    if (!drive || drive.ventRate <= 0) return;
+    const past = this.sinceHeatGain - drive.ventDelay;
+    if (past <= 0) return;
+    const shedDt = past >= dt ? dt : past;
+    this.heat = Math.max(0, this.heat - drive.ventRate * shedDt);
   }
 
   /** Drive + hull + utility tank size. */
@@ -219,6 +257,8 @@ export class Ship {
     this.loadout = snap.loadout;
     this.cargo = snap.cargo;
     this.fuel = snap.fuel;
+    this.heat = 0;
+    this.sinceHeatGain = 0;
     this.syncDerivedStats({
       refillShield: opts.refillShield,
       previousMaxFuel: opts.fullHealth ? 0 : undefined,
@@ -293,6 +333,11 @@ export class Ship {
     } else {
       this.shield = Math.min(this.shield, shieldMax);
     }
+
+    this.heatSinkCapacity = this.loadout.drive?.heatSink ?? 0;
+    if (this.heat > this.heatSinkCapacity) {
+      this.heat = Math.max(0, this.heatSinkCapacity);
+    }
   }
 
   /** Place ship after hyperspace; clears velocity. Does not refill health/credits. */
@@ -341,17 +386,26 @@ export class Ship {
   }
 
   /**
-   * Kinetic damage. Shields first (scaled by `shieldMultiplier`, excess wiped
-   * on a break), then plating, then core.
-   * Callers pass the shot's own multiplier (gun 0, cannon 0.5, missile 0.25).
+   * Shields first (scaled by `shieldMultiplier`, excess wiped on a break),
+   * then plating (`platingMultiplier`, leftover spills), then core at 100%.
+   * Kinetics omit the plating fraction and take full plating damage.
+   * Returns the bank that took the hit. Beams bend only on `"plating"`.
    */
   takeDamage(
     amount: number,
     shieldMultiplier: number = WEAPONS.npcShieldMultiplier,
-  ): void {
+    platingMultiplier: number = 1,
+  ): DefenseLayer {
     const state = this.defenseBanks();
-    applyKineticHit(state, amount, shieldMultiplier, this.shieldBreakDowntime());
+    const layer = applyDefenseHit(
+      state,
+      amount,
+      shieldMultiplier,
+      platingMultiplier,
+      this.shieldBreakDowntime(),
+    );
     this.writeDefenseBanks(state);
+    return layer;
   }
 
   /**

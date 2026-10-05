@@ -1,4 +1,4 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, HEAT, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
@@ -13,7 +13,13 @@ import {
   type SystemStationRef,
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
-import { moduleStockLabel, swapCost, weaponSlotBindingForId, type EquipModule, type WeaponModule } from "../ship/equipment";
+import {
+  moduleStockLabel,
+  swapCost,
+  weaponSlotBindingForId,
+  type EquipModule,
+  type WeaponModule,
+} from "../ship/equipment";
 import {
   stationBayStock,
   stationBayWealth,
@@ -89,6 +95,10 @@ import {
   type PatrolPlayerLaw,
 } from "../entities/StationPatrol";
 import { Projectile, spawnPlayerShot } from "../entities/Projectile";
+import {
+  traceEnergyBeam,
+  type BeamSegment,
+} from "../entities/energyBeam";
 import { Camera } from "../world/Camera";
 import { Starfield } from "../world/Starfield";
 import { Renderer } from "../render/Renderer";
@@ -170,6 +180,17 @@ interface PackEncounter {
    * Starts in "comms" with demanded already true.
    */
   noFeeAggro?: boolean;
+}
+
+interface EnergyTarget {
+  id: string;
+  x: number;
+  y: number;
+  heading: number;
+  radius: number;
+  kind: "pack" | "distress" | "bait" | "patrol";
+  pirate: Pirate | null;
+  patrol: StationPatrol | null;
 }
 
 export class Game {
@@ -312,6 +333,20 @@ export class Game {
   /** Gun time-on-target, keyed by slot id + target id. */
   private gunStreams = new Map<string, { accumulated: number; lastHit: number }>();
   private combatClock = 0;
+  /** Pulse lines still fading out. Beams live in `heldEnergy` while held. */
+  private energyFlashes: { segments: BeamSegment[]; wide: boolean; ttl: number }[] =
+    [];
+  private heldEnergy: { segments: BeamSegment[]; wide: boolean }[] = [];
+  /** Weapon slots whose beam is currently held. */
+  private beamingSlots = new Set<string>();
+  /**
+   * Beam chunk timer, keyed by slot id + target id.
+   * Same 0.25s break as a gun stream. A shorter gap keeps the clock.
+   */
+  private beamContact = new Map<
+    string,
+    { accumulated: number; lastHit: number }
+  >();
   private dock: DockState = { kind: "free" };
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
@@ -504,6 +539,10 @@ export class Game {
     this.weaponHoldArmed.clear();
     this.gunStreams.clear();
     this.combatClock = 0;
+    this.energyFlashes = [];
+    this.heldEnergy = [];
+    this.beamingSlots.clear();
+    this.beamContact.clear();
     this.scoopProgress = 0;
     this.poiScanProgress = 0;
     this.pirates = [];
@@ -2322,6 +2361,8 @@ export class Game {
 
     this.messages.update(dt);
     this.ship.tickDefense(dt);
+    this.ship.tickHeat(dt);
+    this.tickEnergyFlashes(dt);
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.
     const wheel = this.pointer.consumeWheel();
@@ -2340,6 +2381,7 @@ export class Game {
     }
 
     if (this.fadePhase !== "idle") {
+      this.releaseEnergyBeams();
       this.updateFade(dt);
       return;
     }
@@ -2349,6 +2391,7 @@ export class Game {
     this.tickDistressInbound(dt);
 
     if (this.fuelWarnTravel) {
+      this.releaseEnergyBeams();
       if (this.keyboard.consume("Escape")) {
         this.fuelWarnTravel = null;
         this.messages.push("Jump cancelled — not enough fuel for a return trip.");
@@ -2437,26 +2480,31 @@ export class Game {
     }
 
     if (this.chartOpen) {
+      this.releaseEnergyBeams();
       this.updateGalaxyMenu();
       return;
     }
 
     if (this.panelOpen) {
+      this.releaseEnergyBeams();
       this.updateSystemMenu();
       return;
     }
 
     if (this.shipMenuOpen) {
+      this.releaseEnergyBeams();
       this.updateShipMenu();
       return;
     }
 
     if (this.marketMenuOpen) {
+      this.releaseEnergyBeams();
       this.updateMarketMenu();
       return;
     }
 
     if (this.missionBoardOpen) {
+      this.releaseEnergyBeams();
       this.updateMissionBoard();
       const pose = this.ship.sample(1);
       this.camera.follow(pose.x, pose.y);
@@ -2464,6 +2512,7 @@ export class Game {
     }
 
     if (this.hangarMenuOpen) {
+      this.releaseEnergyBeams();
       this.updateHangarMenu();
       const pose = this.ship.sample(1);
       this.camera.follow(pose.x, pose.y);
@@ -2471,6 +2520,7 @@ export class Game {
     }
 
     if (this.dock.kind === "docked") {
+      this.releaseEnergyBeams();
       this.updateDockedMenu();
       const pose = this.ship.sample(1);
       this.camera.follow(pose.x, pose.y);
@@ -3019,6 +3069,7 @@ export class Game {
     this.ship.x = station.x;
     this.ship.y = station.y;
     this.projectiles = [];
+    this.releaseEnergyBeams();
     this.redeemPendingKills(station.name);
     this.redeemCartographerVisits(station.name);
     this.tryCompleteCargoDelivery(station);
@@ -3765,10 +3816,298 @@ export class Game {
     };
   }
 
+  private tickEnergyFlashes(dt: number): void {
+    for (const flash of this.energyFlashes) flash.ttl -= dt;
+    if (this.energyFlashes.length === 0) return;
+    this.energyFlashes = this.energyFlashes.filter((flash) => flash.ttl > 0);
+  }
+
+  private energyDrawList(): { segments: BeamSegment[]; wide: boolean }[] {
+    return [
+      ...this.heldEnergy,
+      ...this.energyFlashes.map((flash) => ({
+        segments: flash.segments,
+        wide: flash.wide,
+      })),
+    ];
+  }
+
+  /** Drop a held beam and start its restart cooldown. Safe to call every frame. */
+  private releaseEnergyBeams(): void {
+    if (this.beamingSlots.size === 0) {
+      this.heldEnergy = [];
+      return;
+    }
+    const slots = this.ship.loadout.slotsOfKind("weapon");
+    for (const slot of slots) {
+      if (!this.beamingSlots.has(slot.id)) continue;
+      const weapon = slot.equipped;
+      const cd = weapon && weapon.kind === "weapon" ? weapon.fireCooldown : 0;
+      this.stopBeam(slot.id, cd);
+    }
+    this.beamingSlots.clear();
+    this.heldEnergy = [];
+  }
+
+  private stopBeam(slotId: string, cooldown: number): void {
+    this.beamingSlots.delete(slotId);
+    this.weaponCooldowns.set(slotId, cooldown);
+  }
+
+  private updateBeams(dt: number): void {
+    this.heldEnergy = [];
+    if (this.dock.kind !== "free" || !this.ship.alive) {
+      this.releaseEnergyBeams();
+      return;
+    }
+    const slots = this.ship.loadout.slotsOfKind("weapon");
+    for (let i = 0; i < slots.length; i += 1) {
+      const slot = slots[i]!;
+      const weapon = slot.equipped;
+      if (!weapon || weapon.kind !== "weapon" || weapon.family !== "beam") {
+        if (this.beamingSlots.has(slot.id)) this.stopBeam(slot.id, 0);
+        continue;
+      }
+      const held = this.weaponTriggerHeld(i);
+      const active = this.beamingSlots.has(slot.id);
+      if (!held) {
+        if (active) this.stopBeam(slot.id, weapon.fireCooldown);
+        continue;
+      }
+      if (!active) {
+        if ((this.weaponCooldowns.get(slot.id) ?? 0) > 0) continue;
+        if (!this.ship.hasHeatRoom()) continue;
+        this.ship.addHeat(weapon.heatCost ?? 0);
+        this.beamingSlots.add(slot.id);
+      }
+      this.heldEnergy.push({
+        segments: this.fireBeam(slot.id, weapon),
+        wide: true,
+      });
+      if (this.ship.hasHeatRoom()) {
+        this.ship.addHeat((weapon.heatPerSecond ?? 0) * dt);
+      }
+      if (!this.ship.hasHeatRoom()) this.stopBeam(slot.id, weapon.fireCooldown);
+    }
+  }
+
+  private firePulse(weapon: WeaponModule): void {
+    const targets = this.collectEnergyTargets();
+    const segments = traceEnergyBeam({
+      x: this.ship.x,
+      y: this.ship.y,
+      heading: this.ship.heading,
+      range: weapon.range ?? 0,
+      halfWidth: 0,
+      falloff: 1,
+      targets,
+      stopAtFirst: true,
+      onHit: (hit) => {
+        const target = targets.find((entry) => entry.id === hit.id);
+        if (target) this.applyEnergyHit(target, weapon.damage * hit.falloff, weapon);
+        return { deflect: false, nose: 0 };
+      },
+    });
+    this.energyFlashes.push({
+      segments,
+      wide: false,
+      ttl: WEAPONS.pulse.flashSeconds,
+    });
+  }
+
+  private fireBeam(slotId: string, weapon: WeaponModule): BeamSegment[] {
+    const targets = this.collectEnergyTargets();
+    const seen = new Set<string>();
+    const segments = traceEnergyBeam({
+      x: this.ship.x,
+      y: this.ship.y,
+      heading: this.ship.heading,
+      range: weapon.range ?? WEAPONS.beam.range,
+      halfWidth: WEAPONS.beam.halfWidth,
+      falloff: WEAPONS.beam.falloff,
+      targets,
+      stopAtFirst: false,
+      onHit: (hit) => {
+        const target = targets.find((entry) => entry.id === hit.id);
+        if (!target) return { deflect: false, nose: 0 };
+        const listed = this.beamListedDamage(
+          slotId,
+          hit.id,
+          weapon,
+          hit.falloff,
+          seen,
+        );
+        const deflect =
+          listed > 0
+            ? this.applyEnergyHit(target, listed, weapon)
+            : this.energyWouldBend(target);
+        return { deflect, nose: target.heading };
+      },
+    });
+    const prefix = `${slotId}:`;
+    const now = this.combatClock;
+    for (const key of [...this.beamContact.keys()]) {
+      if (!key.startsWith(prefix) || seen.has(key)) continue;
+      const prev = this.beamContact.get(key);
+      if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
+        this.beamContact.delete(key);
+      }
+    }
+    return segments;
+  }
+
+  /**
+   * Impact on a fresh contact, then chunk damage while the beam stays on
+   * that hull. The chunk interval is the gun time-on-target for this mark.
+   * A gap longer than the gun stream break resets the timer, and the next
+   * touch is impact again. A shorter gap keeps the chunk clock and does
+   * not pay impact a second time. The impact frame does not count toward
+   * the chunk timer. Guns still have no separate first hit.
+   */
+  private beamListedDamage(
+    slotId: string,
+    targetId: string,
+    weapon: WeaponModule,
+    falloff: number,
+    seen: Set<string>,
+  ): number {
+    const key = `${slotId}:${targetId}`;
+    seen.add(key);
+    const now = this.combatClock;
+    const prev = this.beamContact.get(key);
+    if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
+      this.beamContact.set(key, { accumulated: 0, lastHit: now });
+      return weapon.damage * falloff;
+    }
+    const interval = weapon.timeOnTarget;
+    if (interval <= 0) {
+      this.beamContact.set(key, { accumulated: 0, lastHit: now });
+      return 0;
+    }
+    let accumulated = prev.accumulated + (now - prev.lastHit);
+    let chunks = 0;
+    while (accumulated + 1e-6 >= interval) {
+      accumulated -= interval;
+      chunks += 1;
+    }
+    this.beamContact.set(key, {
+      accumulated: Math.max(0, accumulated),
+      lastHit: now,
+    });
+    return chunks * (weapon.chunkDamage ?? 0) * falloff;
+  }
+
+  private collectEnergyTargets(): EnergyTarget[] {
+    const list: EnergyTarget[] = [];
+    const pushPirate = (pirate: Pirate, kind: EnergyTarget["kind"]) => {
+      if (!pirate.alive) return;
+      list.push({
+        id: pirate.id,
+        x: pirate.x,
+        y: pirate.y,
+        heading: pirate.heading,
+        radius: pirate.radius,
+        kind,
+        pirate,
+        patrol: null,
+      });
+    };
+    for (const pirate of this.pirates) pushPirate(pirate, "pack");
+    for (const pirate of this.distressPirates) pushPirate(pirate, "distress");
+    if (this.baitPirate) pushPirate(this.baitPirate, "bait");
+    for (const patrol of this.patrols) {
+      if (!patrol.alive) continue;
+      list.push({
+        id: patrol.id,
+        x: patrol.x,
+        y: patrol.y,
+        heading: patrol.heading,
+        radius: patrol.radius,
+        kind: "patrol",
+        pirate: null,
+        patrol,
+      });
+    }
+    return list;
+  }
+
+  /** Shields down and plating still up — a beam hit on this hull would bend. */
+  private energyWouldBend(target: EnergyTarget): boolean {
+    if (target.pirate) {
+      return target.pirate.shield <= 0 && target.pirate.plating > 0;
+    }
+    if (target.patrol) {
+      return target.patrol.shield <= 0 && target.patrol.plating > 0;
+    }
+    return false;
+  }
+
+  /**
+   * Apply one energy hit and the same blame as a player projectile.
+   * Returns true when the hit landed on hull plating (the beam bends).
+   */
+  private applyEnergyHit(
+    target: EnergyTarget,
+    amount: number,
+    weapon: WeaponModule,
+  ): boolean {
+    if (amount <= 0) return false;
+    const plating = weapon.platingMultiplier ?? 1;
+    if (target.pirate) {
+      const layer = target.pirate.takeDamage(
+        amount,
+        weapon.shieldMultiplier,
+        true,
+        plating,
+      );
+      if (target.kind === "pack" && this.pack) this.makePackHostile();
+      if (
+        target.kind === "distress" &&
+        this.distressPack &&
+        this.distressPack.phase === "comms"
+      ) {
+        this.distressPack.phase = "hostile";
+        this.distressPack.timer = 0;
+        for (const ship of this.distressPirates) {
+          if (ship.alive) ship.goAggro();
+        }
+      }
+      if (
+        target.kind === "bait" &&
+        this.baitPack &&
+        this.baitPack.phase === "comms"
+      ) {
+        this.baitPack.phase = "hostile";
+        this.baitPack.timer = 0;
+        target.pirate.goAggro();
+      }
+      return layer === "plating";
+    }
+    if (target.patrol) {
+      const layer = target.patrol.takeDamage(
+        amount,
+        weapon.shieldMultiplier,
+        plating,
+      );
+      if (!target.patrol.defending) {
+        this.forceStationHostile(
+          target.patrol.stationKey,
+          target.patrol.stationName,
+          `${target.patrol.stationName} patrol: Under attack — you are now Hostile.`,
+        );
+      }
+      target.patrol.markDefending();
+      this.patrolMenu.hide();
+      return layer === "plating";
+    }
+    return false;
+  }
+
   /**
    * Each weapon slot listens to its own input.
    * 0 Space, 1 left click, 2 right click.
    * Holding one input does not fire the other slots.
+   * Beams are held in `updateBeams` — this path is shots and pulses.
    */
   private firePlayerWeapons(): void {
     if (this.dock.kind !== "free" || !this.ship.alive) return;
@@ -3778,6 +4117,7 @@ export class Game {
       const slot = slots[i]!;
       const weapon = slot.equipped;
       if (!weapon || weapon.kind !== "weapon") continue;
+      if (weapon.family === "beam") continue;
       if ((this.weaponCooldowns.get(slot.id) ?? 0) > 0) continue;
       if (!this.ship.loadout.canFireSlot(slot.id)) continue;
       this.fireWeaponSlot(slot.id, weapon);
@@ -3915,7 +4255,11 @@ export class Game {
         }),
       );
       this.ship.loadout.consumeSlotAmmo(slotId, 1);
-    } else {
+    } else if (weapon.family === "pulse") {
+      if (!this.ship.hasHeatRoom()) return;
+      this.ship.addHeat(weapon.heatCost ?? 0);
+      this.firePulse(weapon);
+    } else if (weapon.family === "missile") {
       const lock = this.missileAimPoint();
       this.projectiles.push(
         spawnPlayerShot(this.ship.x, this.ship.y, this.ship.heading, muzzle, {
@@ -4049,6 +4393,7 @@ export class Game {
     this.latchWeaponHolds();
     this.updatePirateIntrusion(dt);
     this.firePlayerWeapons();
+    this.updateBeams(dt);
 
     const pirateShots: Projectile[] = [];
     const justDemanded = this.updatePackEncounter(dt);
@@ -4410,6 +4755,7 @@ export class Game {
       this.pointer.y,
       jumpRange,
       hints,
+      !this.ship.hasHeatRoom(),
     );
     if (result === "close") {
       this.chartOpen = false;
@@ -4457,8 +4803,9 @@ export class Game {
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     const discount = this.reputation.bayDiscountFraction(key);
+    const stock = stationBayStock(key, context);
     this.shipMenu.openBay(
-      stationBayStock(key, context),
+      stock,
       stationBayWealth(key, context),
       discount,
       this.reputationListingForUi(),
@@ -5102,6 +5449,8 @@ export class Game {
       return;
     }
 
+    if (travel.kind === "galaxy" && !this.ship.hasHeatRoom()) return;
+
     // Warn if the same trip back would be impossible after this burn.
     if (!skipReturnWarn && this.ship.fuel - cost < cost) {
       this.fuelWarnTravel = travel;
@@ -5111,6 +5460,7 @@ export class Game {
     }
 
     if (!this.ship.consumeFuel(cost)) return;
+    if (travel.kind === "galaxy") this.ship.addHeat(HEAT.jump);
 
     this.fuelWarnTravel = null;
     this.pending = travel;
@@ -5220,6 +5570,7 @@ export class Game {
       patrols: this.patrols,
       missileLock: this.missileReticle(),
       projectiles: this.projectiles,
+      energyBeams: this.energyDrawList(),
       alpha,
       thrusting:
         !this.menuOpen() &&
