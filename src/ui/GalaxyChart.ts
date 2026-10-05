@@ -212,8 +212,7 @@ export class GalaxyChart {
             ? `  ·  ${fuelInfo.costForSelected} fuel`
             : "";
         const rangeBit = inJumpRange ? "" : "  ·  out of range";
-        const heatBit = inJumpRange && heatFull ? "  ·  heat" : "";
-        status = `  ${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${rangeBit}${heatBit}${questTag}`;
+        status = `  ${sel.name}  ·  ${dist.toFixed(1)} ly${fuelBit}${rangeBit}${questTag}`;
         ctx.fillStyle = "rgba(180, 200, 230, 0.9)";
         ctx.fillText(status, statusX, statusY);
 

@@ -5467,10 +5467,7 @@ export class Game {
       return;
     }
 
-    if (travel.kind === "galaxy" && !this.ship.hasHeatRoom()) {
-      this.messages.push("Heat: Sink is full — jump will not commit.");
-      return;
-    }
+    if (travel.kind === "galaxy" && !this.ship.hasHeatRoom()) return;
 
     // Warn if the same trip back would be impossible after this burn.
     if (!skipReturnWarn && this.ship.fuel - cost < cost) {
