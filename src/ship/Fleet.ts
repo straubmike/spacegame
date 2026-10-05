@@ -1,6 +1,5 @@
 import { ShipLoadout } from "./Loadout";
 import { CargoHold } from "./CargoHold";
-import { cloneModule, MODULES } from "./equipment";
 import {
   STARTER_HULL_ID,
   createSlotsForHull,
@@ -82,15 +81,6 @@ export class Fleet {
     const starter = hullById(STARTER_HULL_ID);
     if (!starter) throw new Error("Missing starter hull");
     const ship = freshOwned(starter);
-    // TEMP(energy): starter weapon slot is Energy Pulse Mk I.
-    // Hull defaults stay Gun Mk I, and the bay still stocks that gun,
-    // so the original starter weapon can be fitted again.
-    // Strip this block before merge.
-    const starterWeapon = ship.loadout.slots.find((slot) => slot.kind === "weapon");
-    if (starterWeapon) {
-      starterWeapon.equipped = cloneModule(MODULES.pulseMk1);
-      ship.loadout.refillConsumables();
-    }
     this.owned.push(ship);
     this.activeInstanceId = ship.instanceId;
   }

@@ -14,8 +14,6 @@ import {
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
 import {
-  cloneModule,
-  MODULES,
   moduleStockLabel,
   swapCost,
   weaponSlotBindingForId,
@@ -349,11 +347,6 @@ export class Game {
     string,
     { accumulated: number; lastHit: number }
   >();
-  /**
-   * TEMP(energy): the free Energy Beam Mk I in the starting station bay
-   * has already been taken. Strip this flag before merge.
-   */
-  private tempEnergyBeamClaimed = false;
   private dock: DockState = { kind: "free" };
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
@@ -449,7 +442,6 @@ export class Game {
     this.dockMarket = null;
     this.dockBlackMarket = null;
 
-    this.tempEnergyBeamClaimed = false;
     this.ship.resetForNewRun();
     this.shipMenu.selectedIndex = 0;
     this.shipMenu.openView();
@@ -4811,21 +4803,7 @@ export class Game {
     this.hangarMenuOpen = false;
     this.hangarMenu.hide();
     const discount = this.reputation.bayDiscountFraction(key);
-    let stock = stationBayStock(key, context);
-    // TEMP(energy): Energy Beam Mk I is free once in the starting station bay
-    // (the station on the star the new game spawns beside).
-    // Gun Mk I stays in the normal stock so it can be fitted again.
-    // Strip this block before merge.
-    if (
-      this.local.poiId === GALAXY.startPoiId &&
-      this.local.bodyId === 0 &&
-      !this.tempEnergyBeamClaimed
-    ) {
-      stock = stock.filter((mod) => mod.id !== MODULES.beamMk1.id);
-      const free = cloneModule(MODULES.beamMk1);
-      free.price = 0;
-      stock.push(free);
-    }
+    const stock = stationBayStock(key, context);
     this.shipMenu.openBay(
       stock,
       stationBayWealth(key, context),
@@ -5205,16 +5183,8 @@ export class Game {
       }
     }
 
-    // TEMP(energy): starting-bay beam is free once. The fitted copy keeps list price.
-    const tempFreeBeam =
-      module.id === MODULES.beamMk1.id &&
-      module.price === 0 &&
-      !this.tempEnergyBeamClaimed;
-    const priced = tempFreeBeam ? cloneModule(MODULES.beamMk1) : module;
-    const baseCost = tempFreeBeam ? 0 : swapCost(slot.equipped, priced);
-    const cost = tempFreeBeam
-      ? 0
-      : applyBayDiscount(baseCost, this.shipMenu.bayDiscount);
+    const baseCost = swapCost(slot.equipped, module);
+    const cost = applyBayDiscount(baseCost, this.shipMenu.bayDiscount);
     if (!this.ship.spendCredits(cost)) {
       this.messages.push(
         `Bay: Need ${cost} cr to install ${module.name}.`,
@@ -5226,11 +5196,7 @@ export class Game {
     const previous = slot.equipped ? moduleStockLabel(slot.equipped) : "empty";
     const previousMaxPlating = this.ship.maxPlating;
     const previousMaxFuel = this.ship.maxFuel;
-    this.ship.loadout.equip(slot.id, priced);
-    if (tempFreeBeam) {
-      this.tempEnergyBeamClaimed = true;
-      module.price = MODULES.beamMk1.price;
-    }
+    this.ship.loadout.equip(slot.id, module);
     if (slot.kind === "utility" || slot.kind === "drive") {
       this.ship.syncDerivedStats({
         refillShield: slot.kind === "utility",
@@ -5238,7 +5204,7 @@ export class Game {
         previousMaxFuel,
       });
     }
-    const fitted = moduleStockLabel(priced);
+    const fitted = moduleStockLabel(module);
     const discNote =
       this.shipMenu.bayDiscount > 0 && cost < baseCost
         ? ` (rep −${Math.round(this.shipMenu.bayDiscount * 100)}%)`
