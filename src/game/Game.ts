@@ -1,10 +1,11 @@
-import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS, type PirateTierId } from "./config";
+import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
 import { Loop } from "./Loop";
 import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
 import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
+  heatPirateFits,
   listSystemPirateKeys,
   pickQuestGiverStation,
   pirateViewKey,
@@ -55,6 +56,13 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
+  patrolFitForStation,
+  pirateFitById,
+  pirateRecipeFits,
+  rollDistressDifficulty,
+  rollPassengerDifficulty,
+} from "../ship/npcLoadout";
+import {
   ChartCatalog,
   stationMenuLettersForPoi,
 } from "../ship/chartCatalog";
@@ -66,8 +74,6 @@ import {
 } from "../ship/fuel";
 import {
   distressPiratePlan,
-  rollDistressPirateCount,
-  rollDistressPirateTier,
   rollDistressWantsPirates,
 } from "../ship/distressOdds";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
@@ -75,6 +81,7 @@ import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
 import { Ship } from "../entities/Ship";
 import { Pirate } from "../entities/Pirate";
+import { PLAYER_LOCK_ID } from "../entities/npcVolley";
 import { FuelRat } from "../entities/FuelRat";
 import { strandedRadioLine, StrandedPilot } from "../entities/StrandedPilot";
 import {
@@ -524,7 +531,14 @@ export class Game {
         const encounter = this.local.pirate;
         for (const ship of encounter.ships) {
           this.pirates.push(
-            new Pirate(ship.x, ship.y, ship.heading, ship.tier, encounter.fee),
+            new Pirate(
+              ship.x,
+              ship.y,
+              ship.heading,
+              pirateFitById(ship.fitId),
+              ship.difficulty,
+              encounter.fee,
+            ),
           );
         }
         this.pack = {
@@ -584,6 +598,9 @@ export class Game {
         ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) * Math.PI) /
         180;
       const dist = PATROL.spawnDistance;
+      const fit = patrolFitForStation(
+        hash2(GALAXY.seed ^ 0x57a1, hashStationKey(key)),
+      );
       this.patrols.push(
         new StationPatrol(
           station.x + Math.cos(angle) * dist,
@@ -594,6 +611,7 @@ export class Game {
           key,
           station.x,
           station.y,
+          fit,
         ),
       );
     }
@@ -3509,7 +3527,14 @@ export class Game {
     const heading = ang + Math.PI;
 
     if (mission.distressOutcome === "bait") {
-      this.baitPirate = new Pirate(x, y, heading, "raider", 0);
+      const bait = heatPirateFits(
+        this.galaxy,
+        this.local.poiId,
+        Math.random,
+        true,
+      );
+      const fit = bait.fits[0]!;
+      this.baitPirate = new Pirate(x, y, heading, fit, bait.difficulty, 0);
       this.baitPirate.setPeaceful();
       this.baitPack = {
         phase: "comms",
@@ -3609,10 +3634,11 @@ export class Game {
     this.spawnPirateIntrusion();
   }
 
-  /** Drop a lone scout (rarely a pair) into the current local view near the player. */
+  /** Drop a difficulty pack for this system into the current local view. */
   private spawnPirateIntrusion(): void {
-    const dual = Math.random() < ENCOUNTERS.intrusion.dualChance;
-    const count = dual ? 2 : 1;
+    const intrusion = heatPirateFits(this.galaxy, this.local.poiId, Math.random);
+    const fits = intrusion.fits;
+    const count = fits.length;
     const fee = ENCOUNTERS.feeByTemplate.scout;
     const angle = Math.random() * Math.PI * 2;
     const dist =
@@ -3625,14 +3651,15 @@ export class Game {
       const offset =
         count === 1
           ? 0
-          : (i === 0 ? -1 : 1) * ENCOUNTERS.formationRadius * 0.5;
+          : ((i / count) * 2 - 1) * ENCOUNTERS.formationRadius * 0.5;
       const heading = Math.atan2(this.ship.y - anchorY, this.ship.x - anchorX);
       this.pirates.push(
         new Pirate(
           anchorX + Math.cos(heading + Math.PI / 2) * offset,
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
-          "scout",
+          fits[i]!,
+          intrusion.difficulty,
           fee,
         ),
       );
@@ -3647,18 +3674,19 @@ export class Game {
     };
     this.messages.push(
       count > 1
-        ? "Pirate scouts drop out of the black — unexpected visitors."
-        : "A pirate scout drops out of the black — unexpected visitor.",
+        ? "Pirates drop out of the black — unexpected visitors."
+        : "A pirate drops out of the black — unexpected visitor.",
       "pirate",
     );
   }
 
   /**
    * Passenger-fare jump intercept — taunt then aggro, no fee demand.
-   * Group size / tier scales with passengers aboard.
+   * Difficulty scales with passengers aboard, with overlap.
    */
   private spawnPassengerIntercept(passengers: number): void {
-    const tiers = passengerInterceptTiers(passengers);
+    const difficulty = rollPassengerDifficulty(passengers, Math.random);
+    const tiers = pirateRecipeFits(difficulty, Math.random);
     const angle = Math.random() * Math.PI * 2;
     const dist =
       COMBAT.pirateSpawnMin +
@@ -3679,6 +3707,7 @@ export class Game {
           anchorY + Math.sin(heading + Math.PI / 2) * offset,
           heading,
           tiers[i]!,
+          difficulty,
           0,
         ),
       );
@@ -3876,6 +3905,9 @@ export class Game {
   }
 
   private lockPoint(id: string): { x: number; y: number } | null {
+    if (id === PLAYER_LOCK_ID && this.ship.alive) {
+      return { x: this.ship.x, y: this.ship.y };
+    }
     for (const target of this.lockableTargets()) {
       if (target.id === id && target.alive) return target;
     }
@@ -3960,6 +3992,7 @@ export class Game {
         this.ship.y,
         pirateShots,
         hostile === true,
+        PLAYER_LOCK_ID,
       );
     }
     const distressHostile = this.distressPack?.phase === "hostile";
@@ -3970,6 +4003,7 @@ export class Game {
         this.ship.y,
         pirateShots,
         distressHostile === true,
+        PLAYER_LOCK_ID,
       );
     }
     if (this.baitPirate?.alive) {
@@ -3979,6 +4013,7 @@ export class Game {
         this.ship.y,
         pirateShots,
         this.baitPack?.phase === "hostile",
+        PLAYER_LOCK_ID,
       );
     }
     if (pirateShots.length > 0) {
@@ -4045,9 +4080,17 @@ export class Game {
 
       if (p.hostile) {
         if (this.ship.alive) {
-          const dist = Math.hypot(p.x - this.ship.x, p.y - this.ship.y);
-          if (dist <= COMBAT.playerHitRadius + p.radius) {
-            this.ship.takeDamage(p.damage, p.shieldMultiplier);
+          const impact = this.shotImpact(p, {
+            id: PLAYER_LOCK_ID,
+            x: this.ship.x,
+            y: this.ship.y,
+            radius: COMBAT.playerHitRadius,
+            alive: true,
+          });
+          if (impact) {
+            if (impact.amount > 0) {
+              this.ship.takeDamage(impact.amount, impact.shieldMultiplier);
+            }
             this.projectiles.splice(i, 1);
           }
         }
@@ -4062,7 +4105,7 @@ export class Game {
       for (const pirate of this.pirates) {
         const impact = this.shotImpact(p, pirate);
         if (!impact) continue;
-        pirate.takeDamage(impact.amount, retaliate);
+        pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
         // Sneak attack, or fire after tribute — one pack fight.
         if (fromPlayer && this.pack) {
           this.makePackHostile();
@@ -4074,7 +4117,7 @@ export class Game {
         for (const pirate of this.distressPirates) {
           const impact = this.shotImpact(p, pirate);
           if (!impact) continue;
-          pirate.takeDamage(impact.amount, retaliate);
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
           if (
             fromPlayer &&
             this.distressPack &&
@@ -4094,7 +4137,7 @@ export class Game {
         const pirate = this.baitPirate;
         const impact = this.shotImpact(p, pirate);
         if (impact) {
-          pirate.takeDamage(impact.amount, retaliate);
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
           if (fromPlayer && this.baitPack && this.baitPack.phase === "comms") {
             this.baitPack.phase = "hostile";
             this.baitPack.timer = 0;
@@ -4107,7 +4150,9 @@ export class Game {
         for (const patrol of this.patrols) {
           const impact = this.shotImpact(p, patrol);
           if (!impact) continue;
-          if (impact.amount > 0) patrol.takeDamage(impact.amount);
+          if (impact.amount > 0) {
+            patrol.takeDamage(impact.amount, impact.shieldMultiplier);
+          }
           // First hit only — under-attack / Hostile comms once per combat.
           if (!patrol.defending) {
             this.forceStationHostile(
@@ -4788,7 +4833,9 @@ export class Game {
 
   private spawnDistressPirates(): void {
     const plan = distressPiratePlan(this.reputation.fuelRatsRep());
-    const n = rollDistressPirateCount(plan);
+    const difficulty = rollDistressDifficulty(plan.tierWeights, Math.random);
+    const fits = pirateRecipeFits(difficulty, Math.random);
+    const n = fits.length;
     const fee = plan.fee;
     const angle0 = Math.random() * Math.PI * 2;
     this.distressPirates = [];
@@ -4797,13 +4844,13 @@ export class Game {
       const dist =
         FUEL.distressSpawnMin +
         Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
-      const tier = rollDistressPirateTier(plan);
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
-          tier,
+          fits[i]!,
+          difficulty,
           fee,
         ),
       );
@@ -4817,7 +4864,7 @@ export class Game {
     };
     this.messages.push(
       n > 1
-        ? `Pirate pack: Easy pickings — ${n} raiders on your beacon.`
+        ? `Pirate pack: Easy pickings — ${n} ships on your beacon.`
         : "Pirate: Heard your whimper. Stay put.",
       "pirate",
     );
@@ -5098,18 +5145,3 @@ export class Game {
   }
 }
 
-/**
- * Pirate hulls for a passenger-fare jump intercept.
- * Larger parties draw tougher / bigger packs.
- */
-function passengerInterceptTiers(passengers: number): PirateTierId[] {
-  if (passengers <= 1) return ["scout"];
-  if (passengers === 2) {
-    return Math.random() < 0.55 ? ["raider"] : ["scout", "scout"];
-  }
-  if (passengers === 3) return ["raider", "scout"];
-  // 4+
-  return Math.random() < 0.5
-    ? ["gunship", "scout"]
-    : ["raider", "raider", "scout"];
-}

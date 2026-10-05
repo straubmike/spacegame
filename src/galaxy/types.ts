@@ -65,9 +65,6 @@ export interface Landmark {
   radius: number;
 }
 
-/** Hull tier for a seeded pirate ship. */
-export type PirateTier = "scout" | "raider" | "gunship" | "corsair";
-
 /** Encounter shape chosen by heat / wealth (Must-have 4). */
 export type EncounterTemplate =
   | "scout"
@@ -81,7 +78,10 @@ export interface PirateShipSpawn {
   x: number;
   y: number;
   heading: number;
-  tier: PirateTier;
+  /** Pirate fit id from the difficulty ladder. */
+  fitId: string;
+  /** Pack difficulty. Same on every ship in the encounter. */
+  difficulty: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 }
 
 /**

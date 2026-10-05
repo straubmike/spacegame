@@ -8,11 +8,16 @@ import { generateSystemBlueprint } from "./generateLocal";
 import { patrolWouldSpawn } from "./patrolSpawn";
 import { hash2, mulberry32 } from "./rng";
 import type { Galaxy } from "./Galaxy";
+import {
+  pirateRecipeFits,
+  rollHeatDifficulty,
+  type PirateDifficulty,
+  type ResolvedNpcFit,
+} from "../ship/npcLoadout";
 import type {
   EncounterTemplate,
   PirateEncounter,
   PirateShipSpawn,
-  PirateTier,
 } from "./types";
 
 /** Stable key for a local view's pirate encounter slot. */
@@ -116,64 +121,45 @@ function offsetFrom(
   };
 }
 
-function pickTier(
-  rng: () => number,
-  template: EncounterTemplate,
-  band: HeatBandId,
-): PirateTier[] {
-  switch (template) {
-    case "scout":
-      return ["scout"];
-    case "patrol":
-      return [band === "far" && rng() < 0.35 ? "gunship" : "raider"];
-    case "wing": {
-      const n = band === "far" ? (rng() < 0.45 ? 3 : 2) : 2;
-      const tiers: PirateTier[] = [];
-      for (let i = 0; i < n; i += 1) {
-        if (i === 0 && band !== "near" && rng() < 0.4) {
-          tiers.push("raider");
-        } else {
-          tiers.push(rng() < 0.65 ? "scout" : "raider");
-        }
-      }
-      return tiers;
-    }
-    case "ambush": {
-      const lead: PirateTier =
-        band === "far" && rng() < 0.4 ? "gunship" : "raider";
-      const wing: PirateTier = rng() < 0.55 ? "scout" : "raider";
-      return [lead, wing];
-    }
-    case "heat": {
-      if (band === "far" && rng() < 0.45) {
-        // Elite corsair + optional scout wingman
-        return rng() < 0.55 ? ["corsair", "scout"] : ["corsair"];
-      }
-      const escortCount = band === "near" ? 0 : rng() < 0.55 ? 2 : 1;
-      const tiers: PirateTier[] = ["gunship"];
-      for (let i = 0; i < escortCount; i += 1) {
-        tiers.push(rng() < 0.5 ? "scout" : "raider");
-      }
-      return tiers;
-    }
-  }
-}
-
 function buildShips(
   rng: () => number,
   template: EncounterTemplate,
-  tiers: PirateTier[],
+  difficulty: PirateDifficulty,
+  fits: readonly ResolvedNpcFit[],
 ): PirateShipSpawn[] {
   const anchor = placeAnchor(rng, template);
-  return tiers.map((tier, i) => {
-    const pos = offsetFrom(anchor, rng, i, tiers.length);
+  return fits.map((fit, i) => {
+    const pos = offsetFrom(anchor, rng, i, fits.length);
     return {
       x: pos.x,
       y: pos.y,
       heading: randomHeading(rng),
-      tier,
+      fitId: fit.id,
+      difficulty,
     };
   });
+}
+
+export type HeatPiratePack = {
+  difficulty: PirateDifficulty;
+  fits: ResolvedNpcFit[];
+};
+
+/**
+ * Difficulty pack for a system's chart distance. Wealthy systems (not near
+ * the start) use the next overlapping band. `solo` keeps mission bait to
+ * one ship from that difficulty.
+ */
+export function heatPirateFits(
+  galaxy: Galaxy,
+  poiId: number,
+  rng: () => number,
+  solo = false,
+): HeatPiratePack {
+  const band = heatBandForPoi(galaxy, poiId);
+  const wealthy = isWealthySystem(galaxy, poiId);
+  const difficulty = rollHeatDifficulty(band, wealthy, rng);
+  return { difficulty, fits: pirateRecipeFits(difficulty, rng, solo) };
 }
 
 /**
@@ -199,8 +185,13 @@ export function pirateEncounterFor(
 
   const wealthy = isWealthySystem(galaxy, poiId) && band !== "near";
   const template = pickTemplate(rng, band, wealthy);
-  const tiers = pickTier(rng, template, band);
-  const ships = buildShips(rng, template, tiers);
+  const difficulty = rollHeatDifficulty(band, wealthy, rng);
+  const ships = buildShips(
+    rng,
+    template,
+    difficulty,
+    pirateRecipeFits(difficulty, rng),
+  );
   const fee = ENCOUNTERS.feeByTemplate[template];
 
   return { template, ships, fee };

@@ -1,11 +1,27 @@
+import { COMBAT } from "../game/config";
+import type { WeaponFamily } from "../ship/equipment";
+import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import {
-  COMBAT,
-  PIRATE_TIERS,
-  SHIP,
-  type PirateTierId,
-} from "../game/config";
+  type PirateArchetypeId,
+  type PirateDifficulty,
+  type ResolvedNpcFit,
+} from "../ship/npcLoadout";
+import {
+  aimOffset,
+  aimSwing,
+  missileAimScale,
+  type AimSwing,
+  type MissileAimScale,
+} from "./aimWander";
 import { nextCombatId } from "./combatId";
-import { spawnProjectile, type Projectile } from "./Projectile";
+import { fireNpcVolley, tickWeaponCooldowns } from "./npcVolley";
+import {
+  closingSpeed,
+  pickStandoffFamily,
+  RANGE_BAND,
+  rangeHeading,
+} from "./rangeBand";
+import type { Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "aggro" | "retreat";
 
@@ -13,31 +29,55 @@ export type PirateMode = "idle" | "aggro" | "retreat";
  * Hostile hull in a local encounter.
  * Fee / hail timing is owned by Game as one pack event — ships only fight
  * when the encounter stance is hostile (or after being attacked).
+ * Weapons, shields, plating, and core come from the same modules as the player.
  */
 export class Pirate {
   readonly id = nextCombatId("pirate");
+  /** Core hull. Shields and plating are separate banks. */
   health: number;
+  shield: number;
+  plating: number;
+  shieldBreakRemaining = 0;
+  private timeSinceDamage = Number.POSITIVE_INFINITY;
   vx = 0;
   vy = 0;
   mode: PirateMode = "idle";
-  fireCooldown = 0;
+  private readonly weaponCooldowns: number[];
   /** Set when retreat finishes — Game removes on warp. */
   warpedAway = false;
 
-  readonly tier: PirateTierId;
+  readonly tier: PirateArchetypeId;
+  readonly fit: ResolvedNpcFit;
+  /** Pack difficulty. Sets how wide the nose wanders while firing. */
+  readonly difficulty: PirateDifficulty;
   /** Shared pack tribute (same value on every wingmate). */
   readonly fee: number;
+  private readonly swing: AimSwing;
+  private readonly missileScale: MissileAimScale;
+  /** Wander phase. Seeded so wingmates do not swing together. */
+  private aimTime: number;
+  /** Weapon band chosen the first time this ship fights. Not re-rolled. */
+  private standoffFamily: WeaponFamily | null = null;
 
   constructor(
     public x: number,
     public y: number,
     public heading: number,
-    tier: PirateTierId = "raider",
+    fit: ResolvedNpcFit,
+    difficulty: PirateDifficulty,
     fee = 10,
   ) {
-    this.tier = tier;
+    this.tier = fit.hullId;
+    this.fit = fit;
+    this.difficulty = difficulty;
     this.fee = fee;
-    this.health = PIRATE_TIERS[tier].maxHealth;
+    this.health = this.fit.coreMax;
+    this.shield = this.fit.shieldMax;
+    this.plating = this.fit.platingMax;
+    this.weaponCooldowns = this.fit.weapons.map(() => 0);
+    this.swing = aimSwing(difficulty);
+    this.missileScale = missileAimScale(difficulty);
+    this.aimTime = Math.random() * this.swing.halfPeriod * 2;
   }
 
   get alive(): boolean {
@@ -45,25 +85,63 @@ export class Pirate {
   }
 
   get maxHealth(): number {
-    return PIRATE_TIERS[this.tier].maxHealth;
+    return this.fit.coreMax;
+  }
+
+  get maxShield(): number {
+    return this.fit.shieldMax;
+  }
+
+  get maxPlating(): number {
+    return this.fit.platingMax;
   }
 
   get size(): number {
-    return PIRATE_TIERS[this.tier].size;
+    return this.fit.size;
   }
 
   get radius(): number {
-    return PIRATE_TIERS[this.tier].radius;
+    return this.fit.radius;
+  }
+
+  get hullId(): PirateArchetypeId {
+    return this.fit.hullId;
+  }
+
+  get fill(): string {
+    return this.fit.fill;
+  }
+
+  get stroke(): string {
+    return this.fit.stroke;
+  }
+
+  /** Core HP at or below this starts a retreat. About 20% of the hull. */
+  private get retreatCore(): number {
+    return Math.max(1, Math.floor(this.fit.coreMax * 0.2));
   }
 
   /**
    * @param retaliateAgainstPlayer false when a patrol (not the player) landed
    * the hit — don't turn a law-enforcement shot into a grudge against the player.
-   * Near-death still flees either way.
+   * A zero-damage gun pellet still counts as contact. Near-death still flees.
    */
-  takeDamage(amount: number, retaliateAgainstPlayer = true): void {
-    this.health = Math.max(0, this.health - amount);
-    if (this.health <= 1 && this.health > 0) {
+  takeDamage(
+    amount: number,
+    shieldMultiplier: number,
+    retaliateAgainstPlayer = true,
+  ): void {
+    if (amount > 0) {
+      const state = this.defenseState();
+      applyKineticHit(
+        state,
+        amount,
+        shieldMultiplier,
+        this.fit.shieldBreakDowntime,
+      );
+      this.writeDefense(state);
+    }
+    if (this.health <= this.retreatCore && this.health > 0) {
       this.mode = "retreat";
       return;
     }
@@ -86,6 +164,7 @@ export class Pirate {
 
   /**
    * Movement + combat. `hostile` is the pack encounter stance from Game.
+   * `targetId` is locked onto missiles at the moment of fire.
    */
   update(
     dt: number,
@@ -93,18 +172,19 @@ export class Pirate {
     playerY: number,
     outShots: Projectile[],
     hostile: boolean,
+    targetId: string,
   ): void {
     if (!this.alive) return;
 
-    const stats = PIRATE_TIERS[this.tier];
-    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.tickDefense(dt);
+    tickWeaponCooldowns(this.weaponCooldowns, dt);
 
     const dx = playerX - this.x;
     const dy = playerY - this.y;
     const dist = Math.hypot(dx, dy);
     const towardPlayer = Math.atan2(dy, dx);
 
-    if (this.health <= 1) {
+    if (this.health <= this.retreatCore) {
       this.mode = "retreat";
     } else if (this.mode === "retreat") {
       // stay fleeing
@@ -131,62 +211,105 @@ export class Pirate {
       return;
     }
 
-    // aggro
-    this.turnToward(towardPlayer, dt);
-
-    if (dist > COMBAT.pirateEngageRange) {
-      this.thrust(dt);
-    } else {
-      this.applyDrag(dt);
-    }
-
+    // aggro — hold a weapon band. Nose wanders only while facing the target.
+    // Retreat and idle stay on a true heading.
+    this.aimTime += dt;
+    const preferred = RANGE_BAND[this.standoff()];
+    const plan = rangeHeading({
+      dist,
+      toward: towardPlayer,
+      preferred,
+      closingSpeed: closingSpeed(this.vx, this.vy, dx, dy, dist),
+      aimOffset: aimOffset(this.aimTime, this.swing),
+    });
+    this.turnToward(plan.heading, dt);
+    if (plan.thrust) this.thrust(dt);
+    else this.applyDrag(dt);
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, towardPlayer));
-    if (
-      this.fireCooldown <= 0 &&
-      angleErr <= COMBAT.pirateFireCone &&
-      dist <= COMBAT.pirateThreatRange
-    ) {
-      outShots.push(
-        spawnProjectile(
-          this.x,
-          this.y,
-          this.heading,
-          stats.size,
-          true,
-          stats.damage,
-          "pirate",
-        ),
-      );
-      this.fireCooldown = COMBAT.pirateFireCooldown * stats.fireCooldownMul;
+    const fireGate = Math.max(COMBAT.pirateFireCone, this.swing.width);
+    if (angleErr <= fireGate && dist <= COMBAT.pirateThreatRange) {
+      fireNpcVolley({
+        fit: this.fit,
+        ownerId: this.id,
+        x: this.x,
+        y: this.y,
+        heading: this.heading,
+        dist,
+        cooldowns: this.weaponCooldowns,
+        hostile: true,
+        source: "pirate",
+        lockId: targetId,
+        out: outShots,
+        missileTrackScale: this.missileScale.trackScale,
+        missileTurnScale: this.missileScale.turnScale,
+      });
     }
+  }
+
+  /** First aggro picks the band. A one-weapon ship has nothing to vary. */
+  private standoff(): WeaponFamily {
+    if (this.standoffFamily) return this.standoffFamily;
+    this.standoffFamily = pickStandoffFamily(
+      this.fit.weapons.map((weapon) => weapon.module.family),
+    );
+    return this.standoffFamily;
+  }
+
+  private defenseState(): DefenseBanks {
+    return {
+      shield: this.shield,
+      plating: this.plating,
+      core: this.health,
+      timeSinceDamage: this.timeSinceDamage,
+      shieldBreakRemaining: this.shieldBreakRemaining,
+    };
+  }
+
+  private writeDefense(state: DefenseBanks): void {
+    this.shield = state.shield;
+    this.plating = state.plating;
+    this.health = state.core;
+    this.timeSinceDamage = state.timeSinceDamage;
+    this.shieldBreakRemaining = state.shieldBreakRemaining;
+  }
+
+  private tickDefense(dt: number): void {
+    const state = this.defenseState();
+    tickShieldRegen(
+      state,
+      dt,
+      this.fit.shieldMax,
+      this.fit.shieldRegenDelay,
+      this.fit.shieldRegenRate,
+    );
+    this.writeDefense(state);
   }
 
   private turnToward(desired: number, dt: number): void {
     let delta = shortestAngle(this.heading, desired);
-    const maxStep =
-      COMBAT.pirateTurnRate * PIRATE_TIERS[this.tier].turnRateMul * dt;
+    const maxStep = this.fit.turnRate * dt;
     if (delta > maxStep) delta = maxStep;
     if (delta < -maxStep) delta = -maxStep;
     this.heading += delta;
   }
 
   private thrust(dt: number): void {
-    const accel = SHIP.thrustAccel * PIRATE_TIERS[this.tier].speedFactor;
+    const accel = this.fit.thrustAccel;
     this.vx += Math.cos(this.heading) * accel * dt;
     this.vy += Math.sin(this.heading) * accel * dt;
     this.clampSpeed();
   }
 
   private applyDrag(dt: number): void {
-    const dragFactor = Math.pow(SHIP.drag, dt * 60);
+    const dragFactor = Math.pow(this.fit.drag, dt * 60);
     this.vx *= dragFactor;
     this.vy *= dragFactor;
   }
 
   private clampSpeed(): void {
-    const max = SHIP.maxSpeed * PIRATE_TIERS[this.tier].speedFactor;
+    const max = this.fit.maxSpeed;
     const speed = Math.hypot(this.vx, this.vy);
     if (speed > max) {
       const s = max / speed;

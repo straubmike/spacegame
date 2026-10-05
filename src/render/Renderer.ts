@@ -1,4 +1,4 @@
-import { BODY_COLORS, COMBAT, LOCAL, PATROL, PIRATE_TIERS, SHIP, STARS } from "../game/config";
+import { BODY_COLORS, COMBAT, LOCAL, SHIP, STARS } from "../game/config";
 import { STAR_COLORS } from "../galaxy/generateLocal";
 import type { Landmark, LocalView } from "../galaxy/types";
 import type { Ship } from "../entities/Ship";
@@ -421,10 +421,7 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.rotate(rat.heading);
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.7, size * 0.55);
-    ctx.lineTo(-size * 0.35, 0);
-    ctx.lineTo(-size * 0.7, -size * 0.55);
+    traceHull(ctx, rat.hullId, size);
     ctx.closePath();
     ctx.fillStyle = rat.fill;
     ctx.fill();
@@ -477,7 +474,9 @@ export class Renderer {
       ctx.lineTo(-3, 0);
       ctx.lineTo(-5, -3.2);
       ctx.closePath();
-      ctx.fillStyle = "rgba(140, 220, 255, 0.95)";
+      ctx.fillStyle = shot.hostile
+        ? "rgba(255, 170, 120, 0.95)"
+        : "rgba(140, 220, 255, 0.95)";
       ctx.fill();
       ctx.restore();
       return;
@@ -562,93 +561,64 @@ export class Renderer {
   }
 
   private drawPirate(x: number, y: number, pirate: Pirate): void {
-    const stats = PIRATE_TIERS[pirate.tier];
-    const size = stats.size;
-    const ctx = this.ctx;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(pirate.heading);
-
-    ctx.beginPath();
-    switch (pirate.tier) {
-      case "scout":
-        // Slim dart
-        ctx.moveTo(size, 0);
-        ctx.lineTo(-size * 0.85, size * 0.45);
-        ctx.lineTo(-size * 0.45, 0);
-        ctx.lineTo(-size * 0.85, -size * 0.45);
-        break;
-      case "gunship":
-        // Broad wedge with stub wings
-        ctx.moveTo(size, 0);
-        ctx.lineTo(-size * 0.55, size * 0.85);
-        ctx.lineTo(-size * 0.25, size * 0.35);
-        ctx.lineTo(-size * 0.7, 0);
-        ctx.lineTo(-size * 0.25, -size * 0.35);
-        ctx.lineTo(-size * 0.55, -size * 0.85);
-        break;
-      case "corsair":
-        // Angular cutter
-        ctx.moveTo(size * 1.05, 0);
-        ctx.lineTo(-size * 0.35, size * 0.7);
-        ctx.lineTo(-size * 0.85, size * 0.25);
-        ctx.lineTo(-size * 0.5, 0);
-        ctx.lineTo(-size * 0.85, -size * 0.25);
-        ctx.lineTo(-size * 0.35, -size * 0.7);
-        break;
-      default:
-        // Raider — classic chevron
-        ctx.moveTo(size, 0);
-        ctx.lineTo(-size * 0.7, size * 0.65);
-        ctx.lineTo(-size * 0.35, 0);
-        ctx.lineTo(-size * 0.7, -size * 0.65);
-        break;
-    }
-    ctx.closePath();
-    ctx.fillStyle = stats.color;
-    ctx.fill();
-    ctx.strokeStyle = stats.stroke;
-    ctx.lineWidth = pirate.tier === "gunship" ? 2 : 1.5;
-    ctx.stroke();
-
-    ctx.restore();
-
-    const barW = Math.max(18, size + 8);
-    const ratio = pirate.health / pirate.maxHealth;
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
-    ctx.fillRect(x - barW / 2, y - size - 10, barW, 3);
-    ctx.fillStyle = "#e07060";
-    ctx.fillRect(x - barW / 2, y - size - 10, barW * ratio, 3);
+    this.drawNpcHull(x, y, pirate);
   }
 
-  /** Cool-toned diamond — reads as law / patrol vs warm pirate wedges. */
+  /** Same hull silhouette as a pirate of that body, with a law-blue stroke. */
   private drawPatrol(x: number, y: number, patrol: StationPatrol): void {
-    const size = PATROL.size;
+    this.drawNpcHull(x, y, patrol);
+  }
+
+  private drawNpcHull(
+    x: number,
+    y: number,
+    npc: {
+      heading: number;
+      hullId: string;
+      size: number;
+      fill: string;
+      stroke: string;
+      health: number;
+      maxHealth: number;
+      shield: number;
+      maxShield: number;
+      plating: number;
+      maxPlating: number;
+    },
+  ): void {
+    const size = npc.size;
     const ctx = this.ctx;
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(patrol.heading);
+    ctx.rotate(npc.heading);
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(0, size * 0.55);
-    ctx.lineTo(-size * 0.75, 0);
-    ctx.lineTo(0, -size * 0.55);
+    traceHull(ctx, npc.hullId, size);
     ctx.closePath();
-    ctx.fillStyle = PATROL.color;
+    ctx.fillStyle = npc.fill;
     ctx.fill();
-    ctx.strokeStyle = PATROL.stroke;
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = npc.stroke;
+    ctx.lineWidth = npc.hullId === "bulwark" ? 2 : 1.5;
     ctx.stroke();
     ctx.restore();
 
     const barW = Math.max(18, size + 8);
-    const ratio = patrol.health / patrol.maxHealth;
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
-    ctx.fillRect(x - barW / 2, y - size - 10, barW, 3);
-    ctx.fillStyle = "#70b0e0";
-    ctx.fillRect(x - barW / 2, y - size - 10, barW * ratio, 3);
+    const left = x - barW / 2;
+    let barY = y - size - 8;
+    const banks: { max: number; value: number; color: string }[] = [
+      { max: npc.maxHealth, value: npc.health, color: "#e07060" },
+      { max: npc.maxPlating, value: npc.plating, color: "#d4c4a0" },
+      { max: npc.maxShield, value: npc.shield, color: "#7ec8ff" },
+    ];
+    for (const bank of banks) {
+      if (bank.max <= 0) continue;
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(left, barY, barW, 3);
+      ctx.fillStyle = bank.color;
+      const ratio = Math.max(0, Math.min(1, bank.value / bank.max));
+      ctx.fillRect(left, barY, barW * ratio, 3);
+      barY -= 5;
+    }
   }
 
   private drawLocal(
@@ -1493,6 +1463,79 @@ function drawIrregularRock(
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.restore();
+}
+
+/** Purchasable hull silhouette. Nose points along +X before the caller rotates. */
+function traceHull(ctx: CanvasRenderingContext2D, hullId: string, size: number): void {
+  switch (hullId) {
+    case "sparrow":
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.85, size * 0.42);
+      ctx.lineTo(-size * 0.4, 0);
+      ctx.lineTo(-size * 0.85, -size * 0.42);
+      return;
+    case "pathfinder":
+      ctx.moveTo(size * 1.15, 0);
+      ctx.lineTo(size * 0.15, size * 0.22);
+      ctx.lineTo(-size * 0.7, size * 0.55);
+      ctx.lineTo(-size * 0.45, 0);
+      ctx.lineTo(-size * 0.7, -size * 0.55);
+      ctx.lineTo(size * 0.15, -size * 0.22);
+      return;
+    case "courier":
+      ctx.moveTo(size * 1.2, 0);
+      ctx.lineTo(-size * 0.9, size * 0.28);
+      ctx.lineTo(-size * 0.55, 0);
+      ctx.lineTo(-size * 0.9, -size * 0.28);
+      return;
+    case "prospector":
+      ctx.moveTo(size * 0.7, 0);
+      ctx.lineTo(size * 0.2, size * 0.55);
+      ctx.lineTo(-size * 0.85, size * 0.7);
+      ctx.lineTo(-size * 0.55, 0);
+      ctx.lineTo(-size * 0.85, -size * 0.7);
+      ctx.lineTo(size * 0.2, -size * 0.55);
+      return;
+    case "hauler":
+      ctx.moveTo(size * 0.85, 0);
+      ctx.lineTo(size * 0.35, size * 0.45);
+      ctx.lineTo(-size * 0.95, size * 0.55);
+      ctx.lineTo(-size * 0.95, -size * 0.55);
+      ctx.lineTo(size * 0.35, -size * 0.45);
+      return;
+    case "liner":
+      ctx.moveTo(size * 1.25, 0);
+      ctx.lineTo(size * 0.2, size * 0.32);
+      ctx.lineTo(-size * 1.05, size * 0.28);
+      ctx.lineTo(-size * 0.7, 0);
+      ctx.lineTo(-size * 1.05, -size * 0.28);
+      ctx.lineTo(size * 0.2, -size * 0.32);
+      return;
+    case "interceptor":
+      ctx.moveTo(size * 1.05, 0);
+      ctx.lineTo(-size * 0.2, size * 0.22);
+      ctx.lineTo(-size * 0.75, size * 0.85);
+      ctx.lineTo(-size * 0.45, size * 0.15);
+      ctx.lineTo(-size * 0.9, 0);
+      ctx.lineTo(-size * 0.45, -size * 0.15);
+      ctx.lineTo(-size * 0.75, -size * 0.85);
+      ctx.lineTo(-size * 0.2, -size * 0.22);
+      return;
+    case "bulwark":
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.35, size * 0.9);
+      ctx.lineTo(-size * 0.15, size * 0.4);
+      ctx.lineTo(-size * 0.75, 0);
+      ctx.lineTo(-size * 0.15, -size * 0.4);
+      ctx.lineTo(-size * 0.35, -size * 0.9);
+      return;
+    default:
+      // Raider — classic chevron.
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.7, size * 0.65);
+      ctx.lineTo(-size * 0.35, 0);
+      ctx.lineTo(-size * 0.7, -size * 0.65);
+  }
 }
 
 function intersectScreenEdge(

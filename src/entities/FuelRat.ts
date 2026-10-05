@@ -1,10 +1,11 @@
 import { FUEL, SHIP } from "../game/config";
+import { HULLS } from "../ship/hulls";
 
 export type FuelRatPhase = "approach" | "comms" | "refuel" | "depart" | "gone";
 
 /**
- * Friendly rescuer — light green hull, greets on arrival, tops up fuel
- * enough to reach the nearest station, then warps out.
+ * Friendly rescuer. Courier body in the prior green: a light runner with an
+ * extra tank that scoots in, tops up fuel for the nearest station, then warps out.
  */
 export class FuelRat {
   vx = 0;
@@ -26,9 +27,11 @@ export class FuelRat {
     this.refuseAssist = true;
   }
 
+  /** Hangar Courier. Green stays the Fuel Rat color; the body is the player's. */
+  readonly hullId = HULLS.courier.id;
   readonly fill = FUEL.ratFill;
   readonly stroke = FUEL.ratStroke;
-  readonly size = FUEL.ratSize;
+  readonly size = HULLS.courier.size;
 
   constructor(
     public x: number,

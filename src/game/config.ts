@@ -164,14 +164,9 @@ export const COMBAT = {
   projectileDamage: 1,
   /** seconds between player shots */
   fireCooldown: 0.35,
-  /** pirate fires at 30% of the player's rate (raider baseline) */
-  pirateFireCooldown: 0.35 / 0.3,
   projectileSpeed: 520,
   projectileRadius: 2.5,
   playerHitRadius: 12,
-  /** Fallback hit/draw sizes when a tier is unavailable. */
-  pirateRadius: 14,
-  pirateSize: 13,
   /**
    * Legacy flat spawn chance — encounter generation prefers ENCOUNTERS.heatBands.
    * Kept as a mid-band reference (~0.25).
@@ -179,12 +174,9 @@ export const COMBAT = {
   pirateSpawnChance: 0.25,
   pirateSpawnMin: 220,
   pirateSpawnMax: 380,
-  /** fraction of player max speed / thrust (raider baseline) */
-  pirateSpeedFactor: 0.8,
-  pirateTurnRate: (200 * Math.PI) / 180,
   /** enter combat when player is this close */
   pirateThreatRange: 480,
-  /** stop closing once within this distance */
+  /** Legacy single stop-closing distance. Pathing uses weapon bands. */
   pirateEngageRange: 200,
   /** while fleeing, warp away after reaching this distance */
   pirateRetreatRange: 560,
@@ -210,8 +202,8 @@ export const COMBAT = {
  */
 export const WEAPONS = {
   /**
-   * Pirate and patrol shots stay simple kinetic slugs.
-   * Half of each hit lands on shields; overkill past the bank is wiped.
+   * Fallback shield fraction when a caller does not pass the shot's own.
+   * Pirate and patrol guns, cannons, and missiles pass their module multiplier.
    */
   npcShieldMultiplier: 0.5,
   /** Gap between pellet impacts that resets a gun's time-on-target. */
@@ -276,62 +268,10 @@ export const WEAPONS = {
 } as const;
 
 /**
- * Pirate hull tiers — distinct silhouettes / loadouts for Must-have 4.
- * Stats are relative to the player's starter combat feel.
+ * Distress bands. Fuel Rat standing still lerps these four weights.
+ * Spawn maps a rolled band onto an overlapping difficulty range.
  */
-export const PIRATE_TIERS = {
-  scout: {
-    label: "Scout",
-    maxHealth: 6,
-    size: 10,
-    radius: 11,
-    speedFactor: 1.05,
-    /** Multiplier on COMBAT.pirateFireCooldown (higher = slower). */
-    fireCooldownMul: 1.25,
-    damage: 1,
-    turnRateMul: 1.15,
-    color: "#d07060",
-    stroke: "#9a3830",
-  },
-  raider: {
-    label: "Raider",
-    maxHealth: 10,
-    size: 13,
-    radius: 14,
-    speedFactor: 0.8,
-    fireCooldownMul: 1,
-    damage: 1,
-    turnRateMul: 1,
-    color: "#c45a4a",
-    stroke: "#8a3028",
-  },
-  gunship: {
-    label: "Gunship",
-    maxHealth: 16,
-    size: 17,
-    radius: 18,
-    speedFactor: 0.62,
-    fireCooldownMul: 1.15,
-    damage: 2,
-    turnRateMul: 0.75,
-    color: "#a84840",
-    stroke: "#6a2018",
-  },
-  corsair: {
-    label: "Corsair",
-    maxHealth: 14,
-    size: 15,
-    radius: 16,
-    speedFactor: 0.92,
-    fireCooldownMul: 0.72,
-    damage: 2,
-    turnRateMul: 1.05,
-    color: "#b05070",
-    stroke: "#701838",
-  },
-} as const;
-
-export type PirateTierId = keyof typeof PIRATE_TIERS;
+export type PirateTierId = "scout" | "raider" | "gunship" | "corsair";
 
 /**
  * Encounter templates + heat bands.
@@ -781,22 +721,13 @@ export const REPUTATION = {
 export const PATROL = {
   /** Chance a given station gets a patrol when entering its local view. */
   spawnChance: 0.62,
-  size: 12,
-  radius: 13,
   /** Extra click pad so fines are easy to open while idle/wander. */
   clickPad: 20,
-  maxHealth: 12,
-  /** Hunt thrust vs player ship (only while chasing pirates / player). */
-  speedFactor: 0.88,
   /** Slow cruise toward a wander destination (world units / sec). */
   wanderSpeed: 70,
-  fireCooldown: 0.55,
-  damage: 1,
-  turnRateMul: 0.85,
-  color: "#6a9ec8",
-  stroke: "#3a6a98",
   /** Engage pirates / hostile player within this range. */
   huntRange: 720,
+  /** Legacy single stop-closing distance. Pathing uses weapon bands. */
   engageRange: 200,
   /** Mostly idle (pirate-like) before picking a new wander leg. */
   idleHoldMin: 5,

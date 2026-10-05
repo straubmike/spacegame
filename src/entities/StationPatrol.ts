@@ -1,6 +1,24 @@
-import { COMBAT, PATROL, SHIP } from "../game/config";
+import { COMBAT, PATROL } from "../game/config";
+import type { WeaponFamily } from "../ship/equipment";
+import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
+import type { ResolvedNpcFit } from "../ship/npcLoadout";
+import {
+  aimOffset,
+  aimSwing,
+  missileAimScale,
+  PATROL_AIM_DIFFICULTY,
+  type AimSwing,
+  type MissileAimScale,
+} from "./aimWander";
 import { nextCombatId } from "./combatId";
-import { spawnProjectile, type Projectile } from "./Projectile";
+import { fireNpcVolley, PLAYER_LOCK_ID, tickWeaponCooldowns } from "./npcVolley";
+import {
+  closingSpeed,
+  pickStandoffFamily,
+  RANGE_BAND,
+  rangeHeading,
+} from "./rangeBand";
+import type { Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
 
 type PatrolStance =
@@ -32,11 +50,17 @@ export type PatrolUpdateResult = {
  */
 export class StationPatrol {
   readonly id = nextCombatId("patrol");
+  /** Core hull. Shields and plating are separate banks. */
   health: number;
+  shield: number;
+  plating: number;
+  shieldBreakRemaining = 0;
+  private timeSinceDamage = Number.POSITIVE_INFINITY;
   vx = 0;
   vy = 0;
   heading: number;
-  fireCooldown = 0;
+  private readonly weaponCooldowns: number[];
+  readonly fit: ResolvedNpcFit;
 
   /** Set when the player shoots this hull — forces return fire. */
   defending = false;
@@ -52,6 +76,12 @@ export class StationPatrol {
   private stance: PatrolStance = "idle";
   private stanceTimer: number;
   private wanderTarget: { x: number; y: number } | null = null;
+  /** Steady accuracy, about a difficulty 4–5 pirate. Not on the ladder. */
+  private readonly swing: AimSwing = aimSwing(PATROL_AIM_DIFFICULTY);
+  private readonly missileScale: MissileAimScale = missileAimScale(PATROL_AIM_DIFFICULTY);
+  private aimTime = Math.random() * this.swing.halfPeriod * 2;
+  /** Weapon band chosen the first time this patrol fights. Not re-rolled. */
+  private standoffFamily: WeaponFamily | null = null;
 
   constructor(
     public x: number,
@@ -62,9 +92,14 @@ export class StationPatrol {
     public readonly stationKey: string,
     public readonly homeX: number,
     public readonly homeY: number,
+    fit: ResolvedNpcFit,
   ) {
     this.heading = heading;
-    this.health = PATROL.maxHealth;
+    this.fit = fit;
+    this.health = fit.coreMax;
+    this.shield = fit.shieldMax;
+    this.plating = fit.platingMax;
+    this.weaponCooldowns = fit.weapons.map(() => 0);
     this.stanceTimer =
       PATROL.idleHoldMin +
       Math.random() * (PATROL.idleHoldMax - PATROL.idleHoldMin);
@@ -75,19 +110,47 @@ export class StationPatrol {
   }
 
   get size(): number {
-    return PATROL.size;
+    return this.fit.size;
   }
 
   get radius(): number {
-    return PATROL.radius;
+    return this.fit.radius;
   }
 
   get maxHealth(): number {
-    return PATROL.maxHealth;
+    return this.fit.coreMax;
   }
 
-  takeDamage(amount: number): void {
-    this.health = Math.max(0, this.health - amount);
+  get maxShield(): number {
+    return this.fit.shieldMax;
+  }
+
+  get maxPlating(): number {
+    return this.fit.platingMax;
+  }
+
+  get hullId(): string {
+    return this.fit.hullId;
+  }
+
+  get fill(): string {
+    return this.fit.fill;
+  }
+
+  get stroke(): string {
+    return this.fit.stroke;
+  }
+
+  takeDamage(amount: number, shieldMultiplier: number): void {
+    if (amount <= 0) return;
+    const state = this.defenseState();
+    applyKineticHit(
+      state,
+      amount,
+      shieldMultiplier,
+      this.fit.shieldBreakDowntime,
+    );
+    this.writeDefense(state);
   }
 
   /** Player attacked this ship — return fire regardless of standing. */
@@ -140,7 +203,8 @@ export class StationPatrol {
       justCompletedScan: false,
     };
     if (!this.alive) return result;
-    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.tickDefense(dt);
+    tickWeaponCooldowns(this.weaponCooldowns, dt);
     this.scanCooldown = Math.max(0, this.scanCooldown - dt);
 
     const distPlayer = Math.hypot(playerX - this.x, playerY - this.y);
@@ -154,7 +218,7 @@ export class StationPatrol {
         this.stance = "aggroPlayer";
         this.wanderTarget = null;
       }
-      this.chaseAndFire(dt, playerX, playerY, outShots, true);
+      this.chaseAndFire(dt, playerX, playerY, PLAYER_LOCK_ID, outShots, true);
       return result;
     }
 
@@ -174,13 +238,13 @@ export class StationPatrol {
           if (this.warningTimer <= 0) {
             this.stance = "aggroPlayer";
             result.justAggroed = true;
-            this.chaseAndFire(dt, playerX, playerY, outShots, true);
+            this.chaseAndFire(dt, playerX, playerY, PLAYER_LOCK_ID, outShots, true);
             return result;
           }
           // During warning: still hunt pirates; soft-face the player.
           const pirate = this.nearestPirate(pirates);
           if (pirate) {
-            this.chaseAndFire(dt, pirate.x, pirate.y, outShots, false);
+            this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
           } else {
             this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
             this.applyDrag(dt);
@@ -192,7 +256,7 @@ export class StationPatrol {
         // Left range during window — pause countdown but keep armed.
         const pirate = this.nearestPirate(pirates);
         if (pirate) {
-          this.chaseAndFire(dt, pirate.x, pirate.y, outShots, false);
+          this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
         } else {
           this.idleOrWander(dt);
         }
@@ -217,7 +281,7 @@ export class StationPatrol {
         // Soft-face the player; still swat nearby pirates.
         const pirate = this.nearestPirate(pirates);
         if (pirate) {
-          this.chaseAndFire(dt, pirate.x, pirate.y, outShots, false);
+          this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
         } else {
           this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
           this.applyDrag(dt);
@@ -251,7 +315,7 @@ export class StationPatrol {
     if (pirate) {
       this.stance = "huntPirate";
       this.wanderTarget = null;
-      this.chaseAndFire(dt, pirate.x, pirate.y, outShots, false);
+      this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
       return result;
     }
 
@@ -332,6 +396,7 @@ export class StationPatrol {
     dt: number,
     tx: number,
     ty: number,
+    targetId: string,
     outShots: Projectile[],
     hostileShot: boolean,
   ): void {
@@ -339,34 +404,78 @@ export class StationPatrol {
     const dy = ty - this.y;
     const dist = Math.hypot(dx, dy);
     const toward = Math.atan2(dy, dx);
-    this.turnToward(toward, dt);
-
-    if (dist > PATROL.engageRange) {
-      this.thrust(dt);
-    } else {
-      this.applyDrag(dt);
-    }
+    this.aimTime += dt;
+    const preferred = RANGE_BAND[this.standoff()];
+    const plan = rangeHeading({
+      dist,
+      toward,
+      preferred,
+      closingSpeed: closingSpeed(this.vx, this.vy, dx, dy, dist),
+      aimOffset: aimOffset(this.aimTime, this.swing),
+    });
+    this.turnToward(plan.heading, dt);
+    if (plan.thrust) this.thrust(dt);
+    else this.applyDrag(dt);
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, toward));
-    if (
-      this.fireCooldown <= 0 &&
-      angleErr <= COMBAT.pirateFireCone &&
-      dist <= PATROL.huntRange
-    ) {
-      outShots.push(
-        spawnProjectile(
-          this.x,
-          this.y,
-          this.heading,
-          PATROL.size,
-          hostileShot,
-          PATROL.damage,
-          "patrol",
-        ),
-      );
-      this.fireCooldown = PATROL.fireCooldown;
+    const fireGate = Math.max(COMBAT.pirateFireCone, this.swing.width);
+    if (angleErr <= fireGate && dist <= PATROL.huntRange) {
+      fireNpcVolley({
+        fit: this.fit,
+        ownerId: this.id,
+        x: this.x,
+        y: this.y,
+        heading: this.heading,
+        dist,
+        cooldowns: this.weaponCooldowns,
+        hostile: hostileShot,
+        source: "patrol",
+        lockId: targetId,
+        out: outShots,
+        missileTrackScale: this.missileScale.trackScale,
+        missileTurnScale: this.missileScale.turnScale,
+      });
     }
+  }
+
+  /** First fight picks the band. A one-weapon patrol has nothing to vary. */
+  private standoff(): WeaponFamily {
+    if (this.standoffFamily) return this.standoffFamily;
+    this.standoffFamily = pickStandoffFamily(
+      this.fit.weapons.map((weapon) => weapon.module.family),
+    );
+    return this.standoffFamily;
+  }
+
+  private defenseState(): DefenseBanks {
+    return {
+      shield: this.shield,
+      plating: this.plating,
+      core: this.health,
+      timeSinceDamage: this.timeSinceDamage,
+      shieldBreakRemaining: this.shieldBreakRemaining,
+    };
+  }
+
+  private writeDefense(state: DefenseBanks): void {
+    this.shield = state.shield;
+    this.plating = state.plating;
+    this.health = state.core;
+    this.timeSinceDamage = state.timeSinceDamage;
+    this.shieldBreakRemaining = state.shieldBreakRemaining;
+  }
+
+  private tickDefense(dt: number): void {
+    const state = this.defenseState();
+    tickShieldRegen(
+      state,
+      dt,
+      this.fit.shieldMax,
+      this.fit.shieldRegenDelay,
+      this.fit.shieldRegenRate,
+    );
+    this.writeDefense(state);
   }
 
   private cruiseToward(dt: number, wp: { x: number; y: number }): void {
@@ -397,27 +506,27 @@ export class StationPatrol {
 
   private turnToward(desired: number, dt: number): void {
     let delta = shortestAngle(this.heading, desired);
-    const maxStep = COMBAT.pirateTurnRate * PATROL.turnRateMul * dt;
+    const maxStep = this.fit.turnRate * dt;
     if (delta > maxStep) delta = maxStep;
     if (delta < -maxStep) delta = -maxStep;
     this.heading += delta;
   }
 
   private thrust(dt: number): void {
-    const accel = SHIP.thrustAccel * PATROL.speedFactor;
+    const accel = this.fit.thrustAccel;
     this.vx += Math.cos(this.heading) * accel * dt;
     this.vy += Math.sin(this.heading) * accel * dt;
     this.clampSpeed();
   }
 
   private applyDrag(dt: number): void {
-    const dragFactor = Math.pow(SHIP.drag, dt * 60);
+    const dragFactor = Math.pow(this.fit.drag, dt * 60);
     this.vx *= dragFactor;
     this.vy *= dragFactor;
   }
 
   private clampSpeed(): void {
-    const max = SHIP.maxSpeed * PATROL.speedFactor;
+    const max = this.fit.maxSpeed;
     const speed = Math.hypot(this.vx, this.vy);
     if (speed > max) {
       const s = max / speed;

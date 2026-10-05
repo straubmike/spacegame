@@ -3,7 +3,7 @@ import { COMBAT, WEAPONS } from "../game/config";
 /** Who fired. Patrol rounds must not be treated as the player's. */
 export type ProjectileSource = "player" | "pirate" | "patrol";
 
-/** Player families plus the NPC simple kinetic slug. */
+/** Kinetic families. `kinetic` is unused by current shooters. */
 export type ProjectileFamily = "kinetic" | "gun" | "cannon" | "missile";
 
 export class Projectile {
@@ -78,34 +78,6 @@ export class Projectile {
   }
 }
 
-/** Pirate / patrol kinetic slug. Straight line, simple damage. */
-export function spawnProjectile(
-  x: number,
-  y: number,
-  heading: number,
-  muzzle: number,
-  hostile = false,
-  damage: number = COMBAT.projectileDamage,
-  source: ProjectileSource = "player",
-): Projectile {
-  const cos = Math.cos(heading);
-  const sin = Math.sin(heading);
-  const shot = new Projectile(
-    x + cos * muzzle,
-    y + sin * muzzle,
-    cos * COMBAT.projectileSpeed,
-    sin * COMBAT.projectileSpeed,
-    hostile,
-    damage,
-    source,
-  );
-  shot.family = "kinetic";
-  shot.shieldMultiplier = WEAPONS.npcShieldMultiplier;
-  shot.speed = COMBAT.projectileSpeed;
-  shot.radius = COMBAT.projectileRadius;
-  return shot;
-}
-
 export interface PlayerShotSpec {
   family: Exclude<ProjectileFamily, "kinetic">;
   speed: number;
@@ -118,6 +90,41 @@ export interface PlayerShotSpec {
   turnRate?: number;
   trackSeconds?: number;
   lockId?: string | null;
+}
+
+/** Pirate or patrol kinetic round. Same families as the player. */
+export function spawnNpcShot(
+  x: number,
+  y: number,
+  heading: number,
+  muzzle: number,
+  source: Exclude<ProjectileSource, "player">,
+  hostile: boolean,
+  spec: PlayerShotSpec,
+): Projectile {
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const shot = new Projectile(
+    x + cos * muzzle,
+    y + sin * muzzle,
+    cos * spec.speed,
+    sin * spec.speed,
+    hostile,
+    spec.damage,
+    source,
+  );
+  shot.family = spec.family;
+  shot.heading = heading;
+  shot.speed = spec.speed;
+  shot.radius = spec.radius;
+  shot.shieldMultiplier = spec.shieldMultiplier;
+  shot.gunSlotId = spec.gunSlotId ?? "";
+  shot.gunChunkDamage = spec.gunChunkDamage ?? 0;
+  shot.gunChunkInterval = spec.gunChunkInterval ?? 1;
+  shot.turnRate = spec.turnRate ?? 0;
+  shot.trackTimeLeft = spec.trackSeconds ?? 0;
+  shot.lockId = spec.lockId ?? null;
+  return shot;
 }
 
 /** Player kinetic round. Guns deal no per-pellet damage. */
