@@ -176,7 +176,7 @@ export const COMBAT = {
   pirateSpawnMax: 380,
   /** enter combat when player is this close */
   pirateThreatRange: 480,
-  /** stop closing once within this distance */
+  /** Legacy single stop-closing distance. Pathing uses weapon bands. */
   pirateEngageRange: 200,
   /** while fleeing, warp away after reaching this distance */
   pirateRetreatRange: 560,
@@ -727,6 +727,7 @@ export const PATROL = {
   wanderSpeed: 70,
   /** Engage pirates / hostile player within this range. */
   huntRange: 720,
+  /** Legacy single stop-closing distance. Pathing uses weapon bands. */
   engageRange: 200,
   /** Mostly idle (pirate-like) before picking a new wander leg. */
   idleHoldMin: 5,

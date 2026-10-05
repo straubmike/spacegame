@@ -1,4 +1,5 @@
 import { COMBAT } from "../game/config";
+import type { WeaponFamily } from "../ship/equipment";
 import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import {
   type PirateArchetypeId,
@@ -14,6 +15,12 @@ import {
 } from "./aimWander";
 import { nextCombatId } from "./combatId";
 import { fireNpcVolley, tickWeaponCooldowns } from "./npcVolley";
+import {
+  closingSpeed,
+  pickStandoffFamily,
+  RANGE_BAND,
+  rangeHeading,
+} from "./rangeBand";
 import type { Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "aggro" | "retreat";
@@ -49,6 +56,8 @@ export class Pirate {
   private readonly missileScale: MissileAimScale;
   /** Wander phase. Seeded so wingmates do not swing together. */
   private aimTime: number;
+  /** Weapon band chosen the first time this ship fights. Not re-rolled. */
+  private standoffFamily: WeaponFamily | null = null;
 
   constructor(
     public x: number,
@@ -202,16 +211,20 @@ export class Pirate {
       return;
     }
 
-    // aggro — nose wanders around the true aim. Retreat and idle stay true.
+    // aggro — hold a weapon band. Nose wanders only while facing the target.
+    // Retreat and idle stay on a true heading.
     this.aimTime += dt;
-    this.turnToward(towardPlayer + aimOffset(this.aimTime, this.swing), dt);
-
-    if (dist > COMBAT.pirateEngageRange) {
-      this.thrust(dt);
-    } else {
-      this.applyDrag(dt);
-    }
-
+    const preferred = RANGE_BAND[this.standoff()];
+    const plan = rangeHeading({
+      dist,
+      toward: towardPlayer,
+      preferred,
+      closingSpeed: closingSpeed(this.vx, this.vy, dx, dy, dist),
+      aimOffset: aimOffset(this.aimTime, this.swing),
+    });
+    this.turnToward(plan.heading, dt);
+    if (plan.thrust) this.thrust(dt);
+    else this.applyDrag(dt);
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, towardPlayer));
@@ -223,6 +236,7 @@ export class Pirate {
         x: this.x,
         y: this.y,
         heading: this.heading,
+        dist,
         cooldowns: this.weaponCooldowns,
         hostile: true,
         source: "pirate",
@@ -232,6 +246,15 @@ export class Pirate {
         missileTurnScale: this.missileScale.turnScale,
       });
     }
+  }
+
+  /** First aggro picks the band. A one-weapon ship has nothing to vary. */
+  private standoff(): WeaponFamily {
+    if (this.standoffFamily) return this.standoffFamily;
+    this.standoffFamily = pickStandoffFamily(
+      this.fit.weapons.map((weapon) => weapon.module.family),
+    );
+    return this.standoffFamily;
   }
 
   private defenseState(): DefenseBanks {

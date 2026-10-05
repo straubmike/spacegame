@@ -1,4 +1,5 @@
 import { COMBAT, PATROL } from "../game/config";
+import type { WeaponFamily } from "../ship/equipment";
 import { applyKineticHit, tickShieldRegen, type DefenseBanks } from "../ship/defense";
 import type { ResolvedNpcFit } from "../ship/npcLoadout";
 import {
@@ -11,6 +12,12 @@ import {
 } from "./aimWander";
 import { nextCombatId } from "./combatId";
 import { fireNpcVolley, PLAYER_LOCK_ID, tickWeaponCooldowns } from "./npcVolley";
+import {
+  closingSpeed,
+  pickStandoffFamily,
+  RANGE_BAND,
+  rangeHeading,
+} from "./rangeBand";
 import type { Projectile } from "./Projectile";
 import type { Pirate } from "./Pirate";
 
@@ -73,6 +80,8 @@ export class StationPatrol {
   private readonly swing: AimSwing = aimSwing(PATROL_AIM_DIFFICULTY);
   private readonly missileScale: MissileAimScale = missileAimScale(PATROL_AIM_DIFFICULTY);
   private aimTime = Math.random() * this.swing.halfPeriod * 2;
+  /** Weapon band chosen the first time this patrol fights. Not re-rolled. */
+  private standoffFamily: WeaponFamily | null = null;
 
   constructor(
     public x: number,
@@ -396,13 +405,17 @@ export class StationPatrol {
     const dist = Math.hypot(dx, dy);
     const toward = Math.atan2(dy, dx);
     this.aimTime += dt;
-    this.turnToward(toward + aimOffset(this.aimTime, this.swing), dt);
-
-    if (dist > PATROL.engageRange) {
-      this.thrust(dt);
-    } else {
-      this.applyDrag(dt);
-    }
+    const preferred = RANGE_BAND[this.standoff()];
+    const plan = rangeHeading({
+      dist,
+      toward,
+      preferred,
+      closingSpeed: closingSpeed(this.vx, this.vy, dx, dy, dist),
+      aimOffset: aimOffset(this.aimTime, this.swing),
+    });
+    this.turnToward(plan.heading, dt);
+    if (plan.thrust) this.thrust(dt);
+    else this.applyDrag(dt);
     this.integrate(dt);
 
     const angleErr = Math.abs(shortestAngle(this.heading, toward));
@@ -414,6 +427,7 @@ export class StationPatrol {
         x: this.x,
         y: this.y,
         heading: this.heading,
+        dist,
         cooldowns: this.weaponCooldowns,
         hostile: hostileShot,
         source: "patrol",
@@ -423,6 +437,15 @@ export class StationPatrol {
         missileTurnScale: this.missileScale.turnScale,
       });
     }
+  }
+
+  /** First fight picks the band. A one-weapon patrol has nothing to vary. */
+  private standoff(): WeaponFamily {
+    if (this.standoffFamily) return this.standoffFamily;
+    this.standoffFamily = pickStandoffFamily(
+      this.fit.weapons.map((weapon) => weapon.module.family),
+    );
+    return this.standoffFamily;
   }
 
   private defenseState(): DefenseBanks {
