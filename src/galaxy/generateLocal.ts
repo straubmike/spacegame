@@ -197,18 +197,6 @@ function buildHostLocalView(
 ): LocalView {
   const focus = makeFocusLandmark(host, blueprint.starClass, rng);
   const companions = makeStations(host, rng);
-  // TEMP(poi-indicator): strip before merge.
-  // One landmark sits past the starting camera so the edge marker shows immediately.
-  if (poiId === GALAXY.startPoiId && host.id === 0) {
-    companions.push({
-      id: 90,
-      name: "Beacon",
-      kind: "rocky",
-      x: 4800,
-      y: -LOCAL.arrivalDistance,
-      radius: 26,
-    });
-  }
   const beltSeed = hash2(GALAXY.seed, poiId * 7919 + host.id * 131 + 17);
   const beltRocks =
     host.kind === "asteroidBelt"
