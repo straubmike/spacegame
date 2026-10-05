@@ -9,7 +9,7 @@ import type { StationPatrol } from "../entities/StationPatrol";
 import type { Projectile } from "../entities/Projectile";
 import type { Camera } from "../world/Camera";
 import type { Starfield } from "../world/Starfield";
-import { Hud } from "../ui/Hud";
+import { Hud, type WeaponHudRow } from "../ui/Hud";
 import type { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "../ui/menu";
 import { galacticFuelCost } from "../ship/fuel";
@@ -93,6 +93,7 @@ export class Renderer {
     pointerX: number;
     pointerY: number;
     fadeAlpha: number;
+    weaponRows: WeaponHudRow[];
   }): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -270,6 +271,9 @@ export class Renderer {
         passengerUsed: occupiedPassengerBerths(args.activeMissions),
         passengerCapacity: args.ship.passengerCapacity,
         credits: args.ship.credits,
+        weapons: args.weaponRows,
+        heat: args.ship.heat,
+        heatSinkCapacity: args.ship.heatSinkCapacity,
         poiName: args.local.poiName,
         locationName: args.local.locationName,
         poiType: args.local.poiType,

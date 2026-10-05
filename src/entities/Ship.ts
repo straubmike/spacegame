@@ -27,6 +27,16 @@ export class Ship {
   shieldBreakRemaining = 0;
   /** Current hyperspace / supercruise fuel. */
   fuel = 0;
+  /**
+   * Current drive heat. Energy weapons write this.
+   * Stays 0 until that work lands — nothing here adds heat.
+   */
+  heat = 0;
+  /**
+   * Heat sink size. The HUD gauge stays hidden while this is 0.
+   * Stays 0 until energy-weapon drives set it.
+   */
+  heatSinkCapacity = 0;
   /** Seconds since a hit that dealt shield, plating, or core damage. */
   private timeSinceDamage = Number.POSITIVE_INFINITY;
   credits: number = ECONOMY.startingCredits;
@@ -47,6 +57,8 @@ export class Ship {
   /** Factory starter hull, full tanks, and starting credits. */
   resetForNewRun(): void {
     this.credits = ECONOMY.startingCredits;
+    this.heat = 0;
+    this.heatSinkCapacity = 0;
     this.fleet.resetToStarter();
     this.vx = 0;
     this.vy = 0;
