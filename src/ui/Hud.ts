@@ -53,12 +53,11 @@ export function weaponAmmoLabel(row: WeaponHudRow): string | null {
 }
 
 /**
- * Yellow while the fire button is held and the weapon can shoot.
- * Red while a real cooldown or an empty magazine blocks the next shot.
- * Guns cycle every 0.05s — a held gun with rounds left stays yellow
- * through that pellet gap. Cannon, missile, and energy restart
- * cooldowns stay red until the next shot is allowed.
- * A full heat sink (capacity > 0) blocks an energy weapon from starting.
+ * Yellow wins over a cooldown while the key is held and the weapon can still fire.
+ * Cannon, missile, pulse, and beam stay yellow for that whole hold.
+ * Red only for an empty magazine, an energy weapon at a full heat sink,
+ * or a cooldown that is still running after the key is released.
+ * Key up, not cooling, and able to fire stays the normal HUD color.
  */
 export function weaponRowTone(
   row: WeaponHudRow,
@@ -73,10 +72,8 @@ export function weaponRowTone(
     return "blocked";
   }
 
-  const gunHeldWithAmmo = row.family === "gun" && row.held && !depleted;
-  if (row.cooldown > 0 && !gunHeldWithAmmo) return "blocked";
-
   if (row.held) return "ready";
+  if (row.cooldown > 0) return "blocked";
   return "normal";
 }
 
