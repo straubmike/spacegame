@@ -127,8 +127,9 @@ export class Ship {
   }
 
   /**
-   * A hyperspace jump needs room for the whole jump heat before it starts.
-   * Landing exactly on capacity is allowed. An already-full sink cannot jump.
+   * Hyperspace and an intra-system jump both need room for the whole
+   * jump heat before they start. Landing exactly on capacity is allowed.
+   * An already-full sink cannot make either jump.
    */
   jumpHeatFits(): boolean {
     return this.heat + HEAT.jump <= this.heatSinkCapacity;

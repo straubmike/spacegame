@@ -1,5 +1,13 @@
 import type { LocalView, SystemBodyRef } from "../galaxy/types";
-import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
+import {
+  FONT,
+  FONT_TITLE,
+  drawButton,
+  drawInsufficientHeat,
+  drawPanel,
+  hit,
+  type Rect,
+} from "./menu";
 import { supercruiseFuelCost } from "../ship/fuel";
 
 export type SystemClickResult = "travel" | "close" | null;
@@ -22,6 +30,8 @@ export class SystemPanel {
     height: number,
     pointerX: number,
     pointerY: number,
+    /** Sink cannot take the jump heat. The Travel control shows that label. */
+    heatFull = false,
   ): void {
     // Dim flight view behind menu
     ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
@@ -124,16 +134,17 @@ export class SystemPanel {
       y += rowH;
     });
 
-    const canTravel =
+    const destinationChosen =
       this.selectedBodyId !== null && this.selectedBodyId !== local.bodyId;
+    const heatBlocks = heatFull && destinationChosen;
     const supercruiseCost = supercruiseFuelCost();
-
-    this.travelBtn = {
+    const travelSlot: Rect = {
       x: panel.x + panel.w - 220,
       y: panel.y + panel.h - 50,
       w: 88,
       h: 36,
     };
+
     this.closeBtn = {
       x: panel.x + panel.w - 120,
       y: panel.y + panel.h - 50,
@@ -141,12 +152,18 @@ export class SystemPanel {
       h: 36,
     };
 
-    drawButton(ctx, this.travelBtn, "Travel", {
-      primary: true,
-      enabled: canTravel,
-      hover: hit(this.travelBtn, pointerX, pointerY),
-    });
-    if (canTravel) {
+    if (heatBlocks) {
+      this.travelBtn = { x: 0, y: 0, w: 0, h: 0 };
+      drawInsufficientHeat(ctx, travelSlot);
+    } else {
+      this.travelBtn = travelSlot;
+      drawButton(ctx, this.travelBtn, "Travel", {
+        primary: true,
+        enabled: destinationChosen,
+        hover: hit(this.travelBtn, pointerX, pointerY),
+      });
+    }
+    if (destinationChosen && !heatBlocks) {
       ctx.font = FONT;
       ctx.fillStyle = "rgba(160, 190, 160, 0.85)";
       ctx.textBaseline = "middle";
@@ -161,11 +178,18 @@ export class SystemPanel {
     });
   }
 
-  handleClick(local: LocalView, px: number, py: number): SystemClickResult {
+  handleClick(
+    local: LocalView,
+    px: number,
+    py: number,
+    heatFull = false,
+  ): SystemClickResult {
     if (hit(this.closeBtn, px, py)) return "close";
 
     const canTravel =
-      this.selectedBodyId !== null && this.selectedBodyId !== local.bodyId;
+      this.selectedBodyId !== null &&
+      this.selectedBodyId !== local.bodyId &&
+      !heatFull;
     if (hit(this.travelBtn, px, py) && this.travelBtn.w > 0) {
       return canTravel ? "travel" : null;
     }

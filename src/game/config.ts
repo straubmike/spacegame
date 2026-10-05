@@ -324,7 +324,8 @@ export const WEAPONS = {
 } as const;
 
 /**
- * Drive heat. Energy weapons and a committed hyperspace jump add heat.
+ * Drive heat. Energy weapons, a hyperspace jump, and an intra-system
+ * jump add heat. Both jumps add the same flat amount.
  * The equipped drive supplies sink, vent delay, and vent rate.
  * Jump heat is flat — it does not scale with distance.
  * A jump commits only when the sink can take all of it first

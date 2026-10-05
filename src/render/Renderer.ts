@@ -307,7 +307,15 @@ export class Renderer {
         );
       }
     } else if (args.panelOpen) {
-      args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);
+      args.panel.draw(
+        ctx,
+        args.local,
+        w,
+        h,
+        args.pointerX,
+        args.pointerY,
+        !args.ship.jumpHeatFits(),
+      );
     } else if (args.shipMenuOpen) {
       args.shipMenu.draw(
         ctx,

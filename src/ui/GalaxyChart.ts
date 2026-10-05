@@ -1,4 +1,12 @@
-import { FONT, FONT_TITLE, drawButton, drawPanel, hit, type Rect } from "./menu";
+import {
+  FONT,
+  FONT_TITLE,
+  drawButton,
+  drawInsufficientHeat,
+  drawPanel,
+  hit,
+  type Rect,
+} from "./menu";
 import { POI_CHART_COLORS, STAR_COLORS } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
 import type { PoiRef } from "../galaxy/types";
@@ -73,7 +81,7 @@ export class GalaxyChart {
       fuel: 0,
       costForSelected: null,
     },
-    /** Sink cannot take the whole jump heat — the Jump button stays disabled. */
+    /** Sink cannot take the jump heat. The Jump control shows that label. */
     heatFull = false,
   ): void {
     const margin = Math.max(40, Math.min(width, height) * 0.06);
@@ -242,7 +250,7 @@ export class GalaxyChart {
       ctx.fillText(status, statusX, statusY);
     }
 
-    this.jumpBtn = {
+    const jumpSlot: Rect = {
       x: panel.x + panel.w - 220,
       y: footerY + 14,
       w: 88,
@@ -255,11 +263,19 @@ export class GalaxyChart {
       h: 36,
     };
 
-    drawButton(ctx, this.jumpBtn, "Jump", {
-      primary: true,
-      enabled: canJump,
-      hover: hit(this.jumpBtn, pointerX, pointerY),
-    });
+    const heatBlocks =
+      heatFull && this.selectedId !== null && this.selectedId !== currentId;
+    if (heatBlocks) {
+      this.jumpBtn = { x: 0, y: 0, w: 0, h: 0 };
+      drawInsufficientHeat(ctx, jumpSlot);
+    } else {
+      this.jumpBtn = jumpSlot;
+      drawButton(ctx, this.jumpBtn, "Jump", {
+        primary: true,
+        enabled: canJump,
+        hover: hit(this.jumpBtn, pointerX, pointerY),
+      });
+    }
     drawButton(ctx, this.closeBtn, "Close", {
       hover: hit(this.closeBtn, pointerX, pointerY),
     });
