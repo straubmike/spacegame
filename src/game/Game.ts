@@ -103,7 +103,7 @@ import { ShipMenu } from "../ui/ShipMenu";
 import { MarketMenu } from "../ui/MarketMenu";
 import { MissionBoardMenu } from "../ui/MissionBoardMenu";
 import { HangarMenu } from "../ui/HangarMenu";
-import type { WeaponHudRow } from "../ui/Hud";
+import { WEAPON_HUD_INPUTS, weaponCompleteName, type WeaponHudRow } from "../ui/Hud";
 import { GameOverScreen, StartScreen } from "../ui/RunScreens";
 import { factoryPassengerCapacity, hullById } from "../ship/hulls";
 import {
@@ -3800,12 +3800,13 @@ export class Game {
   private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");
     const columnSlot = [1, 0, 2];
-    return columnSlot.map((slotIndex) => {
+    return columnSlot.map((slotIndex, column) => {
       const slot = slots[slotIndex];
       const weapon = slot?.equipped;
       if (!slot || !weapon || weapon.kind !== "weapon") return null;
       return {
-        name: weapon.name,
+        input: WEAPON_HUD_INPUTS[column] ?? "SPACE",
+        name: weaponCompleteName(weapon.name, weapon.tier),
         family: weapon.family,
         ammoMax: weapon.ammoMax,
         ammo: this.ship.loadout.ammoIn(slot.id),

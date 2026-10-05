@@ -1,10 +1,16 @@
+import { tierLabel, type ModuleTier } from "../ship/equipment";
+
+/** Display order: left click, Space, right click. */
+export const WEAPON_HUD_INPUTS = ["L-MOUSE", "SPACE", "R-MOUSE"] as const;
+
 /**
- * One equipped hardpoint. Columns are the buttons:
- * left = left click, center = Space, right = right click.
- * A null column is an empty slot and stays blank.
+ * One equipped hardpoint.
+ * Columns are left click, Space, right click. Null leaves that column blank.
  */
 export interface WeaponHudRow {
-  /** Module name. The column position is the fire button. */
+  /** L-MOUSE, SPACE, or R-MOUSE. */
+  input: string;
+  /** Complete module name with its mark, e.g. Gun Mk II. */
   name: string;
   family: string;
   /** null = no magazine (energy). A number is the module's ammo cap. */
@@ -32,6 +38,11 @@ export function weaponRowIsEnergy(row: WeaponHudRow): boolean {
     row.family !== "cannon" &&
     row.family !== "missile"
   );
+}
+
+/** Module name plus its mark, e.g. `Gun Mk II` or `Energy Pulse Mk I`. */
+export function weaponCompleteName(name: string, tier: ModuleTier): string {
+  return `${name} ${tierLabel(tier)}`;
 }
 
 /** Current ammo, or null when the weapon has no magazine. */
@@ -223,52 +234,60 @@ export class Hud {
     const showBar = heatSinkCapacity > 0;
     if (!columns.some((row) => row !== null) && !showBar) return;
 
-    const colW = 128;
     const gap = 14;
     const padX = 8;
     const padY = 6;
     const lineH = 16;
     const top = 14;
-    const totalW = colW * 3 + gap * 2;
-    const originX = (window.innerWidth - totalW) / 2;
-    const nameY = top + padY;
-    const ammoY = nameY + lineH;
 
     ctx.save();
     ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
 
+    // Wide enough for the longest marked weapon name, so the label is not clipped.
+    let textW = ctx.measureText("Energy Pulse Mk III").width;
+    for (const row of columns) {
+      if (!row) continue;
+      textW = Math.max(
+        textW,
+        ctx.measureText(row.input).width,
+        ctx.measureText(row.name).width,
+      );
+    }
+    const colW = Math.ceil(textW) + padX * 2;
+    const totalW = colW * 3 + gap * 2;
+    const originX = (window.innerWidth - totalW) / 2;
+    const keyY = top + padY;
+    const nameY = keyY + lineH;
+    const ammoY = nameY + lineH;
+
     for (let i = 0; i < columns.length; i += 1) {
       const row = columns[i];
       if (!row) continue;
       const x = originX + i * (colW + gap);
       const energy = weaponRowIsEnergy(row);
-      const boxH = energy ? padY * 2 + lineH : padY * 2 + lineH * 2;
+      const boxH = padY * 2 + lineH * (energy ? 2 : 3);
       ctx.fillStyle = "rgba(8, 12, 20, 0.55)";
       ctx.fillRect(x, top, colW, boxH);
       ctx.strokeStyle = "rgba(150, 170, 200, 0.35)";
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, top + 0.5, colW - 1, boxH - 1);
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x + padX, top, colW - padX * 2, boxH);
-      ctx.clip();
       ctx.fillStyle = toneColor(weaponRowTone(row, heat, heatSinkCapacity));
       const cx = x + colW / 2;
+      ctx.fillText(row.input, cx, keyY);
       ctx.fillText(row.name, cx, nameY);
       const ammo = weaponAmmoLabel(row);
       if (ammo !== null) ctx.fillText(ammo, cx, ammoY);
-      ctx.restore();
     }
 
     if (showBar) {
       const barW = 120;
       const barH = 6;
       const barX = (window.innerWidth - barW) / 2;
-      const kineticBoxH = padY * 2 + lineH * 2;
-      const barY = top + kineticBoxH + 6;
+      const ammoBoxH = padY * 2 + lineH * 3;
+      const barY = top + ammoBoxH + 6;
       const frac = Math.max(0, Math.min(1, heat / heatSinkCapacity));
       ctx.fillStyle = "rgba(18, 22, 32, 0.85)";
       ctx.fillRect(barX, barY, barW, barH);
