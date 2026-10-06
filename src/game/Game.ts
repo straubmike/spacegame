@@ -4332,7 +4332,7 @@ export class Game {
 
   /**
    * Three HUD columns: left click, Space, right click.
-   * An empty or missing hardpoint is null so the other columns stay put.
+   * An empty or missing hardpoint is null. The HUD still draws that key.
    */
   private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");
