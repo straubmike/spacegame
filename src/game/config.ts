@@ -291,15 +291,17 @@ export const WEAPONS = {
   },
   /**
    * Held beam, drawn as a thick line. Same long reach on every mark (past
-   * the missile hold, so it already covers short through long). Marks raise
-   * impact and chunk damage, shorten the chunk interval with the gun
-   * time-on-target ladder, and lower upfront heat, heat per second, and
-   * the restart cooldown.
-   * Impact stays under cannon Mk I (14) and above pulse damage.
-   * Chunk damage stays 5 / 6 / 7. The interval is the gun ladder
-   * (1.00 / 0.70 / 0.45 s), stored on the module. A gap longer than
-   * `gunStreamBreakGap` off that hull resets the chunk timer.
-   * First contact is a separate impact. Guns have no first hit.
+   * the missile hold, so it already covers short through long). Marks set
+   * the opening hit, the sustain chunk, and the mark interval, and lower
+   * upfront heat, heat per second, and the restart cooldown.
+   * Opening hit is 3 / 4 / 5. Sustain chunk is 8 / 10 / 12.
+   * The mark interval is 1.00 / 0.70 / 0.45 s, stored on the module.
+   * Once a beam damages a target, that target takes nothing until the
+   * interval passes. Leaving the hull does not reset that timer and does
+   * not arm another opening hit. The next packet is the sustain chunk.
+   * A new opening hit happens only after the beam is released and fired
+   * again. Guns still use their own stream break and have no first hit.
+   * The beam stays on the heading it was fired along.
    * 100% shields, 100% core, 50% plating.
    * Each target after the first takes `falloff` of the previous listed damage.
    */
@@ -316,9 +318,9 @@ export const WEAPONS = {
      */
     halfWidth: 3.5,
     marks: [
-      { damage: 8, chunkDamage: 5, heat: 10, heatPerSecond: 14, fireCooldown: 0.45 },
-      { damage: 10, chunkDamage: 6, heat: 7, heatPerSecond: 10, fireCooldown: 0.32 },
-      { damage: 12, chunkDamage: 7, heat: 5, heatPerSecond: 7, fireCooldown: 0.22 },
+      { damage: 3, chunkDamage: 8, interval: 1, heat: 10, heatPerSecond: 14, fireCooldown: 0.45 },
+      { damage: 4, chunkDamage: 10, interval: 0.7, heat: 7, heatPerSecond: 10, fireCooldown: 0.32 },
+      { damage: 5, chunkDamage: 12, interval: 0.45, heat: 5, heatPerSecond: 7, fireCooldown: 0.22 },
     ],
   },
 } as const;

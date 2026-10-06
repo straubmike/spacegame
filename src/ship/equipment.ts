@@ -50,7 +50,11 @@ export interface WeaponModule extends ModuleBase {
    * With plating empty, core takes 100% of listed damage regardless.
    */
   platingMultiplier?: number;
-  /** Gun and beam: seconds on one hull before the next chunk. 0 on other families. */
+  /**
+   * Gun: seconds the stream must stay on one hull before a chunk.
+   * Beam: seconds after a damage packet before that target can be hit again.
+   * 0 on other families.
+   */
   timeOnTarget: number;
   /** Energy reach in world units. Omitted on kinetics (they fly out). */
   range?: number;
@@ -61,7 +65,7 @@ export interface WeaponModule extends ModuleBase {
   heatCost?: number;
   /** Beam only: heat added per second while the beam is held. */
   heatPerSecond?: number;
-  /** Beam only: extra damage per sustained-contact chunk. Impact is `damage`. */
+  /** Beam only: sustain-chunk damage. The opening hit is `damage`. */
   chunkDamage?: number;
   /** Missile steering, radians per second. 0 on other families. */
   trackingTurn: number;
@@ -447,7 +451,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[0].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.gun.marks[0].timeOnTarget,
+    timeOnTarget: WEAPONS.beam.marks[0].interval,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,
@@ -472,7 +476,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[1].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.gun.marks[1].timeOnTarget,
+    timeOnTarget: WEAPONS.beam.marks[1].interval,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,
@@ -497,7 +501,7 @@ export const MODULES = {
     damage: WEAPONS.beam.marks[2].damage,
     shieldMultiplier: WEAPONS.beam.shieldMultiplier,
     platingMultiplier: WEAPONS.beam.platingMultiplier,
-    timeOnTarget: WEAPONS.gun.marks[2].timeOnTarget,
+    timeOnTarget: WEAPONS.beam.marks[2].interval,
     trackingTurn: 0,
     trackSeconds: 0,
     pelletCount: 1,

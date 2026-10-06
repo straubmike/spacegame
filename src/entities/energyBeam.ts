@@ -19,6 +19,45 @@ export interface BeamTarget {
   radius: number;
 }
 
+/** Lock that blocks another packet to one target until `nextAt`. */
+export interface BeamDamageMark {
+  /** Combat-clock time when this target may take damage again. */
+  nextAt: number;
+}
+
+export type BeamDamagePacket = "opening" | "chunk" | "none";
+
+/**
+ * Next listed-damage packet for one target during a single beam activation.
+ *
+ * No mark yet: opening hit, then nothing until `interval` seconds pass.
+ * After that the packet is the sustain chunk, and the interval starts again.
+ * The caller keeps the mark when the beam leaves this target. Losing
+ * contact does not reset it and does not arm another opening hit.
+ * Dropping the mark — the beam was released — is what arms a new opening hit.
+ */
+export function nextBeamDamagePacket(
+  mark: BeamDamageMark | undefined,
+  now: number,
+  interval: number,
+): { packet: BeamDamagePacket; mark: BeamDamageMark } {
+  if (!mark) {
+    return {
+      packet: "opening",
+      mark: {
+        nextAt: interval > 0 ? now + interval : Number.POSITIVE_INFINITY,
+      },
+    };
+  }
+  if (!(interval > 0) || now + 1e-6 < mark.nextAt) {
+    return { packet: "none", mark };
+  }
+  return {
+    packet: "chunk",
+    mark: { nextAt: now + interval },
+  };
+}
+
 /** Signed shortest turn from `from` to `to`, in (-π, π]. */
 export function signedAngle(from: number, to: number): number {
   let d = to - from;
