@@ -7,6 +7,7 @@ import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
   heatPirateFits,
   listSystemPirateKeys,
+  listSystemStations,
   pickQuestGiverStation,
   pirateViewKey,
   stationKey,
@@ -49,6 +50,7 @@ import {
   MERCHANTS_GUILD_FACTION_ID,
   PIRATE_FACTION_ID,
   REBELS_FACTION_ID,
+  qualifySharedStationLabels,
   ReputationTracker,
   standingBand,
   type ReputationListing,
@@ -266,6 +268,8 @@ export class Game {
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
   private readonly reputation = new ReputationTracker();
+  /** Station names that occur in more than one system (rep-menu labels). */
+  private namesSharedInGalaxy: ReadonlySet<string> | null = null;
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
   /**
@@ -2149,10 +2153,43 @@ export class Game {
               : 0,
       });
     }
+    const stations = this.reputation.nonzeroStations();
     return {
       factions,
-      stations: this.reputation.nonzeroStations(),
+      stations: qualifySharedStationLabels(
+        stations,
+        (key) => this.mainSequenceStarName(key),
+        this.stationNamesSharedAcrossSystems(),
+      ),
     };
+  }
+
+  /** Main-sequence star for a station key (`poiId:bodyId:stationId`). */
+  private mainSequenceStarName(stationKey: string): string | null {
+    const head = stationKey.split(":")[0] ?? "";
+    if (!/^\d+$/.test(head)) return null;
+    const poiId = Number(head);
+    if (poiId >= this.galaxy.pois.length) return null;
+    const poi = this.galaxy.get(poiId);
+    if (poi.type !== "starSystem") return null;
+    return poi.name;
+  }
+
+  private stationNamesSharedAcrossSystems(): ReadonlySet<string> {
+    if (this.namesSharedInGalaxy) return this.namesSharedInGalaxy;
+    const counts = new Map<string, number>();
+    for (const poi of this.galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(this.galaxy, poi.id)) {
+        counts.set(station.name, (counts.get(station.name) ?? 0) + 1);
+      }
+    }
+    const shared = new Set<string>();
+    for (const [name, count] of counts) {
+      if (count > 1) shared.add(name);
+    }
+    this.namesSharedInGalaxy = shared;
+    return shared;
   }
 
   private hasExpandedFuelTank(): boolean {
@@ -4269,7 +4306,7 @@ export class Game {
 
   /**
    * Three HUD columns: left click, Space, right click.
-   * An empty or missing hardpoint is null so the other columns stay put.
+   * An empty or missing hardpoint is null. The HUD still draws that key.
    */
   private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");

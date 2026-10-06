@@ -61,6 +61,34 @@ export interface ReputationStationRow {
   score: number;
 }
 
+/**
+ * Reputation-menu labels only.
+ * A station name that is shared — with another row in this list, or with
+ * another station in the galaxy — is qualified by the main-sequence star:
+ * "Aether Station (Lave)". Unique names stay as stored.
+ * Standing, fines, and perks are unchanged.
+ */
+export function qualifySharedStationLabels(
+  rows: readonly ReputationStationRow[],
+  starNameForKey: (key: string) => string | null,
+  namesSharedInGalaxy: ReadonlySet<string>,
+): ReputationStationRow[] {
+  const listed = new Map<string, number>();
+  for (const row of rows) {
+    listed.set(row.name, (listed.get(row.name) ?? 0) + 1);
+  }
+  return rows.map((row) => {
+    const shared =
+      (listed.get(row.name) ?? 0) > 1 || namesSharedInGalaxy.has(row.name);
+    if (!shared) return row;
+    const star = starNameForKey(row.key);
+    if (!star) return row;
+    const suffix = ` (${star})`;
+    if (row.name.endsWith(suffix)) return row;
+    return { ...row, name: `${row.name}${suffix}` };
+  });
+}
+
 /** Payload for the L-menu Reputation band. */
 export interface ReputationListing {
   /**
