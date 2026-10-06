@@ -14,6 +14,7 @@ import {
 } from "../galaxy/pirates";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
 import {
+  moduleById,
   moduleStockLabel,
   swapCost,
   weaponSlotBindingForId,
@@ -30,6 +31,7 @@ import {
   createBlackMarket,
   createStationMarket,
   isIllegalCommodityId,
+  isTempDerelictFenceStation,
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
@@ -129,6 +131,8 @@ import {
   ABANDONED_DERELICT_CARGO_ID,
   DERELICT_CARGO_NAME,
   distressAnswerMatchesView,
+  TEMP_ensureStartDerelict,
+  TEMP_rebelDerelictSameWreck,
   generateStationMissions,
   generateStationReplenishmentOffer,
   freePassengerBerths,
@@ -248,6 +252,14 @@ export class Game {
   private readonly activeMissions: ActiveMission[] = [];
   /** Offer ids already taken this session (hide from boards). */
   private readonly acceptedMissionIds = new Set<string>();
+  /**
+   * Last scooped derelict debris id, keyed by wreck POI.
+   * The next regular or rebel scoop at that wreck marks a different piece
+   * when another exists.
+   */
+  private readonly lastScoopedDerelictDebris = new Map<number, number>();
+  /** TEMP(derelict-fence): one comms line per run. Strip before merge. */
+  private tempDerelictFenceHint = false;
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
   /**
@@ -428,6 +440,8 @@ export class Game {
     this.pendingPirateKills = 0;
     this.activeMissions.length = 0;
     this.acceptedMissionIds.clear();
+    this.lastScoopedDerelictDebris.clear();
+    this.tempDerelictFenceHint = false;
     this.claimedClearanceSystems.clear();
     this.chartCatalog.clear();
     this.claimedCartographerVisits.clear();
@@ -456,6 +470,7 @@ export class Game {
     this.dockBlackMarket = null;
 
     this.ship.resetForNewRun();
+    this.TEMP_fitCargoScoop();
     this.shipMenu.selectedIndex = 0;
     this.shipMenu.openView();
     this.messages.clear();
@@ -630,7 +645,8 @@ export class Game {
 
   /**
    * When a Retrieve Derelict Cargo contract targets this POI and the lot is
-   * not yet scooped, mark one debris piece as scoopable.
+   * not yet scooped, mark one debris piece as scoopable. The piece just
+   * scooped at this wreck is skipped when another exists.
    */
   private ensureDerelictMissionDebris(): void {
     if (this.local.focus.kind !== "derelict" || !this.local.beltRocks) return;
@@ -644,6 +660,36 @@ export class Game {
     markDerelictMissionDebris(
       this.local.beltRocks,
       GALAXY.seed ^ (this.local.poiId * 9973 + 19),
+      this.lastScoopedDerelictDebris.get(this.local.poiId),
+    );
+  }
+
+  /**
+   * TEMP(derelict-fence): strip before merge.
+   * Empty utility bay gets a Cargo Scoop so the derelict can be accepted
+   * without a Bay buy. Survey Scanner stays fitted.
+   */
+  private TEMP_fitCargoScoop(): void {
+    const scoop = moduleById("cargo_scoop");
+    if (!scoop) return;
+    const slot = this.ship.loadout.slots.find(
+      (s) => s.kind === "utility" && !s.equipped,
+    );
+    if (!slot) return;
+    this.ship.loadout.equip(slot.id, scoop);
+    this.ship.syncDerivedStats({ refillShield: true });
+  }
+
+  /** TEMP(derelict-fence): strip before merge. */
+  private TEMP_derelictFenceHint(station: Landmark): void {
+    const key = this.currentStationKey(station);
+    if (!key || !isTempDerelictFenceStation(key) || this.tempDerelictFenceHint) {
+      return;
+    }
+    this.tempDerelictFenceHint = true;
+    this.messages.push(
+      "TEMP: Cargo Scoop is fitted. Scoop the derelict, Cancel it (do not claim), and sell the lot on the Black Market. The rebel job for that wreck is listed there.",
+      "station",
     );
   }
 
@@ -1080,6 +1126,12 @@ export class Game {
       );
       if (clearance) offers.unshift(clearance);
     }
+
+    // TEMP(derelict-fence): starting station always posts a derelict scoop.
+    // Strip before merge. Does not change refill.
+    if (isTempDerelictFenceStation(ref.key)) {
+      TEMP_ensureStartDerelict(this.galaxy, ref, offers);
+    }
     return offers;
   }
 
@@ -1110,6 +1162,26 @@ export class Game {
             stationOffersBlackMarket,
           )
         : [];
+    // TEMP(derelict-fence): once the regular lot is fenced, Rebels are known
+    // and this black market lists a rebel derelict for that same wreck.
+    // Strip before merge. Does not change steal-haul source or turn-in.
+    if (
+      ref &&
+      isTempDerelictFenceStation(ref.key) &&
+      this.reputation.rebelsKnown()
+    ) {
+      const regular = this.dockMissionOffers.find(
+        (o) => o.kind === "derelictCargo" && o.originStationKey === ref.key,
+      );
+      if (regular) {
+        const same = TEMP_rebelDerelictSameWreck(regular);
+        if (same && !this.acceptedMissionIds.has(same.id)) {
+          const idx = fresh.findIndex((o) => o.kind === "rebelDerelict");
+          if (idx >= 0) fresh[idx] = same;
+          else fresh.unshift(same);
+        }
+      }
+    }
     this.dockMissionOffers = this.dockMissionOffers.filter(
       (o) => !isRebelMissionKind(o.kind),
     );
@@ -3119,6 +3191,7 @@ export class Game {
     this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
+    this.TEMP_derelictFenceHint(station);
     this.applyComplimentaryDockService(station);
   }
 
@@ -3374,6 +3447,7 @@ export class Game {
     }
     best.remaining = 0;
     best.yieldId = null;
+    this.lastScoopedDerelictDebris.set(this.local.poiId, best.id);
     mission.scanned = true;
     this.messages.push(
       `Scoop: +${need} CU ${DERELICT_CARGO_NAME} — return to ${mission.originStationName} to claim (+${mission.reward} cr).`,

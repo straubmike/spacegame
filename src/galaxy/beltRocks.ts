@@ -166,18 +166,26 @@ export function generateDerelictDebris(
 
 /**
  * Mark exactly one barren debris piece as the mission scoop target.
- * No-op if a derelict_cargo lot is already present (or none left barren).
+ * `avoidId` is the piece just scooped at this wreck. Skip it when another
+ * barren piece exists. No-op if a derelict_cargo lot is already present.
  */
 export function markDerelictMissionDebris(
   rocks: BeltRock[],
   seed: number,
+  avoidId?: number,
 ): BeltRock | null {
-  if (rocks.some((r) => r.yieldId === "derelict_cargo" && r.remaining > 0)) {
-    return rocks.find((r) => r.yieldId === "derelict_cargo") ?? null;
-  }
+  const live = rocks.find(
+    (r) => r.yieldId === "derelict_cargo" && r.remaining > 0,
+  );
+  if (live) return live;
   const barren = rocks.filter((r) => r.yieldId === null || r.remaining <= 0);
   if (barren.length === 0) return null;
-  const pick = barren[(unitHash(seed, 777) * barren.length) | 0]!;
+  let pool = barren;
+  if (avoidId !== undefined && barren.length > 1) {
+    const others = barren.filter((r) => r.id !== avoidId);
+    if (others.length > 0) pool = others;
+  }
+  const pick = pool[(unitHash(seed, 777) * pool.length) | 0]!;
   pick.yieldId = "derelict_cargo";
   pick.remaining = 1;
   return pick;

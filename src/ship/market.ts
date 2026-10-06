@@ -172,8 +172,21 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     "missions",
     ...pool.slice(0, count),
   ]);
+  // TEMP(derelict-fence): the station in the starting view always has a
+  // black market, so the derelict lot can be fenced there. Strip before merge.
+  if (isTempDerelictFenceStation(stationKey)) {
+    result.add("blackMarket");
+  }
   menuCache.set(stationKey, result);
   return result;
+}
+
+/**
+ * TEMP(derelict-fence): station in the local view the run starts in.
+ * Strip before merge.
+ */
+export function isTempDerelictFenceStation(stationKey: string): boolean {
+  return stationKey.startsWith(`${GALAXY.startPoiId}:0:`);
 }
 
 export function stationHasMenu(

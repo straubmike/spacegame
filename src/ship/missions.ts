@@ -1105,6 +1105,55 @@ function rebelFaction(offer: {
   offer.factionLabel = "Rebels";
 }
 
+/**
+ * TEMP(derelict-fence): strip before merge.
+ * Starting-station board always includes one Retrieve Derelict Cargo.
+ * Does not change refill.
+ */
+export function TEMP_ensureStartDerelict(
+  galaxy: Galaxy,
+  station: SystemStationRef,
+  offers: MissionOffer[],
+): void {
+  if (offers.some((o) => o.kind === "derelictCargo")) return;
+  const rng = mulberry32(
+    hash2(GALAXY.seed ^ 0x7e39, hashStationKey(station.key)),
+  );
+  const offer = makeDerelictCargoOffer(galaxy, station, rng, 50);
+  if (offer) offers.push(offer);
+}
+
+/**
+ * TEMP(derelict-fence): strip before merge.
+ * Rebel derelict for the same wreck as the regular scoop just fenced.
+ */
+export function TEMP_rebelDerelictSameWreck(
+  regular: MissionOffer,
+): MissionOffer | null {
+  if (regular.kind !== "derelictCargo" || regular.targetPoiId === undefined) {
+    return null;
+  }
+  const cu = regular.cu ?? QUEST.derelictCargoCu;
+  const offer: MissionOffer = {
+    id: `rebelDerelict:${regular.originStationKey}`,
+    kind: "rebelDerelict",
+    title: "Retrieve derelict cargo",
+    blurb: `Scoop ${cu} CU at ${regular.targetPoiName}. Turn it in here.`,
+    reward: regular.reward,
+    originStationKey: regular.originStationKey,
+    originStationName: regular.originStationName,
+    originPoiId: regular.originPoiId,
+    commodityId: ABANDONED_DERELICT_CARGO_ID,
+    commodityName: DERELICT_CARGO_NAME,
+    cu,
+    targetPoiId: regular.targetPoiId,
+    targetPoiName: regular.targetPoiName,
+    targetPoiType: "derelict",
+  };
+  rebelFaction(offer);
+  return offer;
+}
+
 function makeRebelDerelictOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,
