@@ -281,13 +281,15 @@ export class Game {
   /** Local station patrols (host-station tied). */
   private patrols: StationPatrol[] = [];
   /**
-   * Imperial Bulwark + Hauler sent if a distress pirate pack is still
-   * present 45s after it arrives. Not station law. They shoot any pirate
-   * in hunt range, including a paid-off pack, and do not break that truce.
+   * Imperial Bulwark + Hauler for this local view. One pair. They stay until
+   * the player leaves, shoot any pirate in hunt range, and do not break a
+   * paid truce.
    */
   private distressRelief: StationPatrol[] = [];
-  /** Seconds left before distress relief can arrive. Null when not armed. */
+  /** Seconds left before that pair can arrive. Null when not armed. */
   private distressImperialTimer: number | null = null;
+  /** This view already received its pair. A new view can send another. */
+  private distressImperialSent = false;
   /** Shared fee/combat event for the current local pirate group (null = none). */
   private pack: PackEncounter | null = null;
   /** Distress-spawned pirates (separate from seeded pack). */
@@ -555,6 +557,7 @@ export class Game {
     this.patrols = [];
     this.distressRelief = [];
     this.distressImperialTimer = null;
+    this.distressImperialSent = false;
     this.pack = null;
     this.distressPirates = [];
     this.distressPack = null;
@@ -5423,14 +5426,27 @@ export class Game {
         : "Pirate: Heard your whimper. Stay put.",
       "pirate",
     );
-    this.distressRelief = [];
+    this.armDistressImperial();
+  }
+
+  /**
+   * One countdown per local view. A pair already here, or already inbound,
+   * is not replaced and the clock is not restarted.
+   */
+  private armDistressImperial(): void {
+    if (this.distressImperialSent) return;
+    if (this.distressRelief.some((p) => p.alive)) return;
+    if (this.distressImperialTimer !== null) return;
     this.distressImperialTimer = FUEL.distressImperialSeconds;
   }
 
   /** Bulwark + Hauler. Lawful shots at pirates in range, not the Fuel Rat. */
   private spawnDistressImperial(): void {
+    if (this.distressImperialSent) return;
+    if (this.distressRelief.some((p) => p.alive)) return;
     const fits = heavyPatrolFits();
     const angle0 = Math.random() * Math.PI * 2;
+    this.distressImperialSent = true;
     this.distressRelief = [];
     for (let i = 0; i < fits.length; i += 1) {
       const ang = angle0 + (i / fits.length) * Math.PI * 2;
