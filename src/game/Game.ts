@@ -713,6 +713,15 @@ export class Game {
     );
   }
 
+  /**
+   * Menus that return before pirate, patrol, rat, and stranded updates.
+   * Station hail, pirate fee, and patrol fine are overlays and stay live.
+   * The dock screen is included: NPCs do not tick while docked.
+   */
+  private menuPausesNpc(): boolean {
+    return this.menuOpen() || this.dock.kind === "docked";
+  }
+
   private pirateAggroActive(): boolean {
     return (
       this.pack?.phase === "hostile" ||
@@ -2361,7 +2370,10 @@ export class Game {
 
     this.messages.update(dt);
     this.ship.tickDefense(dt);
-    this.ship.tickHeat(dt);
+    // Chart, system panel, ship, market, missions, hangar, and the dock
+    // screen already skip NPC updates. The vent delay and the shed wait
+    // with them, then continue from the stored heat and wait.
+    if (!this.menuPausesNpc()) this.ship.tickHeat(dt);
     this.tickEnergyFlashes(dt);
 
     // Drain wheel every frame so deltas don't pile up while menus are closed.

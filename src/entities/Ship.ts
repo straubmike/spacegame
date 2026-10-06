@@ -147,6 +147,7 @@ export class Ship {
   /**
    * After `ventDelay` with no new heat, shed `ventRate` per second.
    * The frame that crosses the delay only sheds the time past it.
+   * A skipped call leaves both the wait and the shed where they were.
    */
   tickHeat(dt: number): void {
     const sink = this.heatSinkCapacity;
