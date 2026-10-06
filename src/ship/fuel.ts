@@ -45,11 +45,19 @@ export function jumpReachLy(
   return reach;
 }
 
+/** Landmark name for the first station on a body. Matches local station labels. */
+function stationLandmarkName(bodyName: string): string {
+  const clean = bodyName.replace(/ \([^)]+\)$/, "").replace(/ Belt$/, "");
+  return `${clean} Station`;
+}
+
 export interface NearestStationRefuel {
   /** Minimum fuel needed from here to reach a dockable station. */
   fuelNeeded: number;
   /** POI name to tell the player. */
   poiName: string;
+  /** Station on the body this path docks at. */
+  stationName: string;
   /** Short reason for comms. */
   detail: string;
 }
@@ -74,6 +82,7 @@ export function nearestStationRefuel(
       return {
         fuelNeeded: 0,
         poiName: from.name,
+        stationName: stationLandmarkName(here.name),
         detail: `Dock at a station here in ${from.name}.`,
       };
     }
@@ -84,6 +93,7 @@ export function nearestStationRefuel(
       return {
         fuelNeeded: sc,
         poiName: from.name,
+        stationName: stationLandmarkName(other.name),
         detail: `Supercruise to ${other.name} in ${from.name}.`,
       };
     }
@@ -103,6 +113,7 @@ export function nearestStationRefuel(
       best = {
         fuelNeeded: cost,
         poiName: poi.name,
+        stationName: stationLandmarkName(withStation.name),
         detail: `Jump to ${poi.name}, then dock at ${withStation.name}.`,
       };
     }
@@ -122,6 +133,7 @@ export function nearestStationRefuel(
       best = {
         fuelNeeded: Math.max(cost, sc),
         poiName: poi.name,
+        stationName: stationLandmarkName(withStation.name),
         detail: `Head for ${poi.name} (${withStation.name}).`,
       };
     }
@@ -131,6 +143,7 @@ export function nearestStationRefuel(
     best ?? {
       fuelNeeded: sc,
       poiName: from.name,
+      stationName: from.name,
       detail: "Seek the nearest inhabited system.",
     }
   );
