@@ -172,8 +172,21 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     "missions",
     ...pool.slice(0, count),
   ]);
+  // TEMP(steal-haul): the station in the starting sector always has a black
+  // market, even when the seed did not roll one. Strip before merge.
+  if (isTempStealHaulStation(stationKey)) {
+    result.add("blackMarket");
+  }
   menuCache.set(stationKey, result);
   return result;
+}
+
+/**
+ * TEMP(steal-haul): station in the local view the run starts in (start POI, star).
+ * Strip before merge.
+ */
+export function isTempStealHaulStation(stationKey: string): boolean {
+  return stationKey.startsWith(`${GALAXY.startPoiId}:0:`);
 }
 
 export function stationHasMenu(

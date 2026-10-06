@@ -30,6 +30,7 @@ import {
   createBlackMarket,
   createStationMarket,
   isIllegalCommodityId,
+  isTempStealHaulStation,
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
@@ -144,6 +145,7 @@ import {
   rebelCoverNeedsRegularSlot,
   rebelMissionOffers,
   stolenCargoId,
+  tempStealHaulOffer,
   stationRefFromLocal,
   type ActiveMission,
   type MissionKind,
@@ -1022,7 +1024,9 @@ export class Game {
         m.kind === "bmDestroyPatrol"
       ) {
         const claimKey =
-          m.kind === "rebelKidnap" ? m.destStationKey : m.originStationKey;
+          m.kind === "rebelKidnap" || m.kind === "rebelSteal"
+            ? m.destStationKey
+            : m.originStationKey;
         const ready = m.scanned && here === claimKey;
         if (ready && m.status !== "readyToClaim") {
           return { ...m, status: "readyToClaim" as const };
@@ -1097,19 +1101,42 @@ export class Game {
       station.id,
       station.name,
     );
-    const fresh =
+    // TEMP(steal-haul): the forced starting-sector market is not a turn-in.
+    // Strip this with the other TEMP(steal-haul) hook.
+    const turnInMarket = (stationKey: string) => {
+      if (isTempStealHaulStation(stationKey)) return false;
+      return stationOffersBlackMarket(stationKey);
+    };
+    // TEMP(steal-haul): before Rebels are revealed, the starting station lists
+    // the steal contract for its current mission-board haul. Strip before merge.
+    const tempSteal =
+      !!ref &&
+      isTempStealHaulStation(ref.key) &&
+      !this.reputation.rebelsKnown();
+    let fresh: MissionOffer[] = [];
+    if (ref && tempSteal) {
+      const steal = tempStealHaulOffer(
+        this.galaxy,
+        ref,
+        this.dockMissionOffers,
+        this.acceptedMissionIds,
+        turnInMarket,
+      );
+      if (steal) fresh = [steal];
+    } else if (
       ref &&
       this.reputation.rebelsKnown() &&
       stationOffersBlackMarket(ref.key)
-        ? rebelMissionOffers(
-            this.galaxy,
-            ref,
-            this.reputation.rebelsRep(),
-            this.acceptedMissionIds,
-            this.dockMissionOffers,
-            stationOffersBlackMarket,
-          )
-        : [];
+    ) {
+      fresh = rebelMissionOffers(
+        this.galaxy,
+        ref,
+        this.reputation.rebelsRep(),
+        this.acceptedMissionIds,
+        this.dockMissionOffers,
+        turnInMarket,
+      );
+    }
     this.dockMissionOffers = this.dockMissionOffers.filter(
       (o) => !isRebelMissionKind(o.kind),
     );
@@ -1475,7 +1502,7 @@ export class Game {
         this.coverSlotsFree() < 1
       ) {
         this.messages.push(
-          "Missions: Need a free mission slot to accept the cover haul or fare.",
+          "Missions: Requires a free mission slot to accept the cover haul or fare.",
           "station",
         );
         return;
@@ -1762,10 +1789,10 @@ export class Game {
     }
 
     if (mission.kind === "rebelSteal") {
-      if (!mission.scanned || here !== mission.originStationKey) {
+      if (!mission.scanned || here !== mission.destStationKey) {
         this.messages.push(
           mission.scanned
-            ? `Missions: Deliver the stolen freight to ${mission.originStationName}.`
+            ? `Missions: Deliver the stolen freight to ${mission.destStationName ?? "the black market"}.`
             : "Missions: Steal a haul first — abandon it away from the giver.",
           "station",
         );
@@ -2260,8 +2287,9 @@ export class Game {
     cover.commodityName = haul.commodityName;
     cover.cu = cu;
     cover.scanned = true;
+    const where = cover.destStationName ?? "the black market";
     this.messages.push(
-      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${cover.originStationName}.`,
+      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${where}'s black market.`,
       "station",
     );
   }
