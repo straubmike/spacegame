@@ -250,6 +250,12 @@ export class Game {
   private readonly activeMissions: ActiveMission[] = [];
   /** Offer ids already taken this session (hide from boards). */
   private readonly acceptedMissionIds = new Set<string>();
+  /**
+   * Last scooped derelict debris id, keyed by wreck POI.
+   * The next regular or rebel scoop at that wreck marks a different piece
+   * when another exists.
+   */
+  private readonly lastScoopedDerelictDebris = new Map<number, number>();
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
   /**
@@ -432,6 +438,7 @@ export class Game {
     this.pendingPirateKills = 0;
     this.activeMissions.length = 0;
     this.acceptedMissionIds.clear();
+    this.lastScoopedDerelictDebris.clear();
     this.claimedClearanceSystems.clear();
     this.chartCatalog.clear();
     this.claimedCartographerVisits.clear();
@@ -634,7 +641,8 @@ export class Game {
 
   /**
    * When a Retrieve Derelict Cargo contract targets this POI and the lot is
-   * not yet scooped, mark one debris piece as scoopable.
+   * not yet scooped, mark one debris piece as scoopable. The piece just
+   * scooped at this wreck is skipped when another exists.
    */
   private ensureDerelictMissionDebris(): void {
     if (this.local.focus.kind !== "derelict" || !this.local.beltRocks) return;
@@ -648,6 +656,7 @@ export class Game {
     markDerelictMissionDebris(
       this.local.beltRocks,
       GALAXY.seed ^ (this.local.poiId * 9973 + 19),
+      this.lastScoopedDerelictDebris.get(this.local.poiId),
     );
   }
 
@@ -3416,6 +3425,7 @@ export class Game {
     }
     best.remaining = 0;
     best.yieldId = null;
+    this.lastScoopedDerelictDebris.set(this.local.poiId, best.id);
     mission.scanned = true;
     this.messages.push(
       `Scoop: +${need} CU ${DERELICT_CARGO_NAME} — return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
