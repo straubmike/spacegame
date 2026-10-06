@@ -45,7 +45,6 @@
 
 import { GALAXY, QUEST, REPUTATION } from "../game/config";
 import {
-  listSystemPirateKeys,
   listSystemStations,
   pirateEncounterFor,
   type SystemStationRef,
@@ -504,75 +503,6 @@ function encounterForPirateKey(
   const bodyId = bodyRaw === "x" ? null : Number(bodyRaw);
   if (bodyId !== null && !Number.isInteger(bodyId)) return null;
   return pirateEncounterFor(galaxy, poiId, bodyId);
-}
-
-interface ClearanceSample {
-  key: string;
-  poiId: number;
-  poiName: string;
-  difficulty: number;
-}
-
-/**
- * TEMP(clearance-pay): easiest and hardest seeded packs, posted on the
- * starting station so the scaled credits show on a new game. Pay comes from
- * `makeClearanceOffer`. Strip this poster before merge; leave the reward.
- */
-export function tempClearancePayOffers(
-  galaxy: Galaxy,
-  station: SystemStationRef,
-): MissionOffer[] {
-  if (!station.key.startsWith(`${GALAXY.startPoiId}:0:`)) return [];
-  const samples = tempClearanceSamples(galaxy);
-  if (samples.length < 2) return [];
-  const easy = samples[0]!;
-  const hard = samples[samples.length - 1]!;
-  if (easy.difficulty >= hard.difficulty) return [];
-  const offers: MissionOffer[] = [];
-  for (const sample of [easy, hard]) {
-    const offer = makeClearanceOffer(
-      galaxy,
-      station,
-      [sample.key],
-      sample.poiName,
-    );
-    if (!offer) continue;
-    const n = offer.pirateTargets?.length ?? 1;
-    offers.push({
-      ...offer,
-      id: `clearance:TEMP(clearance-pay):${sample.key}`,
-      title: "TEMP(clearance-pay): Clear system pirates",
-      blurb: `Eliminate or drive off ${n} pirate${n === 1 ? "" : "s"} in ${sample.poiName} (difficulty ${sample.difficulty}), then return here.`,
-      targetPoiId: sample.poiId,
-      targetPoiName: sample.poiName,
-    });
-  }
-  if (offers.length < 2) return [];
-  if (offers[0]!.reward === offers[1]!.reward) return [];
-  return offers;
-}
-
-/** TEMP(clearance-pay): seeded packs, lowest difficulty first. Strip with the poster. */
-function tempClearanceSamples(galaxy: Galaxy): ClearanceSample[] {
-  const samples: ClearanceSample[] = [];
-  for (const poi of galaxy.pois) {
-    if (poi.type !== "starSystem") continue;
-    for (const key of listSystemPirateKeys(galaxy, poi.id)) {
-      const encounter = encounterForPirateKey(galaxy, key);
-      const ship = encounter?.ships[0];
-      if (!encounter || !ship) continue;
-      samples.push({
-        key,
-        poiId: poi.id,
-        poiName: poi.name,
-        difficulty: ship.difficulty,
-      });
-    }
-  }
-  samples.sort(
-    (a, b) => a.difficulty - b.difficulty || a.key.localeCompare(b.key),
-  );
-  return samples;
 }
 
 /** commodity id + destination station. Same good to two stations is a different haul. */
