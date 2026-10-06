@@ -119,13 +119,11 @@ export function distressPiratePlan(fuelRatsRep: number): DistressPiratePlan {
   };
 }
 
-/** Roll whether this broadcast draws pirates (honors force-rat flag). */
+/** Roll whether this broadcast draws pirates. */
 export function rollDistressWantsPirates(
   fuelRatsRep: number,
-  forceRat: boolean,
   rng: () => number = Math.random,
 ): boolean {
-  if (forceRat) return false;
   return rng() < distressPiratePlan(fuelRatsRep).pirateChance;
 }
 

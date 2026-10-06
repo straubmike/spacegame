@@ -488,6 +488,11 @@ export const FUEL = {
   /** Seconds of taunt before distress pirates aggro. */
   distressTauntSeconds: 3.5,
   /**
+   * After distress pirates arrive: if any of that pack is still present
+   * when this elapses, an Imperial Bulwark and Hauler move in on them.
+   */
+  distressImperialSeconds: 45,
+  /**
    * L-menu distress only: seconds after broadcast before a Fuel Rat or
    * pirate pack appears. Answer-distress sites spawn their contact on
    * arrival — that wait is not this timer.

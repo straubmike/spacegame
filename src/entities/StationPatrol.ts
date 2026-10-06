@@ -342,6 +342,30 @@ export class StationPatrol {
     return result;
   }
 
+  /**
+   * Fight pirates in hunt range. No player law, scans, fines, or station wander.
+   * A paid truce with the player is not a pass. Shots are lawful, so they do
+   * not blame the player or break that truce.
+   */
+  engagePirates(
+    dt: number,
+    pirates: readonly Pirate[],
+    outShots: Projectile[],
+  ): void {
+    if (!this.alive) return;
+    this.tickDefense(dt);
+    tickWeaponCooldowns(this.weaponCooldowns, dt);
+    const pirate = this.nearestPirate(pirates);
+    if (!pirate) {
+      this.applyDrag(dt);
+      this.integrate(dt);
+      return;
+    }
+    this.stance = "huntPirate";
+    this.wanderTarget = null;
+    this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
+  }
+
   private idleOrWander(dt: number): void {
     if (this.stance === "wander" && this.wanderTarget) {
       this.cruiseToward(dt, this.wanderTarget);
@@ -402,6 +426,7 @@ export class StationPatrol {
 
   /**
    * @param hostileShot true = hurts player; false = hurts pirates (lawful fire).
+   * Lawful shots do not blame the player.
    */
   private chaseAndFire(
     dt: number,
