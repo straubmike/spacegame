@@ -172,8 +172,21 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     "missions",
     ...pool.slice(0, count),
   ]);
+  // TEMP(hangar-energy): the station on the star a new game spawns beside
+  // always offers Hangar. Strip before merge. Factory fits stay.
+  if (isTempHangarEnergyStation(stationKey)) {
+    result.add("hangar");
+  }
   menuCache.set(stationKey, result);
   return result;
+}
+
+/**
+ * TEMP(hangar-energy): station in the local view the run starts in (start POI, star).
+ * Strip before merge.
+ */
+export function isTempHangarEnergyStation(stationKey: string): boolean {
+  return stationKey.startsWith(`${GALAXY.startPoiId}:0:`);
 }
 
 export function stationHasMenu(

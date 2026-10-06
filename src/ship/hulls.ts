@@ -69,7 +69,7 @@ export const HULLS = {
     name: "Pathfinder",
     specialty: "Explorer",
     blurb:
-      "Survey frame. One gun, two utilities, a long-range coil, and a deep built-in tank.",
+      "Survey frame. One pulse, two utilities, a long-range coil, and a deep built-in tank.",
     price: 160,
     slots: [
       { kind: "weapon", label: "Weapon" },
@@ -83,8 +83,10 @@ export const HULLS = {
     size: 14,
     fill: "#a8d4c8",
     stroke: "#4a8878",
+    // One weapon slot. Pulse heat is light enough that the long-range coil
+    // can still take a jump. No magazine.
     defaultLoadout: [
-      "gun_mk1",
+      "pulse_mk1",
       "long_range_drive",
       "survey_scanner",
       "fuel_scoop",
@@ -139,7 +141,7 @@ export const HULLS = {
     name: "Interceptor",
     specialty: "Fighter",
     blurb:
-      "Glass twin-gun. Weapon A is Space, Weapon B is left click. One utility, no hold.",
+      "Glass energy hull. Weapon A is a beam (Space), Weapon B is a pulse (left click). One utility, no hold.",
     price: 340,
     slots: [
       { kind: "weapon", label: "Weapon A" },
@@ -153,9 +155,11 @@ export const HULLS = {
     size: 12,
     fill: "#e8b0a0",
     stroke: "#a06050",
+    // Two weapon slots and the combat coil. Beam on Space, pulse on left
+    // click. The sink can hold both. Neither carries a magazine.
     defaultLoadout: [
-      "gun_mk1",
-      "cannon_mk1",
+      "beam_mk1",
+      "pulse_mk1",
       "interceptor_drive",
       "light_shield",
     ],
