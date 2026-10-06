@@ -7,6 +7,7 @@ import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
   heatPirateFits,
   listSystemPirateKeys,
+  listSystemStations,
   pickQuestGiverStation,
   pirateViewKey,
   stationKey,
@@ -48,9 +49,11 @@ import {
   MERCHANTS_GUILD_FACTION_ID,
   PIRATE_FACTION_ID,
   REBELS_FACTION_ID,
+  qualifySharedStationLabels,
   ReputationTracker,
   standingBand,
   type ReputationListing,
+  type ReputationStationRow,
 } from "../ship/reputation";
 import {
   addObservedIllegal,
@@ -196,6 +199,57 @@ interface EnergyTarget {
   patrol: StationPatrol | null;
 }
 
+/**
+ * TEMP(rep-menu collision): draft playtest rows.
+ * A new game's Reputation list shows two stations that share a name and sit
+ * in different systems; the main-sequence star tells them apart.
+ * Scores are display-only — not written to the tracker — so fines and perks
+ * stay put. Delete this const and the TEMP(...) call.
+ * Leave qualifySharedStationLabels.
+ */
+const TEMP = (() => {
+  let cached: ReputationStationRow[] | null | undefined;
+
+  return function TEMP(
+    stations: ReputationStationRow[],
+    galaxy: Galaxy,
+  ): void {
+    if (cached === undefined) cached = sharedNamePair(galaxy);
+    if (!cached) return;
+    const present = new Set(stations.map((row) => row.key));
+    const extra = cached.filter((row) => !present.has(row.key));
+    if (extra.length === 0) return;
+    stations.unshift(...extra);
+  };
+
+  function sharedNamePair(galaxy: Galaxy): ReputationStationRow[] | null {
+    const first = new Map<
+      string,
+      { key: string; name: string; star: string }
+    >();
+    for (const poi of galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(galaxy, poi.id)) {
+        const prev = first.get(station.name);
+        if (!prev) {
+          first.set(station.name, {
+            key: station.key,
+            name: station.name,
+            star: poi.name,
+          });
+          continue;
+        }
+        if (prev.star === poi.name) continue;
+        return [
+          { key: prev.key, name: prev.name, score: 24 },
+          { key: station.key, name: station.name, score: -22 },
+        ];
+      }
+    }
+    return null;
+  }
+})();
+
 export class Game {
   private readonly keyboard: Keyboard;
   private readonly pointer: Pointer;
@@ -264,6 +318,8 @@ export class Game {
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
   private readonly reputation = new ReputationTracker();
+  /** Station names that occur in more than one system (rep-menu labels). */
+  private namesSharedInGalaxy: ReadonlySet<string> | null = null;
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
   /**
@@ -2122,10 +2178,45 @@ export class Game {
               : 0,
       });
     }
+    const stations = this.reputation.nonzeroStations();
+    // Draft playtest rows. Delete this call — not the qualifier below.
+    TEMP(stations, this.galaxy);
     return {
       factions,
-      stations: this.reputation.nonzeroStations(),
+      stations: qualifySharedStationLabels(
+        stations,
+        (key) => this.mainSequenceStarName(key),
+        this.stationNamesSharedAcrossSystems(),
+      ),
     };
+  }
+
+  /** Main-sequence star for a station key (`poiId:bodyId:stationId`). */
+  private mainSequenceStarName(stationKey: string): string | null {
+    const head = stationKey.split(":")[0] ?? "";
+    if (!/^\d+$/.test(head)) return null;
+    const poiId = Number(head);
+    if (poiId >= this.galaxy.pois.length) return null;
+    const poi = this.galaxy.get(poiId);
+    if (poi.type !== "starSystem") return null;
+    return poi.name;
+  }
+
+  private stationNamesSharedAcrossSystems(): ReadonlySet<string> {
+    if (this.namesSharedInGalaxy) return this.namesSharedInGalaxy;
+    const counts = new Map<string, number>();
+    for (const poi of this.galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(this.galaxy, poi.id)) {
+        counts.set(station.name, (counts.get(station.name) ?? 0) + 1);
+      }
+    }
+    const shared = new Set<string>();
+    for (const [name, count] of counts) {
+      if (count > 1) shared.add(name);
+    }
+    this.namesSharedInGalaxy = shared;
+    return shared;
   }
 
   private hasExpandedFuelTank(): boolean {
