@@ -69,7 +69,7 @@ export const HULLS = {
     name: "Pathfinder",
     specialty: "Explorer",
     blurb:
-      "Survey frame. One pulse, two utilities, a long-range coil, and a deep built-in tank.",
+      "Survey frame. One gun, two utilities, a long-range coil, and a deep built-in tank.",
     price: 160,
     slots: [
       { kind: "weapon", label: "Weapon" },
@@ -83,10 +83,8 @@ export const HULLS = {
     size: 14,
     fill: "#a8d4c8",
     stroke: "#4a8878",
-    // One weapon slot. Pulse heat is light enough that the long-range coil
-    // can still take a jump. No magazine.
     defaultLoadout: [
-      "pulse_mk1",
+      "gun_mk1",
       "long_range_drive",
       "survey_scanner",
       "fuel_scoop",
@@ -141,7 +139,7 @@ export const HULLS = {
     name: "Interceptor",
     specialty: "Fighter",
     blurb:
-      "Glass energy hull. Weapon A is a beam (Space), Weapon B is a pulse (left click). One utility, no hold.",
+      "Glass fighter. Weapon A is a beam (Space), Weapon B is a gun (left click). One utility, no hold.",
     price: 340,
     slots: [
       { kind: "weapon", label: "Weapon A" },
@@ -155,11 +153,11 @@ export const HULLS = {
     size: 12,
     fill: "#e8b0a0",
     stroke: "#a06050",
-    // Two weapon slots and the combat coil. Beam on Space, pulse on left
-    // click. The sink can hold both. Neither carries a magazine.
+    // Two weapon slots and the combat coil. Beam on Space, gun on left
+    // click. The sink can hold the beam.
     defaultLoadout: [
       "beam_mk1",
-      "pulse_mk1",
+      "gun_mk1",
       "interceptor_drive",
       "light_shield",
     ],
@@ -193,7 +191,7 @@ export const HULLS = {
     name: "Raider",
     specialty: "Skirmisher",
     blurb:
-      "Two guns and two utilities. Enough hold for a raid, not a trade route.",
+      "Gun and pulse, two utilities. Enough hold for a raid, not a trade route.",
     price: 480,
     slots: [
       { kind: "weapon", label: "Weapon A" },
@@ -208,9 +206,10 @@ export const HULLS = {
     size: 14,
     fill: "#e0a090",
     stroke: "#904838",
+    // Gun on Space, pulse on left click. The racing sink holds the pulse.
     defaultLoadout: [
       "gun_mk1",
-      "missile_mk1",
+      "pulse_mk1",
       "racing_drive",
       "light_shield",
       null,
@@ -269,10 +268,11 @@ export const HULLS = {
     size: 16,
     fill: "#b0b8c8",
     stroke: "#586878",
+    // Cannon on Space, gun on left click, pulse on right click.
     defaultLoadout: [
       "cannon_mk1",
       "gun_mk1",
-      "missile_mk1",
+      "pulse_mk1",
       "basic_drive",
       "light_shield",
       "hull_plating",

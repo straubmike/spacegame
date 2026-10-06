@@ -9,7 +9,6 @@ import { ShipLoadout } from "../ship/Loadout";
 import { CargoHold } from "../ship/CargoHold";
 import { Fleet, type OwnedShipSnapshot } from "../ship/Fleet";
 import {
-  HULLS,
   STARTER_HULL_ID,
   hullById,
   type HullDef,
@@ -61,9 +60,6 @@ export class Ship {
   /** Factory starter hull, full tanks, and starting credits. */
   resetForNewRun(): void {
     this.credits = ECONOMY.startingCredits;
-    // TEMP(hangar-energy): covers a Pathfinder and an Interceptor from the
-    // starting hangar. Strip before merge. Factory fits stay.
-    this.credits += HULLS.pathfinder.price + HULLS.interceptor.price;
     this.heat = 0;
     this.heatSinkCapacity = 0;
     this.fleet.resetToStarter();
