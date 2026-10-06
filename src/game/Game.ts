@@ -1834,6 +1834,9 @@ export class Game {
     if (this.dock.kind === "docked") {
       this.ensureMissionBoardReplenished(this.dock.station);
     }
+    // Accept from the black market does not open the station board. Refresh
+    // that menu in place so the row flips to taken without closing it.
+    this.refreshBlackMarketJobs();
     if (!this.missionBoardOpen) return;
     this.missionBoard.refresh(
       this.visibleMissionOffers(),
@@ -1847,7 +1850,6 @@ export class Game {
       this.rebelMissionCount() < QUEST.maxRebelActive,
       this.coverSlotsFree() >= 1,
     );
-    this.refreshBlackMarketJobs();
   }
 
   private openMissionBoard(station: Landmark): void {
