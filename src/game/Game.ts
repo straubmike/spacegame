@@ -96,7 +96,9 @@ import {
 } from "../entities/StationPatrol";
 import { Projectile, spawnPlayerShot } from "../entities/Projectile";
 import {
+  nextBeamDamagePacket,
   traceEnergyBeam,
+  type BeamDamageMark,
   type BeamSegment,
 } from "../entities/energyBeam";
 import { Camera } from "../world/Camera";
@@ -340,13 +342,11 @@ export class Game {
   /** Weapon slots whose beam is currently held. */
   private beamingSlots = new Set<string>();
   /**
-   * Beam chunk timer, keyed by slot id + target id.
-   * Same 0.25s break as a gun stream. A shorter gap keeps the clock.
+   * Damage lock for a beam that is still held, keyed by slot id + target id.
+   * Cleared when that beam is released. A broken contact leaves the lock
+   * in place, so the next touch cannot be another opening hit.
    */
-  private beamContact = new Map<
-    string,
-    { accumulated: number; lastHit: number }
-  >();
+  private beamContact = new Map<string, BeamDamageMark>();
   private dock: DockState = { kind: "free" };
   /** Progress toward the next scooped CU while holding F. */
   private scoopProgress = 0;
@@ -3852,6 +3852,15 @@ export class Game {
   private stopBeam(slotId: string, cooldown: number): void {
     this.beamingSlots.delete(slotId);
     this.weaponCooldowns.set(slotId, cooldown);
+    this.clearBeamMarks(slotId);
+  }
+
+  /** Drop every target lock for one hardpoint. The next hold opens fresh. */
+  private clearBeamMarks(slotId: string): void {
+    const prefix = `${slotId}:`;
+    for (const key of this.beamContact.keys()) {
+      if (key.startsWith(prefix)) this.beamContact.delete(key);
+    }
   }
 
   private updateBeams(dt: number): void {
@@ -3878,6 +3887,7 @@ export class Game {
         if ((this.weaponCooldowns.get(slot.id) ?? 0) > 0) continue;
         if (!this.ship.hasHeatRoom()) continue;
         this.ship.addHeat(weapon.heatCost ?? 0);
+        this.clearBeamMarks(slot.id);
         this.beamingSlots.add(slot.id);
       }
       this.heldEnergy.push({
@@ -3917,8 +3927,7 @@ export class Game {
 
   private fireBeam(slotId: string, weapon: WeaponModule): BeamSegment[] {
     const targets = this.collectEnergyTargets();
-    const seen = new Set<string>();
-    const segments = traceEnergyBeam({
+    return traceEnergyBeam({
       x: this.ship.x,
       y: this.ship.y,
       heading: this.ship.heading,
@@ -3935,7 +3944,6 @@ export class Game {
           hit.id,
           weapon,
           hit.falloff,
-          seen,
         );
         const deflect =
           listed > 0
@@ -3944,57 +3952,31 @@ export class Game {
         return { deflect, nose: target.heading };
       },
     });
-    const prefix = `${slotId}:`;
-    const now = this.combatClock;
-    for (const key of [...this.beamContact.keys()]) {
-      if (!key.startsWith(prefix) || seen.has(key)) continue;
-      const prev = this.beamContact.get(key);
-      if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
-        this.beamContact.delete(key);
-      }
-    }
-    return segments;
   }
 
   /**
-   * Impact on a fresh contact, then chunk damage while the beam stays on
-   * that hull. The chunk interval is the gun time-on-target for this mark.
-   * A gap longer than the gun stream break resets the timer, and the next
-   * touch is impact again. A shorter gap keeps the chunk clock and does
-   * not pay impact a second time. The impact frame does not count toward
-   * the chunk timer. Guns still have no separate first hit.
+   * Opening hit the first time this activation damages the target, then
+   * nothing until the mark interval passes. The next packet is the sustain
+   * chunk. A gap in contact does not clear the mark. The mark is cleared
+   * only when this hardpoint releases the beam.
    */
   private beamListedDamage(
     slotId: string,
     targetId: string,
     weapon: WeaponModule,
     falloff: number,
-    seen: Set<string>,
   ): number {
     const key = `${slotId}:${targetId}`;
-    seen.add(key);
-    const now = this.combatClock;
-    const prev = this.beamContact.get(key);
-    if (!prev || now - prev.lastHit > WEAPONS.gunStreamBreakGap) {
-      this.beamContact.set(key, { accumulated: 0, lastHit: now });
-      return weapon.damage * falloff;
-    }
-    const interval = weapon.timeOnTarget;
-    if (interval <= 0) {
-      this.beamContact.set(key, { accumulated: 0, lastHit: now });
-      return 0;
-    }
-    let accumulated = prev.accumulated + (now - prev.lastHit);
-    let chunks = 0;
-    while (accumulated + 1e-6 >= interval) {
-      accumulated -= interval;
-      chunks += 1;
-    }
-    this.beamContact.set(key, {
-      accumulated: Math.max(0, accumulated),
-      lastHit: now,
-    });
-    return chunks * (weapon.chunkDamage ?? 0) * falloff;
+    const step = nextBeamDamagePacket(
+      this.beamContact.get(key),
+      this.combatClock,
+      weapon.timeOnTarget,
+    );
+    if (step.packet === "none") return 0;
+    this.beamContact.set(key, step.mark);
+    const listed =
+      step.packet === "opening" ? weapon.damage : (weapon.chunkDamage ?? 0);
+    return listed * falloff;
   }
 
   private collectEnergyTargets(): EnergyTarget[] {
