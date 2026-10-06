@@ -285,8 +285,6 @@ export class Game {
   private distressPirates: Pirate[] = [];
   private distressPack: PackEncounter | null = null;
   private fuelRat: FuelRat | null = null;
-  /** After defeating distress pirates, next broadcast is fuel-rat only. */
-  private distressNextFuelRatOnly = false;
   /** True while a distress responder is inbound or active in this view. */
   private distressPending = false;
   /**
@@ -426,7 +424,6 @@ export class Game {
 
     this.fuelWarnTravel = null;
     this.pendingPassengerIntercept = null;
-    this.distressNextFuelRatOnly = false;
     this.fadePhase = "idle";
     this.fadeTimer = 0;
     this.fadeAlpha = 0;
@@ -4627,9 +4624,10 @@ export class Game {
     this.distressPirates = this.distressPirates.filter((p) => p.alive);
     if (this.distressPending && this.distressPack && this.distressPirates.length === 0) {
       this.distressPack = null;
-      this.distressPending = false;
-      // Next L-menu distress is Fuel Rat only — no player-facing spoiler.
-      this.distressNextFuelRatOnly = true;
+      // Pack is gone (destroyed or fled, including by a patrol). Scoot a Fuel
+      // Rat in on the same assist path as a rat distress response. No second
+      // broadcast and no response delay — the player is already stranded.
+      if (!this.fuelRat) this.spawnFuelRat();
     }
 
     if (this.baitPirate && !this.baitPirate.alive) {
@@ -5264,14 +5262,7 @@ export class Game {
       return;
     }
     this.closeShipMenuUi();
-    const forceRat = this.distressNextFuelRatOnly;
-    const wantPirates = rollDistressWantsPirates(
-      this.reputation.fuelRatsRep(),
-      forceRat,
-    );
-    if (!wantPirates) {
-      this.distressNextFuelRatOnly = false;
-    }
+    const wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
     const span =
       FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
     const delay =
