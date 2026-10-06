@@ -1118,6 +1118,7 @@ export class Game {
     ) {
       const targets = this.unclearedPirateKeys(this.local.poiId);
       const clearance = makeClearanceOffer(
+        this.galaxy,
         giver,
         targets,
         this.local.poiName,

@@ -18,7 +18,9 @@
  *   Abandon/cancel: mild rep; cargo is NOT stolen (no steal floor / patrol debt from
  *   the abandon itself). Kept lot can be fenced on the Black Market → Rebels +rep.
  *   Eject: force-abandon, cargo discarded (no fence / no Rebels reveal).
- * - clearance: accept at giver → clear system pirates → return → claim pay
+ * - clearance: accept at giver → clear system pirates → return → claim pay.
+ *   Pay is the sum of each remaining pack: difficulty, ship count, and the
+ *   fitted hull / weapons / defense. A harder pack pays more.
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
  * Rebel jobs live on the black-market menu (after Rebels are revealed), not
@@ -41,11 +43,16 @@
  * - Refills may repeat completed work. Finished scans and hauls are not consumed.
  */
 
-import { ECONOMY, GALAXY, QUEST, REPUTATION } from "../game/config";
-import { listSystemStations, type SystemStationRef } from "../galaxy/pirates";
+import { GALAXY, QUEST, REPUTATION } from "../game/config";
+import {
+  listSystemStations,
+  pirateEncounterFor,
+  type SystemStationRef,
+} from "../galaxy/pirates";
 import { generateSystemBlueprint } from "../galaxy/generateLocal";
 import type { Galaxy } from "../galaxy/Galaxy";
-import type { PoiRef, PoiType } from "../galaxy/types";
+import type { PirateEncounter, PoiRef, PoiType } from "../galaxy/types";
+import { pirateFitCombatPrice } from "./npcLoadout";
 import { hash2, mulberry32 } from "../galaxy/rng";
 import { patrolWouldSpawn } from "../galaxy/patrolSpawn";
 import { FUEL_RATS_FACTION_ID, MERCHANTS_GUILD_FACTION_ID, CARTOGRAPHERS_FACTION_ID, REBELS_FACTION_ID } from "./reputation";
@@ -431,18 +438,21 @@ export function generateStationReplenishmentOffer(
 
 /** System pirate-clearance contract at the quest-giver station. */
 export function makeClearanceOffer(
+  galaxy: Galaxy,
   station: SystemStationRef,
   pirateTargets: string[],
   poiName: string,
 ): MissionOffer | null {
   if (pirateTargets.length === 0) return null;
+  const reward = clearanceRewardForTargets(galaxy, pirateTargets);
+  if (reward <= 0) return null;
   const n = pirateTargets.length;
   return {
     id: `clearance:${station.poiId}`,
     kind: "clearance",
     title: `Clear system pirates`,
     blurb: `Eliminate or drive off ${n} pirate${n === 1 ? "" : "s"} in ${poiName}, then return here.`,
-    reward: ECONOMY.pirateQuestReward,
+    reward,
     originStationKey: station.key,
     originStationName: station.name,
     originPoiId: station.poiId,
@@ -450,6 +460,49 @@ export function makeClearanceOffer(
     targetPoiName: poiName,
     pirateTargets: [...pirateTargets],
   };
+}
+
+/**
+ * Credits for clearing these pirate views. Each ship adds its pack difficulty,
+ * a per-hull share (group size), and a slice of that fit's list price.
+ */
+export function clearanceRewardForTargets(
+  galaxy: Galaxy,
+  pirateTargets: readonly string[],
+): number {
+  let total = 0;
+  for (const key of pirateTargets) {
+    const encounter = encounterForPirateKey(galaxy, key);
+    if (!encounter) continue;
+    total += clearanceRewardForEncounter(encounter);
+  }
+  return total;
+}
+
+function clearanceRewardForEncounter(encounter: PirateEncounter): number {
+  let total = 0;
+  for (const ship of encounter.ships) {
+    const listed = pirateFitCombatPrice(ship.fitId);
+    total +=
+      QUEST.clearancePerShip +
+      ship.difficulty * QUEST.clearancePerDifficulty +
+      Math.round(listed / QUEST.clearanceLoadoutDivisor);
+  }
+  return total;
+}
+
+function encounterForPirateKey(
+  galaxy: Galaxy,
+  key: string,
+): PirateEncounter | null {
+  const cut = key.indexOf(":");
+  if (cut <= 0) return null;
+  const poiId = Number(key.slice(0, cut));
+  const bodyRaw = key.slice(cut + 1);
+  if (!Number.isInteger(poiId)) return null;
+  const bodyId = bodyRaw === "x" ? null : Number(bodyRaw);
+  if (bodyId !== null && !Number.isInteger(bodyId)) return null;
+  return pirateEncounterFor(galaxy, poiId, bodyId);
 }
 
 /** commodity id + destination station. Same good to two stations is a different haul. */
