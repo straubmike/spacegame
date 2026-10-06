@@ -56,6 +56,20 @@ export function drawButton(
   ctx.textBaseline = "alphabetic";
 }
 
+/** Shown in place of Jump / Travel when the sink cannot take the jump heat. */
+export function drawInsufficientHeat(
+  ctx: CanvasRenderingContext2D,
+  slot: Rect,
+): void {
+  ctx.save();
+  ctx.font = FONT;
+  ctx.fillStyle = "rgba(230, 190, 140, 0.95)";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText("INSUFFICIENT HEAT CAPACITY", slot.x + slot.w, slot.y + slot.h / 2);
+  ctx.restore();
+}
+
 export const FONT =
   "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 export const FONT_TITLE =

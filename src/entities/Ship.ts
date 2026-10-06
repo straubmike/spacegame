@@ -1,4 +1,4 @@
-import { SHIP, COMBAT, DOCK, ECONOMY, WEAPONS } from "../game/config";
+import { SHIP, COMBAT, DOCK, ECONOMY, HEAT, WEAPONS } from "../game/config";
 import type { InputState } from "../input/Keyboard";
 import {
   applyDefenseHit,
@@ -119,11 +119,20 @@ export class Ship {
 
   /**
    * True when heat is still under the sink.
-   * A full sink, or a drive with no sink, will not start an energy weapon
-   * or commit a jump.
+   * A full sink, or a drive with no sink, will not start an energy weapon.
+   * A pulse or beam may still start when that shot will fill or pass the sink.
    */
   hasHeatRoom(): boolean {
     return this.heatSinkCapacity > 0 && this.heat < this.heatSinkCapacity - 1e-4;
+  }
+
+  /**
+   * Hyperspace and an intra-system jump both need room for the whole
+   * jump heat before they start. Landing exactly on capacity is allowed.
+   * An already-full sink cannot make either jump.
+   */
+  jumpHeatFits(): boolean {
+    return this.heat + HEAT.jump <= this.heatSinkCapacity;
   }
 
   /** Add heat, clamped to the sink. Resets the vent delay. */

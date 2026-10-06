@@ -4755,7 +4755,7 @@ export class Game {
       this.pointer.y,
       jumpRange,
       hints,
-      !this.ship.hasHeatRoom(),
+      !this.ship.jumpHeatFits(),
     );
     if (result === "close") {
       this.chartOpen = false;
@@ -5410,6 +5410,7 @@ export class Game {
       this.local,
       this.pointer.x,
       this.pointer.y,
+      !this.ship.jumpHeatFits(),
     );
     if (result === "close") {
       this.panelOpen = false;
@@ -5449,7 +5450,7 @@ export class Game {
       return;
     }
 
-    if (travel.kind === "galaxy" && !this.ship.hasHeatRoom()) return;
+    if (!this.ship.jumpHeatFits()) return;
 
     // Warn if the same trip back would be impossible after this burn.
     if (!skipReturnWarn && this.ship.fuel - cost < cost) {
@@ -5460,7 +5461,7 @@ export class Game {
     }
 
     if (!this.ship.consumeFuel(cost)) return;
-    if (travel.kind === "galaxy") this.ship.addHeat(HEAT.jump);
+    this.ship.addHeat(HEAT.jump);
 
     this.fuelWarnTravel = null;
     this.pending = travel;

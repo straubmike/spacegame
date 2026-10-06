@@ -303,11 +303,19 @@ export class Renderer {
           args.ship.jumpRange(),
           args.chartHints,
           { fuel: args.ship.fuel, costForSelected },
-          !args.ship.hasHeatRoom(),
+          !args.ship.jumpHeatFits(),
         );
       }
     } else if (args.panelOpen) {
-      args.panel.draw(ctx, args.local, w, h, args.pointerX, args.pointerY);
+      args.panel.draw(
+        ctx,
+        args.local,
+        w,
+        h,
+        args.pointerX,
+        args.pointerY,
+        !args.ship.jumpHeatFits(),
+      );
     } else if (args.shipMenuOpen) {
       args.shipMenu.draw(
         ctx,
