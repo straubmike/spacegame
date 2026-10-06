@@ -244,6 +244,16 @@ const PATROL_SPECS: readonly FitSpec[] = [
 const PIRATE_FITS = PIRATE_SPECS.map(resolveFit);
 const PATROL_FITS = PATROL_SPECS.map(resolveFit);
 
+function mustPatrolFit(id: string): ResolvedNpcFit {
+  const fit = PATROL_FITS.find((entry) => entry.id === id);
+  if (!fit) throw new Error(`missing patrol fit ${id}`);
+  return fit;
+}
+
+/** Heavy station fits used by the distress Imperial pair: Bulwark, then Hauler. */
+const HEAVY_PATROL_BULWARK = mustPatrolFit("patrol_bulwark");
+const HEAVY_PATROL_HAULER = mustPatrolFit("patrol_hauler");
+
 const PIRATE_BY_ID = new Map(PIRATE_FITS.map((fit) => [fit.id, fit]));
 
 export type PirateDifficulty = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -403,4 +413,9 @@ export function pirateRecipeFits(
 export function patrolFitForStation(stationKeyHash: number): ResolvedNpcFit {
   const index = stationKeyHash % PATROL_FITS.length;
   return PATROL_FITS[index]!;
+}
+
+/** One Bulwark and one Hauler — the existing heavy patrol fits. */
+export function heavyPatrolFits(): readonly [ResolvedNpcFit, ResolvedNpcFit] {
+  return [HEAVY_PATROL_BULWARK, HEAVY_PATROL_HAULER];
 }

@@ -342,6 +342,37 @@ export class StationPatrol {
     return result;
   }
 
+  /**
+   * Fight only these pirates. No player law, scans, fines, or station wander.
+   * Shots are lawful, so they do not blame the player.
+   */
+  engagePirates(
+    dt: number,
+    pirates: readonly Pirate[],
+    outShots: Projectile[],
+  ): void {
+    if (!this.alive) return;
+    this.tickDefense(dt);
+    tickWeaponCooldowns(this.weaponCooldowns, dt);
+    const pirate = this.nearestAlive(pirates);
+    if (!pirate) {
+      this.applyDrag(dt);
+      this.integrate(dt);
+      return;
+    }
+    this.stance = "huntPirate";
+    this.wanderTarget = null;
+    this.chaseAndFire(
+      dt,
+      pirate.x,
+      pirate.y,
+      pirate.id,
+      outShots,
+      false,
+      "imperial",
+    );
+  }
+
   private idleOrWander(dt: number): void {
     if (this.stance === "wander" && this.wanderTarget) {
       this.cruiseToward(dt, this.wanderTarget);
@@ -400,6 +431,21 @@ export class StationPatrol {
     return best;
   }
 
+  /** Closest living pirate, with no hunt-range cap so a far pack is still chased. */
+  private nearestAlive(pirates: readonly Pirate[]): Pirate | null {
+    let best: Pirate | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const p of pirates) {
+      if (!p.alive) continue;
+      const d = Math.hypot(p.x - this.x, p.y - this.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
   /**
    * @param hostileShot true = hurts player; false = hurts pirates (lawful fire).
    */
@@ -410,6 +456,7 @@ export class StationPatrol {
     targetId: string,
     outShots: Projectile[],
     hostileShot: boolean,
+    shotSource: "patrol" | "imperial" = "patrol",
   ): void {
     const dx = tx - this.x;
     const dy = ty - this.y;
@@ -441,7 +488,7 @@ export class StationPatrol {
         dist,
         cooldowns: this.weaponCooldowns,
         hostile: hostileShot,
-        source: "patrol",
+        source: shotSource,
         lockId: targetId,
         out: outShots,
         missileTrackScale: this.missileScale.trackScale,

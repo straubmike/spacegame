@@ -62,6 +62,7 @@ import {
 } from "../ship/scanDebt";
 import { hashStationKey } from "../ship/stationKey";
 import {
+  heavyPatrolFits,
   patrolFitForStation,
   pirateFitById,
   pirateRecipeFits,
@@ -279,6 +280,13 @@ export class Game {
   private pirates: Pirate[] = [];
   /** Local station patrols (host-station tied). */
   private patrols: StationPatrol[] = [];
+  /**
+   * Imperial Bulwark + Hauler sent if a distress pirate pack is still
+   * present 45s after it arrives. Not station law — they hunt that pack only.
+   */
+  private distressRelief: StationPatrol[] = [];
+  /** Seconds left before distress relief can arrive. Null when not armed. */
+  private distressImperialTimer: number | null = null;
   /** Shared fee/combat event for the current local pirate group (null = none). */
   private pack: PackEncounter | null = null;
   /** Distress-spawned pirates (separate from seeded pack). */
@@ -544,6 +552,8 @@ export class Game {
     this.poiScanProgress = 0;
     this.pirates = [];
     this.patrols = [];
+    this.distressRelief = [];
+    this.distressImperialTimer = null;
     this.pack = null;
     this.distressPirates = [];
     this.distressPack = null;
@@ -2398,6 +2408,7 @@ export class Game {
     // Beacon is already out — menus, dock, and the fuel-warn modal must not
     // freeze the wait. Combat itself still pauses while those are up.
     this.tickDistressInbound(dt);
+    this.tickDistressImperial(dt);
 
     if (this.fuelWarnTravel) {
       this.releaseEnergyBeams();
@@ -3482,6 +3493,22 @@ export class Game {
     }
   }
 
+  /**
+   * 45s from distress-pirate arrival. Menus do not pause it. If that pack
+   * is already gone, the timer was cleared and this does not spawn.
+   */
+  private tickDistressImperial(dt: number): void {
+    if (this.distressImperialTimer === null || this.distressImperialTimer <= 0) {
+      return;
+    }
+    this.distressImperialTimer -= dt;
+    if (this.distressImperialTimer > 0) return;
+    this.distressImperialTimer = null;
+    if (this.distressPirates.some((p) => p.alive)) {
+      this.spawnDistressImperial();
+    }
+  }
+
   /** Pirate taunt timer, stranded scoot, and fuel rat arrival / refuel. */
   private updateDistress(dt: number): void {
     if (this.distressPack && this.distressPirates.some((p) => p.alive)) {
@@ -4019,6 +4046,19 @@ export class Game {
         patrol,
       });
     }
+    for (const patrol of this.distressRelief) {
+      if (!patrol.alive) continue;
+      list.push({
+        id: patrol.id,
+        x: patrol.x,
+        y: patrol.y,
+        heading: patrol.heading,
+        radius: patrol.radius,
+        kind: "patrol",
+        pirate: null,
+        patrol,
+      });
+    }
     return list;
   }
 
@@ -4080,6 +4120,11 @@ export class Game {
         weapon.shieldMultiplier,
         plating,
       );
+      // Distress relief hunts that pirate pack only — player fire does not
+      // turn them onto the ship or sour a station.
+      if (this.distressRelief.includes(target.patrol)) {
+        return layer === "plating";
+      }
       if (!target.patrol.defending) {
         this.forceStationHostile(
           target.patrol.stationKey,
@@ -4312,6 +4357,7 @@ export class Game {
     for (const pirate of this.distressPirates) list.push(pirate);
     if (this.baitPirate) list.push(this.baitPirate);
     for (const patrol of this.patrols) list.push(patrol);
+    for (const patrol of this.distressRelief) list.push(patrol);
     return list;
   }
 
@@ -4479,6 +4525,14 @@ export class Game {
       this.projectiles.push(...patrolShots);
     }
 
+    const reliefShots: Projectile[] = [];
+    for (const patrol of this.distressRelief) {
+      patrol.engagePirates(dt, this.distressPirates, reliefShots);
+    }
+    if (reliefShots.length > 0) {
+      this.projectiles.push(...reliefShots);
+    }
+
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
 
@@ -4507,6 +4561,21 @@ export class Game {
             this.projectiles.splice(i, 1);
           }
         }
+        continue;
+      }
+
+      // Imperial relief only damages the distress pack. No player blame,
+      // no other hulls, no Fuel Rat.
+      if (p.source === "imperial") {
+        let imperialHit = false;
+        for (const pirate of this.distressPirates) {
+          const impact = this.shotImpact(p, pirate);
+          if (!impact) continue;
+          pirate.takeDamage(impact.amount, impact.shieldMultiplier, false);
+          imperialHit = true;
+          break;
+        }
+        if (imperialHit) this.projectiles.splice(i, 1);
         continue;
       }
 
@@ -4580,6 +4649,17 @@ export class Game {
           break;
         }
       }
+      if (!hit && fromPlayer) {
+        for (const patrol of this.distressRelief) {
+          const impact = this.shotImpact(p, patrol);
+          if (!impact) continue;
+          if (impact.amount > 0) {
+            patrol.takeDamage(impact.amount, impact.shieldMultiplier);
+          }
+          hit = true;
+          break;
+        }
+      }
       if (hit) this.projectiles.splice(i, 1);
     }
 
@@ -4624,6 +4704,7 @@ export class Game {
     this.distressPirates = this.distressPirates.filter((p) => p.alive);
     if (this.distressPending && this.distressPack && this.distressPirates.length === 0) {
       this.distressPack = null;
+      this.distressImperialTimer = null;
       // Pack is gone (destroyed or fled, including by a patrol). Scoot a Fuel
       // Rat in on the same assist path as a rat distress response. No second
       // broadcast and no response delay — the player is already stranded.
@@ -4654,6 +4735,12 @@ export class Game {
       this.notePatrolDestroyed(patrol.stationKey, patrol.stationName);
     }
     this.patrols = this.patrols.filter((p) => p.alive);
+
+    for (const patrol of this.distressRelief) {
+      if (patrol.alive) continue;
+      this.messages.push("Imperial patrol destroyed.", "station");
+    }
+    this.distressRelief = this.distressRelief.filter((p) => p.alive);
   }
 
   /** Map host-station standing → how patrols treat the player. */
@@ -5317,6 +5404,39 @@ export class Game {
         : "Pirate: Heard your whimper. Stay put.",
       "pirate",
     );
+    this.distressRelief = [];
+    this.distressImperialTimer = FUEL.distressImperialSeconds;
+  }
+
+  /** Bulwark + Hauler. Lawful shots, distress pirates only, no Fuel Rat. */
+  private spawnDistressImperial(): void {
+    const fits = heavyPatrolFits();
+    const angle0 = Math.random() * Math.PI * 2;
+    this.distressRelief = [];
+    for (let i = 0; i < fits.length; i += 1) {
+      const ang = angle0 + (i / fits.length) * Math.PI * 2;
+      const dist =
+        FUEL.distressSpawnMin +
+        Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
+      const fit = fits[i]!;
+      this.distressRelief.push(
+        new StationPatrol(
+          this.ship.x + Math.cos(ang) * dist,
+          this.ship.y + Math.sin(ang) * dist,
+          ang + Math.PI,
+          -1,
+          "Imperial",
+          "imperial-distress",
+          this.ship.x,
+          this.ship.y,
+          fit,
+        ),
+      );
+    }
+    this.messages.push(
+      "Imperial patrol: Distress pirates still live — engaging.",
+      "station",
+    );
   }
 
   private spawnFuelRat(): void {
@@ -5553,7 +5673,7 @@ export class Game {
         : null,
       fuelWarnYes: this.fuelWarnYes,
       fuelWarnNo: this.fuelWarnNo,
-      patrols: this.patrols,
+      patrols: [...this.patrols, ...this.distressRelief],
       missileLock: this.missileReticle(),
       projectiles: this.projectiles,
       energyBeams: this.energyDrawList(),
