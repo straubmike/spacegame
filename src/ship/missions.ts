@@ -24,10 +24,13 @@
  * - distressAnswer (Fuel Rats faction): travel to a stationless site → help
  *   stranded (rep only) or fight pirate bait (no reward)
  * Rebel jobs live on the black-market menu (after Rebels are revealed), not
- * the normal mission board. Up to 2 offers. Starter set: named derelict
- * turn-in here, named POI scan for Rebel rep, steal a named haul from this
- * station and deliver it here. At Friendly Rebel standing also: kidnap a
- * named fare from this station and turn them in at a different station's
+ * the normal mission board. The initial slate is up to 2 offers. Accepting
+ * one does not fill the seat. When none remain, the next offer waits until
+ * the player leaves this local view and docks again — then exactly one.
+ * Starter set: named derelict turn-in here, named POI scan for Rebel rep,
+ * steal a haul that is on this station's mission board and turn it in at a
+ * different station's black market. At Friendly Rebel standing also: kidnap
+ * a named fare from this station and turn them in at a different station's
  * black market, and destroy a named station's patrol.
  *
  * Offer rules:
@@ -100,8 +103,8 @@ export interface MissionOffer {
   /**
    * Set once that named haul or fare is accepted.
    * `scanned` means the goods or passengers are ready to turn in.
-   * Steal / derelict / scan / patrol claim at the offering market.
-   * Kidnap claims at `destStationKey` (a different station's black market).
+   * Derelict, scan, and patrol claim at the offering market.
+   * Steal and kidnap claim at `destStationKey` (a different station's black market).
    */
   linkedMissionId?: string;
   destStationKey?: string;
@@ -218,18 +221,16 @@ export function missionStatusLine(mission: ActiveMission): string {
     return `Destroy the patrol at ${mission.destStationName ?? "destination"}`;
   }
   if (mission.kind === "rebelSteal") {
-    if (mission.scanned || mission.status === "readyToClaim") {
-      const what = mission.commodityName
-        ? `${mission.cu ?? ""} CU ${mission.commodityName}`.trim()
-        : "stolen freight";
-      return `Deliver ${what} to ${mission.originStationName}`;
-    }
-    if (!mission.coverOfferId) return "Haul delivered legally. Cancel this contract.";
     const haul = mission.commodityName
       ? `${mission.cu ?? ""} CU ${mission.commodityName}`.trim()
       : "the named haul";
+    const turnIn = mission.destStationName ?? "the black market";
+    if (mission.scanned || mission.status === "readyToClaim") {
+      return `Deliver ${haul} to ${turnIn}'s black market`;
+    }
+    if (!mission.coverOfferId) return "Haul delivered legally. Cancel this contract.";
     return mission.linkedMissionId
-      ? `Abandon the ${haul} away from ${mission.originStationName}`
+      ? `Abandon the haul, then deliver the cargo to ${turnIn}`
       : `Accept the Haul: ${haul} from ${mission.originStationName}`;
   }
   if (mission.kind === "rebelKidnap") {
@@ -305,14 +306,16 @@ export function questChartPoiIds(
       m.targetPoiId !== undefined
     ) {
       ids.add(m.targetPoiId);
-    } else if (m.kind === "bmDestroyPatrol" || m.kind === "rebelKidnap") {
+    } else if (
+      m.kind === "bmDestroyPatrol" ||
+      m.kind === "rebelKidnap" ||
+      m.kind === "rebelSteal"
+    ) {
       if (scanned && m.kind === "bmDestroyPatrol") {
         ids.add(m.originPoiId);
       } else if (m.destPoiId !== undefined) {
         ids.add(m.destPoiId);
       }
-    } else if (m.kind === "rebelSteal" && scanned) {
-      ids.add(m.originPoiId);
     }
   }
   return ids;
@@ -1125,14 +1128,11 @@ export function rebelsFriendlyJobsUnlocked(standing: number): boolean {
 }
 
 /**
- * Up to `QUEST.rebelOfferCount` rebel jobs for one black-market dock.
- * Caller must already know Rebels are revealed and this station has a market.
- * Seeded per station and tier so the pair stays put until accepted.
- * Accepted kinds drop out and the next seeded kind fills the open seat.
- * `boardOffers` are this station's normal contracts (the named haul or fare).
- * `stationHasBlackMarket` picks a kidnap turn-in that is not this station.
+ * Seeded rebel jobs for one station, in offer order. No cap and no accepted
+ * filter — the initial slate and later refills both read this list so a
+ * derelict's debris, a steal's haul, and a kidnap's turn-in stay put.
  */
-export function rebelMissionOffers(
+function rankedRebelOffers(
   galaxy: Galaxy,
   origin: SystemStationRef,
   rebelsStanding: number,
@@ -1160,7 +1160,6 @@ export function rebelMissionOffers(
 
   const offers: MissionOffer[] = [];
   for (const kind of ranked) {
-    if (offers.length >= QUEST.rebelOfferCount) break;
     const offer = makeRebelOffer(
       galaxy,
       origin,
@@ -1170,10 +1169,72 @@ export function rebelMissionOffers(
       acceptedIds,
       stationHasBlackMarket,
     );
-    if (!offer || acceptedIds.has(offer.id)) continue;
+    if (!offer) continue;
     offers.push(offer);
   }
   return offers;
+}
+
+/**
+ * Initial rebel slate for one black-market dock: up to `QUEST.rebelOfferCount`.
+ * Caller must already know Rebels are revealed and this station has a market.
+ * Seeded per station and tier. Accepted offers leave an empty seat — the next
+ * seeded kind does not fill it. Replenishment is `generateRebelReplenishmentOffer`.
+ * `boardOffers` are this station's normal contracts (the named haul or fare).
+ * `stationHasBlackMarket` picks a steal or kidnap turn-in that is not this station.
+ * Steal takes the nearest such market.
+ */
+export function rebelMissionOffers(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rebelsStanding: number,
+  acceptedIds: ReadonlySet<string>,
+  boardOffers: readonly MissionOffer[],
+  stationHasBlackMarket: (stationKey: string) => boolean,
+): MissionOffer[] {
+  const slate = rankedRebelOffers(
+    galaxy,
+    origin,
+    rebelsStanding,
+    acceptedIds,
+    boardOffers,
+    stationHasBlackMarket,
+  ).slice(0, QUEST.rebelOfferCount);
+  return slate.filter((offer) => !acceptedIds.has(offer.id));
+}
+
+/**
+ * Exactly one rebel offer when that station's slate is empty (same cadence
+ * as `generateStationReplenishmentOffer`). `refillIndex` is how many
+ * replenishment offers this station has already posted this session.
+ * Kinds past the initial slate come first; after those, finished work can
+ * be offered again under a new id. Debris, steal haul, and kidnap turn-in
+ * still come from the seeded makers.
+ */
+export function generateRebelReplenishmentOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  rebelsStanding: number,
+  refillIndex: number,
+  acceptedIds: ReadonlySet<string>,
+  boardOffers: readonly MissionOffer[],
+  stationHasBlackMarket: (stationKey: string) => boolean,
+): MissionOffer | null {
+  const built = rankedRebelOffers(
+    galaxy,
+    origin,
+    rebelsStanding,
+    acceptedIds,
+    boardOffers,
+    stationHasBlackMarket,
+  );
+  if (built.length === 0) return null;
+  const index = QUEST.rebelOfferCount + refillIndex;
+  const base = index < built.length ? built[index]! : built[index % built.length]!;
+  if (index < built.length && !acceptedIds.has(base.id)) return base;
+  const offer: MissionOffer = { ...base, id: `${base.id}:refill:${refillIndex}` };
+  if (acceptedIds.has(offer.id)) return null;
+  return offer;
 }
 
 function makeRebelOffer(
@@ -1191,7 +1252,13 @@ function makeRebelOffer(
     case "rebelScan":
       return makeRebelScanOffer(galaxy, origin, rng, boardOffers);
     case "rebelSteal":
-      return makeRebelStealOffer(origin, boardOffers, acceptedIds);
+      return makeRebelStealOffer(
+        galaxy,
+        origin,
+        boardOffers,
+        acceptedIds,
+        stationHasBlackMarket,
+      );
     case "rebelKidnap":
       return makeRebelKidnapOffer(
         galaxy,
@@ -1296,20 +1363,50 @@ function makeRebelScanOffer(
   return offer;
 }
 
-function makeRebelStealOffer(
+/**
+ * Haul currently listed on this station's regular mission board.
+ * Accepted ids stay off the board, so they are not a steal target.
+ */
+function currentBoardHaul(
   origin: SystemStationRef,
   boardOffers: readonly MissionOffer[],
   acceptedIds: ReadonlySet<string>,
 ): MissionOffer | null {
-  const haul = openBoardCover(boardOffers, "cargo", acceptedIds);
+  return (
+    boardOffers.find(
+      (o) =>
+        o.kind === "cargo" &&
+        o.originStationKey === origin.key &&
+        !acceptedIds.has(o.id) &&
+        !isRebelMissionKind(o.kind),
+    ) ?? null
+  );
+}
+
+function makeRebelStealOffer(
+  galaxy: Galaxy,
+  origin: SystemStationRef,
+  boardOffers: readonly MissionOffer[],
+  acceptedIds: ReadonlySet<string>,
+  stationHasBlackMarket: (stationKey: string) => boolean,
+): MissionOffer | null {
+  const haul = currentBoardHaul(origin, boardOffers, acceptedIds);
   if (!haul) return null;
+  // Nearest other black market — no roll, so this does not move derelict targets.
+  const turnIn = pickNearbyBlackMarket(
+    galaxy,
+    origin,
+    () => 0,
+    stationHasBlackMarket,
+  );
+  if (!turnIn || turnIn.key === origin.key) return null;
   const cu = haul.cu ?? 0;
   const name = haul.commodityName ?? "freight";
   const offer: MissionOffer = {
     id: `rebelSteal:${origin.key}`,
     kind: "rebelSteal",
     title: "Steal a haul",
-    blurb: `Accept the Haul: ${cu} CU ${name} from this station. Abandon it, and deliver the cargo here.`,
+    blurb: `Accept the Haul: ${cu} CU ${name} from this station. Abandon it, and deliver the cargo to ${turnIn.name}'s black market instead.`,
     reward: QUEST.rebelStealReward,
     originStationKey: origin.key,
     originStationName: origin.name,
@@ -1318,6 +1415,10 @@ function makeRebelStealOffer(
     commodityName: name,
     cu,
     coverOfferId: haul.id,
+    destStationKey: turnIn.key,
+    destStationName: turnIn.name,
+    destPoiId: turnIn.poiId,
+    destBodyId: turnIn.bodyId,
   };
   rebelFaction(offer);
   return offer;

@@ -327,9 +327,9 @@ export class MarketMenu {
     pointerY: number,
   ): void {
     const btn: Rect = {
-      x: panelX + panelW - 130,
+      x: panelX + panelW - 182,
       y: y + 22,
-      w: 96,
+      w: 148,
       h: 32,
     };
     const textMaxW = btn.x - (panelX + 24) - 12;
@@ -347,11 +347,11 @@ export class MarketMenu {
       : !this.rebelGates.rebelSlotFree
         ? "Full"
         : needsCover && !this.rebelGates.coverSlotFree
-          ? "Need slot"
+          ? "Requires slot"
           : !scannerOk
-            ? "Need Scanner"
+            ? "Requires Scanner"
             : !scoopOk
-              ? "Need Scoop"
+              ? "Requires Scoop"
               : "Full";
     this.paintJobRow(
       ctx,
@@ -386,9 +386,9 @@ export class MarketMenu {
     pointerY: number,
   ): void {
     const btn: Rect = {
-      x: panelX + panelW - 130,
+      x: panelX + panelW - 182,
       y: y + 22,
-      w: 96,
+      w: 148,
       h: 32,
     };
     const textMaxW = btn.x - (panelX + 24) - 12;
