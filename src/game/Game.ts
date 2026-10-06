@@ -30,6 +30,7 @@ import {
   createBlackMarket,
   createStationMarket,
   isIllegalCommodityId,
+  isTempRebelTakenStation,
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
@@ -151,6 +152,16 @@ import {
 } from "../ship/missions";
 
 type FadePhase = "idle" | "fadeOut" | "fadeIn";
+
+/**
+ * TEMP(rebel-taken): one Rebel scan on the starting black market.
+ * The starter hull already has a Survey Scanner, so Accept is enabled.
+ * Strip before merge.
+ */
+function tempRebelTakenPreview(offers: MissionOffer[]): MissionOffer[] {
+  const scan = offers.find((o) => o.kind === "rebelScan");
+  return scan ? [scan] : [];
+}
 
 /** Title before the first tick of a run; game over when the hull is lost. */
 type RunPhase = "title" | "playing" | "gameover";
@@ -1097,9 +1108,13 @@ export class Game {
       station.id,
       station.name,
     );
+    // TEMP(rebel-taken): starting-sector black market lists one Rebel scan
+    // before any derelict is fenced. Does not reveal Rebels, grant cargo, or
+    // pay credits. Strip before merge.
+    const tempPreview = !!ref && isTempRebelTakenStation(ref.key);
     const fresh =
       ref &&
-      this.reputation.rebelsKnown() &&
+      (this.reputation.rebelsKnown() || tempPreview) &&
       stationOffersBlackMarket(ref.key)
         ? rebelMissionOffers(
             this.galaxy,
@@ -1110,11 +1125,15 @@ export class Game {
             stationOffersBlackMarket,
           )
         : [];
+    const posted =
+      tempPreview && !this.reputation.rebelsKnown()
+        ? tempRebelTakenPreview(fresh)
+        : fresh;
     this.dockMissionOffers = this.dockMissionOffers.filter(
       (o) => !isRebelMissionKind(o.kind),
     );
     const lockedDerelicts = this.activeDerelictTargetIds();
-    for (const offer of fresh) {
+    for (const offer of posted) {
       if (
         offer.kind === "rebelDerelict" &&
         offer.targetPoiId !== undefined &&
@@ -1834,6 +1853,9 @@ export class Game {
     if (this.dock.kind === "docked") {
       this.ensureMissionBoardReplenished(this.dock.station);
     }
+    // Accept from the black market does not open the station board. Refresh
+    // that menu in place so the row flips to taken without closing it.
+    this.refreshBlackMarketJobs();
     if (!this.missionBoardOpen) return;
     this.missionBoard.refresh(
       this.visibleMissionOffers(),
@@ -1847,7 +1869,6 @@ export class Game {
       this.rebelMissionCount() < QUEST.maxRebelActive,
       this.coverSlotsFree() >= 1,
     );
-    this.refreshBlackMarketJobs();
   }
 
   private openMissionBoard(station: Landmark): void {
