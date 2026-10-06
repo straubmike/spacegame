@@ -138,6 +138,7 @@ import {
   isStolenCargoId,
   isSurveyMissionKind,
   makeClearanceOffer,
+  tempClearancePayOffers,
   missionCargoId,
   occupiedPassengerBerths,
   questChartPoiIds,
@@ -1074,12 +1075,17 @@ export class Game {
     ) {
       const targets = this.unclearedPirateKeys(this.local.poiId);
       const clearance = makeClearanceOffer(
+        this.galaxy,
         giver,
         targets,
         this.local.poiName,
       );
       if (clearance) offers.unshift(clearance);
     }
+    // TEMP(clearance-pay): Orarra Reach Station lists an easy pack and a hard
+    // pack. Credits come from makeClearanceOffer. Strip this call before merge.
+    const preview = tempClearancePayOffers(this.galaxy, ref);
+    if (preview.length > 0) offers.unshift(...preview);
     return offers;
   }
 

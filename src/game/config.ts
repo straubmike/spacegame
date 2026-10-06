@@ -420,8 +420,6 @@ export const ECONOMY = {
    * Intentionally tiny vs pirate bounty.
    */
   cartographerCreditsPerVisit: 3,
-  /** Bonus for completing a system pirate-clearance quest. */
-  pirateQuestReward: 50,
 } as const;
 
 /**
@@ -659,6 +657,15 @@ export const QUEST = {
   distressAnswerMaxJumpRanges: 2.5,
   /** Utility module id required to accept Fuel Rat distress contracts. */
   distressAnswerRequiredModuleId: "expanded_fuel_tank",
+  /**
+   * Pirate clearance pay, summed for every ship still on the contract.
+   * Difficulty is that pack's ladder step (1–7). Group size is the ship
+   * count — each hull adds a share. Loadout is the fit's hull, weapon, and
+   * defense list price, divided by `clearanceLoadoutDivisor`.
+   */
+  clearancePerShip: 8,
+  clearancePerDifficulty: 18,
+  clearanceLoadoutDivisor: 25,
 } as const;
 
 /**

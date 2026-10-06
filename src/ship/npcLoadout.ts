@@ -332,6 +332,20 @@ export function pirateFitById(id: string): ResolvedNpcFit {
   return fit;
 }
 
+/**
+ * Station list price of the fighting fit: hull, weapons, shields, and plating.
+ * The factory drive is not included — every hull already brings one, and it
+ * is not what makes the pack harder to fight.
+ */
+export function pirateFitCombatPrice(id: string): number {
+  const spec = PIRATE_SPECS.find((entry) => entry.id === id);
+  if (!spec) throw new Error(`unknown pirate fit ${id}`);
+  let price = mustHull(spec.hullId).price;
+  for (const weaponId of spec.weaponIds) price += mustWeapon(weaponId).price;
+  for (const utilityId of spec.utilityIds) price += mustUtility(utilityId).price;
+  return price;
+}
+
 function pickWeighted(weights: readonly number[], rng: () => number): number {
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   let roll = rng() * total;
