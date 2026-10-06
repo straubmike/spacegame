@@ -851,13 +851,15 @@ export class ShipMenu {
       ry += 15;
     } else {
       for (const s of this.reputation.stations) {
-        const name =
-          s.name.length > 22 ? `${s.name.slice(0, 21)}…` : s.name;
+        const standing = formatStanding(s.score);
+        const standingW = ctx.measureText(standing).width;
+        const nameMax = Math.max(0, w - 8 - 12 - standingW);
+        const name = reputationStationLabel(s.name, nameMax, ctx);
         ctx.fillStyle = "rgba(210, 225, 245, 0.95)";
         ctx.fillText(name, x + 8, ry);
         ctx.fillStyle = stationStandingColor(s.score);
         ctx.textAlign = "right";
-        ctx.fillText(formatStanding(s.score), x + w - 4, ry);
+        ctx.fillText(standing, x + w - 4, ry);
         ctx.textAlign = "left";
         ry += 15;
       }
@@ -1324,6 +1326,39 @@ function truncate(
     s = s.slice(0, -1);
   }
   return `${s}…`;
+}
+
+/**
+ * Reputation station row. Unqualified names keep the 22-character clip.
+ * A main-sequence qualifier ` (Star)` stays on the line when the row is clipped.
+ */
+function reputationStationLabel(
+  text: string,
+  maxWidth: number,
+  ctx: CanvasRenderingContext2D,
+): string {
+  const star = text.match(/^(.*)( \([^)]+\))$/);
+  if (!star) {
+    return text.length > 22 ? `${text.slice(0, 21)}…` : text;
+  }
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const head = star[1] ?? "";
+  const suffix = star[2] ?? "";
+  const ellipsis = "…";
+  let base = head;
+  while (
+    base.length > 0 &&
+    ctx.measureText(`${base}${ellipsis}${suffix}`).width > maxWidth
+  ) {
+    base = base.slice(0, -1);
+  }
+  const clipped = `${base}${ellipsis}${suffix}`;
+  if (ctx.measureText(clipped).width <= maxWidth) return clipped;
+  let tail = text;
+  while (tail.length > 1 && ctx.measureText(`${ellipsis}${tail}`).width > maxWidth) {
+    tail = tail.slice(1);
+  }
+  return `${ellipsis}${tail}`;
 }
 
 function moduleStatRows(mod: EquipModule, loadout: ShipLoadout): StatRow[] {
