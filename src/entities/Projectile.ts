@@ -1,7 +1,7 @@
 import { COMBAT, WEAPONS } from "../game/config";
 
 /** Who fired. Patrol rounds must not be treated as the player's. */
-export type ProjectileSource = "player" | "pirate" | "patrol" | "imperial";
+export type ProjectileSource = "player" | "pirate" | "patrol";
 
 /** Kinetic families. `kinetic` is unused by current shooters. */
 export type ProjectileFamily = "kinetic" | "gun" | "cannon" | "missile";

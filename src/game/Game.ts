@@ -282,7 +282,8 @@ export class Game {
   private patrols: StationPatrol[] = [];
   /**
    * Imperial Bulwark + Hauler sent if a distress pirate pack is still
-   * present 45s after it arrives. Not station law — they hunt that pack only.
+   * present 45s after it arrives. Not station law. They shoot any pirate
+   * in hunt range, including a paid-off pack, and do not break that truce.
    */
   private distressRelief: StationPatrol[] = [];
   /** Seconds left before distress relief can arrive. Null when not armed. */
@@ -738,9 +739,10 @@ export class Game {
   }
 
   /**
-   * Every pirate hull in the current local view — seeded pack, distress
-   * responders, and mission bait. Patrols hunt this full list so station
-   * law still answers distress-spawned (and intrusion) pirates.
+   * Every pirate hull in the current local view — seeded pack (paid truce
+   * included), distress responders, and mission bait. Station patrols and
+   * distress Imperial ships hunt this list. A truce with the player is not
+   * a reason to skip a hull.
    */
   private localPirateThreats(): Pirate[] {
     const list: Pirate[] = [...this.pirates];
@@ -4527,7 +4529,7 @@ export class Game {
 
     const reliefShots: Projectile[] = [];
     for (const patrol of this.distressRelief) {
-      patrol.engagePirates(dt, this.distressPirates, reliefShots);
+      patrol.engagePirates(dt, pirateThreats, reliefShots);
     }
     if (reliefShots.length > 0) {
       this.projectiles.push(...reliefShots);
@@ -4564,23 +4566,8 @@ export class Game {
         continue;
       }
 
-      // Imperial relief only damages the distress pack. No player blame,
-      // no other hulls, no Fuel Rat.
-      if (p.source === "imperial") {
-        let imperialHit = false;
-        for (const pirate of this.distressPirates) {
-          const impact = this.shotImpact(p, pirate);
-          if (!impact) continue;
-          pirate.takeDamage(impact.amount, impact.shieldMultiplier, false);
-          imperialHit = true;
-          break;
-        }
-        if (imperialHit) this.projectiles.splice(i, 1);
-        continue;
-      }
-
-      // Player shots blame the player. Patrol shots only damage pirate hulls —
-      // they must not break a tribute truce or mark the station Hostile.
+      // Player shots blame the player. Patrol shots damage pirate hulls only —
+      // a paid truce stays with the player, and the station is not marked Hostile.
       const fromPlayer = p.source === "player";
       const retaliate = fromPlayer;
       let hit = false;
@@ -5408,7 +5395,7 @@ export class Game {
     this.distressImperialTimer = FUEL.distressImperialSeconds;
   }
 
-  /** Bulwark + Hauler. Lawful shots, distress pirates only, no Fuel Rat. */
+  /** Bulwark + Hauler. Lawful shots at pirates in range, not the Fuel Rat. */
   private spawnDistressImperial(): void {
     const fits = heavyPatrolFits();
     const angle0 = Math.random() * Math.PI * 2;

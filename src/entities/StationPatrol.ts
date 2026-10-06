@@ -343,8 +343,9 @@ export class StationPatrol {
   }
 
   /**
-   * Fight only these pirates. No player law, scans, fines, or station wander.
-   * Shots are lawful, so they do not blame the player.
+   * Fight pirates in hunt range. No player law, scans, fines, or station wander.
+   * A paid truce with the player is not a pass. Shots are lawful, so they do
+   * not blame the player or break that truce.
    */
   engagePirates(
     dt: number,
@@ -354,7 +355,7 @@ export class StationPatrol {
     if (!this.alive) return;
     this.tickDefense(dt);
     tickWeaponCooldowns(this.weaponCooldowns, dt);
-    const pirate = this.nearestAlive(pirates);
+    const pirate = this.nearestPirate(pirates);
     if (!pirate) {
       this.applyDrag(dt);
       this.integrate(dt);
@@ -362,15 +363,7 @@ export class StationPatrol {
     }
     this.stance = "huntPirate";
     this.wanderTarget = null;
-    this.chaseAndFire(
-      dt,
-      pirate.x,
-      pirate.y,
-      pirate.id,
-      outShots,
-      false,
-      "imperial",
-    );
+    this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
   }
 
   private idleOrWander(dt: number): void {
@@ -431,23 +424,9 @@ export class StationPatrol {
     return best;
   }
 
-  /** Closest living pirate, with no hunt-range cap so a far pack is still chased. */
-  private nearestAlive(pirates: readonly Pirate[]): Pirate | null {
-    let best: Pirate | null = null;
-    let bestDist = Number.POSITIVE_INFINITY;
-    for (const p of pirates) {
-      if (!p.alive) continue;
-      const d = Math.hypot(p.x - this.x, p.y - this.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = p;
-      }
-    }
-    return best;
-  }
-
   /**
    * @param hostileShot true = hurts player; false = hurts pirates (lawful fire).
+   * Lawful shots do not blame the player.
    */
   private chaseAndFire(
     dt: number,
@@ -456,7 +435,6 @@ export class StationPatrol {
     targetId: string,
     outShots: Projectile[],
     hostileShot: boolean,
-    shotSource: "patrol" | "imperial" = "patrol",
   ): void {
     const dx = tx - this.x;
     const dy = ty - this.y;
@@ -488,7 +466,7 @@ export class StationPatrol {
         dist,
         cooldowns: this.weaponCooldowns,
         hostile: hostileShot,
-        source: shotSource,
+        source: "patrol",
         lockId: targetId,
         out: outShots,
         missileTrackScale: this.missileScale.trackScale,
