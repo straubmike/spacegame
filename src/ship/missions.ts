@@ -1242,27 +1242,6 @@ function makeRebelStealOffer(
   return offer;
 }
 
-/**
- * TEMP(steal-haul): the steal contract for this station's current board haul.
- * A new game lists it before Rebels are revealed. Strip before merge.
- * Routing stays in makeRebelStealOffer.
- */
-export function tempStealHaulOffer(
-  galaxy: Galaxy,
-  origin: SystemStationRef,
-  boardOffers: readonly MissionOffer[],
-  acceptedIds: ReadonlySet<string>,
-  stationHasBlackMarket: (stationKey: string) => boolean,
-): MissionOffer | null {
-  return makeRebelStealOffer(
-    galaxy,
-    origin,
-    boardOffers,
-    acceptedIds,
-    stationHasBlackMarket,
-  );
-}
-
 function makeRebelKidnapOffer(
   galaxy: Galaxy,
   origin: SystemStationRef,

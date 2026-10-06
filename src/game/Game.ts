@@ -31,7 +31,6 @@ import {
   createBlackMarket,
   createStationMarket,
   isIllegalCommodityId,
-  isTempStealHaulStation,
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
@@ -147,7 +146,6 @@ import {
   rebelCoverNeedsRegularSlot,
   rebelMissionOffers,
   stolenCargoId,
-  tempStealHaulOffer,
   stationRefFromLocal,
   type ActiveMission,
   type MissionKind,
@@ -1105,29 +1103,8 @@ export class Game {
       station.id,
       station.name,
     );
-    // TEMP(steal-haul): the forced starting-sector market is not a turn-in.
-    // Strip this with the other TEMP(steal-haul) hook.
-    const turnInMarket = (stationKey: string) => {
-      if (isTempStealHaulStation(stationKey)) return false;
-      return stationOffersBlackMarket(stationKey);
-    };
-    // TEMP(steal-haul): before Rebels are revealed, the starting station lists
-    // the steal contract for its current mission-board haul. Strip before merge.
-    const tempSteal =
-      !!ref &&
-      isTempStealHaulStation(ref.key) &&
-      !this.reputation.rebelsKnown();
     let fresh: MissionOffer[] = [];
-    if (ref && tempSteal) {
-      const steal = tempStealHaulOffer(
-        this.galaxy,
-        ref,
-        this.dockMissionOffers,
-        this.acceptedMissionIds,
-        turnInMarket,
-      );
-      if (steal) fresh = [steal];
-    } else if (
+    if (
       ref &&
       this.reputation.rebelsKnown() &&
       stationOffersBlackMarket(ref.key)
@@ -1138,7 +1115,7 @@ export class Game {
         this.reputation.rebelsRep(),
         this.acceptedMissionIds,
         this.dockMissionOffers,
-        turnInMarket,
+        stationOffersBlackMarket,
       );
     }
     this.dockMissionOffers = this.dockMissionOffers.filter(
