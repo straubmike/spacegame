@@ -642,7 +642,8 @@ export const QUEST = {
   /**
    * Rebel jobs at a black market (after Rebels are revealed).
    * Standing gate for the second tier is `REPUTATION.rebelsFriendlyJobStanding`.
-   * Steal / kidnap credit payouts are flat — the cover haul or fare is chosen later.
+   * Steal / kidnap credit payouts are flat — the cover haul or fare is the one
+   * on this station's board. Steal turns in at the nearest other black market.
    * Derelict and scan jobs reuse the normal distance formulas.
    * Patrol destroy: kill that station's patrol, claim back at the offering market.
    */

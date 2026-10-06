@@ -7,6 +7,7 @@ import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
   heatPirateFits,
   listSystemPirateKeys,
+  listSystemStations,
   pickQuestGiverStation,
   pirateViewKey,
   stationKey,
@@ -33,7 +34,6 @@ import {
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
-  TEMP,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -49,6 +49,7 @@ import {
   MERCHANTS_GUILD_FACTION_ID,
   PIRATE_FACTION_ID,
   REBELS_FACTION_ID,
+  qualifySharedStationLabels,
   ReputationTracker,
   standingBand,
   type ReputationListing,
@@ -260,6 +261,12 @@ export class Game {
   private readonly activeMissions: ActiveMission[] = [];
   /** Offer ids already taken this session (hide from boards). */
   private readonly acceptedMissionIds = new Set<string>();
+  /**
+   * Last scooped derelict debris id, keyed by wreck POI.
+   * The next regular or rebel scoop at that wreck marks a different piece
+   * when another exists.
+   */
+  private readonly lastScoopedDerelictDebris = new Map<number, number>();
   /** Systems whose clearance contract has already been claimed. */
   private readonly claimedClearanceSystems = new Set<number>();
   /**
@@ -276,6 +283,8 @@ export class Game {
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
   private readonly reputation = new ReputationTracker();
+  /** Station names that occur in more than one system (rep-menu labels). */
+  private namesSharedInGalaxy: ReadonlySet<string> | null = null;
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
   /**
@@ -442,12 +451,12 @@ export class Game {
     this.pendingPirateKills = 0;
     this.activeMissions.length = 0;
     this.acceptedMissionIds.clear();
+    this.lastScoopedDerelictDebris.clear();
     this.claimedClearanceSystems.clear();
     this.chartCatalog.clear();
     this.claimedCartographerVisits.clear();
     this.scannedPoiIds.clear();
     this.reputation.reset();
-    TEMP("revealRebels", this.reputation);
     this.scanDebt.clearAll();
     this.scanCaught.clear();
     this.lastDockedStation = null;
@@ -645,7 +654,8 @@ export class Game {
 
   /**
    * When a Retrieve Derelict Cargo contract targets this POI and the lot is
-   * not yet scooped, mark one debris piece as scoopable.
+   * not yet scooped, mark one debris piece as scoopable. The piece just
+   * scooped at this wreck is skipped when another exists.
    */
   private ensureDerelictMissionDebris(): void {
     if (this.local.focus.kind !== "derelict" || !this.local.beltRocks) return;
@@ -659,6 +669,7 @@ export class Game {
     markDerelictMissionDebris(
       this.local.beltRocks,
       GALAXY.seed ^ (this.local.poiId * 9973 + 19),
+      this.lastScoopedDerelictDebris.get(this.local.poiId),
     );
   }
 
@@ -1053,7 +1064,9 @@ export class Game {
         m.kind === "bmDestroyPatrol"
       ) {
         const claimKey =
-          m.kind === "rebelKidnap" ? m.destStationKey : m.originStationKey;
+          m.kind === "rebelKidnap" || m.kind === "rebelSteal"
+            ? m.destStationKey
+            : m.originStationKey;
         const ready = m.scanned && here === claimKey;
         if (ready && m.status !== "readyToClaim") {
           return { ...m, status: "readyToClaim" as const };
@@ -1844,10 +1857,10 @@ export class Game {
     }
 
     if (mission.kind === "rebelSteal") {
-      if (!mission.scanned || here !== mission.originStationKey) {
+      if (!mission.scanned || here !== mission.destStationKey) {
         this.messages.push(
           mission.scanned
-            ? `Missions: Deliver the stolen freight to ${mission.originStationName}.`
+            ? `Missions: Deliver the stolen freight to ${mission.destStationName ?? "the black market"}.`
             : "Missions: Steal a haul first — abandon it away from the giver.",
           "station",
         );
@@ -2204,10 +2217,43 @@ export class Game {
               : 0,
       });
     }
+    const stations = this.reputation.nonzeroStations();
     return {
       factions,
-      stations: this.reputation.nonzeroStations(),
+      stations: qualifySharedStationLabels(
+        stations,
+        (key) => this.mainSequenceStarName(key),
+        this.stationNamesSharedAcrossSystems(),
+      ),
     };
+  }
+
+  /** Main-sequence star for a station key (`poiId:bodyId:stationId`). */
+  private mainSequenceStarName(stationKey: string): string | null {
+    const head = stationKey.split(":")[0] ?? "";
+    if (!/^\d+$/.test(head)) return null;
+    const poiId = Number(head);
+    if (poiId >= this.galaxy.pois.length) return null;
+    const poi = this.galaxy.get(poiId);
+    if (poi.type !== "starSystem") return null;
+    return poi.name;
+  }
+
+  private stationNamesSharedAcrossSystems(): ReadonlySet<string> {
+    if (this.namesSharedInGalaxy) return this.namesSharedInGalaxy;
+    const counts = new Map<string, number>();
+    for (const poi of this.galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(this.galaxy, poi.id)) {
+        counts.set(station.name, (counts.get(station.name) ?? 0) + 1);
+      }
+    }
+    const shared = new Set<string>();
+    for (const [name, count] of counts) {
+      if (count > 1) shared.add(name);
+    }
+    this.namesSharedInGalaxy = shared;
+    return shared;
   }
 
   private hasExpandedFuelTank(): boolean {
@@ -2342,8 +2388,9 @@ export class Game {
     cover.commodityName = haul.commodityName;
     cover.cu = cu;
     cover.scanned = true;
+    const where = cover.destStationName ?? "the black market";
     this.messages.push(
-      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${cover.originStationName}.`,
+      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${where}'s black market.`,
       "station",
     );
   }
@@ -3456,6 +3503,7 @@ export class Game {
     }
     best.remaining = 0;
     best.yieldId = null;
+    this.lastScoopedDerelictDebris.set(this.local.poiId, best.id);
     mission.scanned = true;
     this.messages.push(
       `Scoop: +${need} CU ${DERELICT_CARGO_NAME} — return to ${mission.originStationName} to claim (+${mission.reward} cr).`,
@@ -4323,7 +4371,7 @@ export class Game {
 
   /**
    * Three HUD columns: left click, Space, right click.
-   * An empty or missing hardpoint is null so the other columns stay put.
+   * An empty or missing hardpoint is null. The HUD still draws that key.
    */
   private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");
