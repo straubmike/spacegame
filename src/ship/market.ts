@@ -6,6 +6,7 @@ import {
   type MarketContext,
   type PriceReason,
 } from "./economy";
+import { REBELS_FACTION_ID, type ReputationTracker } from "./reputation";
 import { hashStationKey } from "./stationKey";
 
 /** Catalog of trade goods — volume is always 1 CU per unit quantity. */
@@ -172,8 +173,41 @@ export function rollStationMenus(stationKey: string): StationMenuSet {
     "missions",
     ...pool.slice(0, count),
   ]);
+  TEMP("stationMenus", result, stationKey);
   menuCache.set(stationKey, result);
   return result;
+}
+
+/**
+ * TEMP(playtest): the station in the starting local view always offers a
+ * black market, and a new game already knows the Rebels, so that dock lists
+ * the initial rebel contracts (same count the real slate starts with).
+ * Strip this function and both call sites after playtest. Refill timing
+ * does not use it.
+ *
+ * Open it: begin a run, click the station beside the star, Hail, Dock,
+ * then Black Market. The contracts are listed above the commodities.
+ */
+export function TEMP(
+  action: "stationMenus",
+  menus: Set<StationServiceMenu>,
+  stationKey: string,
+): void;
+export function TEMP(action: "revealRebels", reputation: ReputationTracker): void;
+export function TEMP(
+  action: "stationMenus" | "revealRebels",
+  target: Set<StationServiceMenu> | ReputationTracker,
+  stationKey?: string,
+): void {
+  if (action === "revealRebels") {
+    const reputation = target as ReputationTracker;
+    reputation.setStanding(REBELS_FACTION_ID, reputation.rebelsRep());
+    return;
+  }
+  const parts = (stationKey ?? "").split(":");
+  if (parts[0] === String(GALAXY.startPoiId) && parts[1] === "0") {
+    (target as Set<StationServiceMenu>).add("blackMarket");
+  }
 }
 
 export function stationHasMenu(

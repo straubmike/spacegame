@@ -33,6 +33,7 @@ import {
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
+  TEMP,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -129,6 +130,7 @@ import {
   ABANDONED_DERELICT_CARGO_ID,
   DERELICT_CARGO_NAME,
   distressAnswerMatchesView,
+  generateRebelReplenishmentOffer,
   generateStationMissions,
   generateStationReplenishmentOffer,
   freePassengerBerths,
@@ -234,6 +236,16 @@ export class Game {
    * view and returns before one new offer is posted.
    */
   private readonly stationRefillState = new Map<
+    string,
+    | { phase: "awaitingDeparture"; viewKey: string }
+    | { phase: "ready" }
+  >();
+  /**
+   * Rebel contracts use the same empty-board cadence, tracked apart from the
+   * station board so one list emptying does not arm the other.
+   */
+  private readonly stationRebelReplenishOffers = new Map<string, MissionOffer[]>();
+  private readonly stationRebelRefillState = new Map<
     string,
     | { phase: "awaitingDeparture"; viewKey: string }
     | { phase: "ready" }
@@ -423,6 +435,8 @@ export class Game {
   private resetSession(): void {
     this.stationReplenishOffers.clear();
     this.stationRefillState.clear();
+    this.stationRebelReplenishOffers.clear();
+    this.stationRebelRefillState.clear();
     this.paidPirateViews.clear();
     this.clearedPirateViews.clear();
     this.pendingPirateKills = 0;
@@ -433,6 +447,7 @@ export class Game {
     this.claimedCartographerVisits.clear();
     this.scannedPoiIds.clear();
     this.reputation.reset();
+    TEMP("revealRebels", this.reputation);
     this.scanDebt.clearAll();
     this.scanCaught.clear();
     this.lastDockedStation = null;
@@ -971,10 +986,26 @@ export class Game {
     });
   }
 
+  /**
+   * Rebel jobs on the black market. A derelict another contract already
+   * accepted stays posted but hidden until that contract is abandoned or
+   * completed, so the slate does not refill while it is only hidden.
+   */
   private visibleRebelOffers(): MissionOffer[] {
-    return this.dockMissionOffers.filter(
-      (o) => !this.acceptedMissionIds.has(o.id) && isRebelMissionKind(o.kind),
-    );
+    const locked = this.activeDerelictTargetIds();
+    return this.dockMissionOffers.filter((o) => {
+      if (this.acceptedMissionIds.has(o.id) || !isRebelMissionKind(o.kind)) {
+        return false;
+      }
+      if (
+        o.kind === "rebelDerelict" &&
+        o.targetPoiId !== undefined &&
+        locked.has(o.targetPoiId)
+      ) {
+        return false;
+      }
+      return true;
+    });
   }
 
   /** Mission board omits rebel jobs — those live on the black market menu. */
@@ -1085,9 +1116,11 @@ export class Game {
 
   /**
    * Rebel jobs appear only after Rebels are revealed, and only at a dock that
-   * has a black market. Up to two offers; kidnap and patrol-destroy join the
-   * pool at Friendly Rebel standing. Shown on the black market menu, not the
-   * normal mission board. Accepted kinds stay off the list.
+   * has a black market. The initial slate is up to two offers. Accepting one
+   * does not fill the seat. When none remain — including a derelict hidden
+   * because that wreck is still under contract — the next offer waits until
+   * the player leaves this local view and docks again, then exactly one.
+   * Shown on the black market menu, not the normal mission board.
    */
   private syncBlackMarketOffers(station: Landmark): void {
     const ref = stationRefFromLocal(
@@ -1097,33 +1130,77 @@ export class Game {
       station.id,
       station.name,
     );
-    const fresh =
-      ref &&
-      this.reputation.rebelsKnown() &&
-      stationOffersBlackMarket(ref.key)
-        ? rebelMissionOffers(
-            this.galaxy,
-            ref,
-            this.reputation.rebelsRep(),
-            this.acceptedMissionIds,
-            this.dockMissionOffers,
-            stationOffersBlackMarket,
-          )
-        : [];
     this.dockMissionOffers = this.dockMissionOffers.filter(
       (o) => !isRebelMissionKind(o.kind),
     );
-    const lockedDerelicts = this.activeDerelictTargetIds();
-    for (const offer of fresh) {
-      if (
-        offer.kind === "rebelDerelict" &&
-        offer.targetPoiId !== undefined &&
-        lockedDerelicts.has(offer.targetPoiId)
-      ) {
-        continue;
-      }
-      this.dockMissionOffers.push(offer);
+    if (
+      !ref ||
+      !this.reputation.rebelsKnown() ||
+      !stationOffersBlackMarket(ref.key)
+    ) {
+      return;
     }
+
+    const board = this.dockMissionOffers;
+    const initial = rebelMissionOffers(
+      this.galaxy,
+      ref,
+      this.reputation.rebelsRep(),
+      this.acceptedMissionIds,
+      board,
+      stationOffersBlackMarket,
+    );
+    if (initial.length > 0) {
+      for (const offer of initial) this.dockMissionOffers.push(offer);
+      this.stationRebelRefillState.delete(ref.key);
+      return;
+    }
+
+    const posted = this.stationRebelReplenishOffers.get(ref.key) ?? [];
+    const stillOpen = posted.filter((o) => !this.acceptedMissionIds.has(o.id));
+    if (stillOpen.length > 0) {
+      for (const offer of stillOpen) {
+        if (!this.dockMissionOffers.some((o) => o.id === offer.id)) {
+          this.dockMissionOffers.push(offer);
+        }
+      }
+      this.stationRebelRefillState.delete(ref.key);
+      return;
+    }
+
+    const state = this.stationRebelRefillState.get(ref.key);
+    if (state?.phase !== "ready") {
+      if (!state) {
+        this.stationRebelRefillState.set(ref.key, {
+          phase: "awaitingDeparture",
+          viewKey: this.localViewKey(),
+        });
+      }
+      return;
+    }
+
+    const offer = generateRebelReplenishmentOffer(
+      this.galaxy,
+      ref,
+      this.reputation.rebelsRep(),
+      posted.length,
+      this.acceptedMissionIds,
+      board,
+      stationOffersBlackMarket,
+    );
+    if (!offer || this.acceptedMissionIds.has(offer.id)) return;
+    if (
+      offer.kind === "rebelDerelict" &&
+      offer.targetPoiId !== undefined &&
+      this.activeDerelictTargetIds().has(offer.targetPoiId)
+    ) {
+      // Stay ready. After abandon or complete, the same refill can post.
+      return;
+    }
+
+    this.stationRebelReplenishOffers.set(ref.key, [...posted, offer]);
+    this.dockMissionOffers.push(offer);
+    this.stationRebelRefillState.delete(ref.key);
   }
 
   private localViewKey(): string {
@@ -1139,6 +1216,11 @@ export class Game {
     for (const [key, state] of this.stationRefillState) {
       if (state.phase === "awaitingDeparture" && state.viewKey === view) {
         this.stationRefillState.set(key, { phase: "ready" });
+      }
+    }
+    for (const [key, state] of this.stationRebelRefillState) {
+      if (state.phase === "awaitingDeparture" && state.viewKey === view) {
+        this.stationRebelRefillState.set(key, { phase: "ready" });
       }
     }
   }
@@ -1475,7 +1557,7 @@ export class Game {
         this.coverSlotsFree() < 1
       ) {
         this.messages.push(
-          "Missions: Need a free mission slot to accept the cover haul or fare.",
+          "Missions: Requires a free mission slot to accept the cover haul or fare.",
           "station",
         );
         return;
