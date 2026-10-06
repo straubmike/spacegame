@@ -30,10 +30,19 @@ import type { Projectile } from "./Projectile";
 
 export type PirateMode = "idle" | "aggro" | "retreat";
 
+/** Imperial hull a pirate can defend against without aggroing the player. */
+export interface PatrolDefenseTarget {
+  id: string;
+  x: number;
+  y: number;
+  alive: boolean;
+}
+
 /**
  * Hostile hull in a local encounter.
- * Fee / hail timing is owned by Game as one pack event — ships only fight
- * when the encounter stance is hostile (or after being attacked).
+ * Fee / hail timing is owned by Game as one pack event — ships fight the
+ * player only when that stance is hostile. An Imperial patrol in the view
+ * is a separate fight and does not turn them onto the player.
  * Weapons, shields, plating, and core come from the same modules as the player.
  */
 export class Pirate {
@@ -173,7 +182,9 @@ export class Pirate {
 
   /**
    * Movement + combat. `hostile` is the pack encounter stance from Game.
-   * `targetId` is locked onto missiles at the moment of fire.
+   * `targetId` is locked onto missiles aimed at the player.
+   * `patrols` are Imperial hulls in this view. Defending against one does
+   * not aggro the player, and a paid pack stays at truce with them.
    */
   update(
     dt: number,
@@ -182,6 +193,7 @@ export class Pirate {
     outShots: Projectile[],
     hostile: boolean,
     targetId: string,
+    patrols: readonly PatrolDefenseTarget[] = [],
   ): void {
     if (!this.alive) return;
 
@@ -203,12 +215,6 @@ export class Pirate {
       this.mode = "idle";
     }
 
-    if (this.mode === "idle") {
-      this.applyDrag(dt);
-      this.integrate(dt);
-      return;
-    }
-
     if (this.mode === "retreat") {
       const away = towardPlayer + Math.PI;
       this.turnToward(away, dt);
@@ -220,13 +226,59 @@ export class Pirate {
       return;
     }
 
-    // aggro — hold a weapon band. Nose wanders only while facing the target.
-    // Retreat and idle stay on a true heading.
+    const patrol = this.nearestPatrol(patrols);
+    if (patrol) {
+      this.engage(dt, patrol.x, patrol.y, patrol.id, outShots, false);
+      return;
+    }
+
+    if (this.mode === "idle") {
+      this.applyDrag(dt);
+      this.integrate(dt);
+      return;
+    }
+
+    this.engage(dt, playerX, playerY, targetId, outShots, true);
+  }
+
+  /** Closest living Imperial hull in the view. No range cap — they close. */
+  private nearestPatrol(
+    patrols: readonly PatrolDefenseTarget[],
+  ): PatrolDefenseTarget | null {
+    let best: PatrolDefenseTarget | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const patrol of patrols) {
+      if (!patrol.alive) continue;
+      const d = Math.hypot(patrol.x - this.x, patrol.y - this.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = patrol;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Hold a weapon band and fire. `hitPlayer` rounds strike the player.
+   * Patrol rounds do not: they are not hostile, so they cannot blame them.
+   */
+  private engage(
+    dt: number,
+    tx: number,
+    ty: number,
+    lockId: string,
+    outShots: Projectile[],
+    hitPlayer: boolean,
+  ): void {
+    const dx = tx - this.x;
+    const dy = ty - this.y;
+    const dist = Math.hypot(dx, dy);
+    const toward = Math.atan2(dy, dx);
     this.aimTime += dt;
     const preferred = RANGE_BAND[this.standoff()];
     const plan = rangeHeading({
       dist,
-      toward: towardPlayer,
+      toward,
       preferred,
       closingSpeed: closingSpeed(this.vx, this.vy, dx, dy, dist),
       aimOffset: aimOffset(this.aimTime, this.swing),
@@ -236,7 +288,7 @@ export class Pirate {
     else this.applyDrag(dt);
     this.integrate(dt);
 
-    const angleErr = Math.abs(shortestAngle(this.heading, towardPlayer));
+    const angleErr = Math.abs(shortestAngle(this.heading, toward));
     const fireGate = Math.max(COMBAT.pirateFireCone, this.swing.width);
     if (angleErr <= fireGate && dist <= COMBAT.pirateThreatRange) {
       fireNpcVolley({
@@ -247,9 +299,9 @@ export class Pirate {
         heading: this.heading,
         dist,
         cooldowns: this.weaponCooldowns,
-        hostile: true,
+        hostile: hitPlayer,
         source: "pirate",
-        lockId: targetId,
+        lockId,
         out: outShots,
         missileTrackScale: this.missileScale.trackScale,
         missileTurnScale: this.missileScale.turnScale,

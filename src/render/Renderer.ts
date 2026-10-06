@@ -599,9 +599,10 @@ export class Renderer {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(shot.heading);
-      ctx.fillStyle = shot.hostile
-        ? "rgba(255, 150, 90, 0.95)"
-        : "rgba(255, 214, 140, 0.95)";
+      ctx.fillStyle =
+        shot.source === "pirate" || shot.hostile
+          ? "rgba(255, 150, 90, 0.95)"
+          : "rgba(255, 214, 140, 0.95)";
       ctx.fillRect(-7, -2.4, 14, 4.8);
       ctx.restore();
       return;
@@ -616,9 +617,10 @@ export class Renderer {
       ctx.lineTo(-3, 0);
       ctx.lineTo(-5, -3.2);
       ctx.closePath();
-      ctx.fillStyle = shot.hostile
-        ? "rgba(255, 170, 120, 0.95)"
-        : "rgba(140, 220, 255, 0.95)";
+      ctx.fillStyle =
+        shot.source === "pirate" || shot.hostile
+          ? "rgba(255, 170, 120, 0.95)"
+          : "rgba(140, 220, 255, 0.95)";
       ctx.fill();
       ctx.restore();
       return;
@@ -626,11 +628,12 @@ export class Renderer {
     const radius = shot.family === "gun" ? 1.6 : COMBAT.projectileRadius;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = shot.hostile
-      ? "rgba(255, 140, 110, 0.95)"
-      : shot.family === "gun"
-        ? "rgba(210, 225, 245, 0.9)"
-        : "rgba(220, 240, 255, 0.95)";
+    ctx.fillStyle =
+      shot.source === "pirate" || shot.hostile
+        ? "rgba(255, 140, 110, 0.95)"
+        : shot.family === "gun"
+          ? "rgba(210, 225, 245, 0.9)"
+          : "rgba(220, 240, 255, 0.95)";
     ctx.fill();
   }
 

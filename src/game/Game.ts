@@ -4122,10 +4122,16 @@ export class Game {
         weapon.shieldMultiplier,
         plating,
       );
-      // Distress relief hunts that pirate pack only — player fire does not
+      // Distress relief is not station law — player fire does not
       // turn them onto the ship or sour a station.
       if (this.distressRelief.includes(target.patrol)) {
         return layer === "plating";
+      }
+      if (!target.patrol.alive && !this.distressRelief.includes(target.patrol)) {
+        this.notePatrolDestroyed(
+          target.patrol.stationKey,
+          target.patrol.stationName,
+        );
       }
       if (!target.patrol.defending) {
         this.forceStationHostile(
@@ -4445,6 +4451,7 @@ export class Game {
       this.messages.push(label, "pirate");
     }
 
+    const imperialPatrols = [...this.patrols, ...this.distressRelief];
     const hostile = this.pack?.phase === "hostile";
     for (const pirate of this.pirates) {
       pirate.update(
@@ -4454,6 +4461,7 @@ export class Game {
         pirateShots,
         hostile === true,
         PLAYER_LOCK_ID,
+        imperialPatrols,
       );
     }
     const distressHostile = this.distressPack?.phase === "hostile";
@@ -4465,6 +4473,7 @@ export class Game {
         pirateShots,
         distressHostile === true,
         PLAYER_LOCK_ID,
+        imperialPatrols,
       );
     }
     if (this.baitPirate?.alive) {
@@ -4475,6 +4484,7 @@ export class Game {
         pirateShots,
         this.baitPack?.phase === "hostile",
         PLAYER_LOCK_ID,
+        imperialPatrols,
       );
     }
     if (pirateShots.length > 0) {
@@ -4566,6 +4576,26 @@ export class Game {
         continue;
       }
 
+      // Pirate defense fire at Imperial hulls. Not hostile, so it cannot hit
+      // the player, blame them, or break a paid truce. It does not sour a station.
+      if (p.source === "pirate") {
+        let patrolHit = false;
+        for (const group of [this.patrols, this.distressRelief]) {
+          if (patrolHit) break;
+          for (const patrol of group) {
+            const impact = this.shotImpact(p, patrol);
+            if (!impact) continue;
+            if (impact.amount > 0) {
+              patrol.takeDamage(impact.amount, impact.shieldMultiplier);
+            }
+            patrolHit = true;
+            break;
+          }
+        }
+        if (patrolHit) this.projectiles.splice(i, 1);
+        continue;
+      }
+
       // Player shots blame the player. Patrol shots damage pirate hulls only —
       // a paid truce stays with the player, and the station is not marked Hostile.
       const fromPlayer = p.source === "player";
@@ -4621,6 +4651,9 @@ export class Game {
           if (!impact) continue;
           if (impact.amount > 0) {
             patrol.takeDamage(impact.amount, impact.shieldMultiplier);
+          }
+          if (!patrol.alive) {
+            this.notePatrolDestroyed(patrol.stationKey, patrol.stationName);
           }
           // First hit only — under-attack / Hostile comms once per combat.
           if (!patrol.defending) {
@@ -4719,7 +4752,6 @@ export class Game {
         `${patrol.stationName} patrol destroyed.`,
         "station",
       );
-      this.notePatrolDestroyed(patrol.stationKey, patrol.stationName);
     }
     this.patrols = this.patrols.filter((p) => p.alive);
 
