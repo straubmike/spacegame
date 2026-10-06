@@ -5,7 +5,8 @@ export const WEAPON_HUD_INPUTS = ["L-MOUSE", "SPACE", "R-MOUSE"] as const;
 
 /**
  * One equipped hardpoint.
- * Columns are left click, Space, right click. Null leaves that column blank.
+ * Columns are left click, Space, right click.
+ * Null is an empty column: the cluster still draws that key.
  */
 export interface WeaponHudRow {
   /** L-MOUSE, SPACE, or R-MOUSE. */
@@ -30,6 +31,9 @@ export interface WeaponHudRow {
 const HUD_TEXT = "rgba(200, 220, 255, 0.88)";
 const HUD_READY = "rgba(255, 214, 72, 0.96)";
 const HUD_BLOCKED = "rgba(255, 86, 74, 0.96)";
+/** Unequipped hardpoint — same dim line the bay uses for an empty module. */
+const HUD_EMPTY = "rgba(150, 170, 200, 0.8)";
+const EMPTY_SLOT_LABEL = "Empty";
 
 /**
  * Energy weapons carry no magazine. Kinetics always do.
@@ -125,7 +129,7 @@ export class Hud {
       credits: number;
       /**
        * Three columns: left click, Space, right click.
-       * Null leaves that column blank.
+       * Null is an empty column. The box, key, and empty state still draw.
        */
       weapons?: readonly (WeaponHudRow | null)[];
       /** Current drive heat. Gauge fill is heat / heatSinkCapacity. */
@@ -250,7 +254,6 @@ export class Hud {
       weapons[2] ?? null,
     ];
     const showBar = heatSinkCapacity > 0;
-    if (!columns.some((row) => row !== null) && !showBar) return;
 
     const gap = 14;
     const padX = 8;
@@ -265,6 +268,10 @@ export class Hud {
 
     // Wide enough for the longest marked weapon name, so the label is not clipped.
     let textW = ctx.measureText("Energy Pulse Mk III").width;
+    textW = Math.max(textW, ctx.measureText(EMPTY_SLOT_LABEL).width);
+    for (const key of WEAPON_HUD_INPUTS) {
+      textW = Math.max(textW, ctx.measureText(key).width);
+    }
     for (const row of columns) {
       if (!row) continue;
       textW = Math.max(
@@ -282,18 +289,26 @@ export class Hud {
 
     for (let i = 0; i < columns.length; i += 1) {
       const row = columns[i];
-      if (!row) continue;
       const x = originX + i * (colW + gap);
-      const energy = weaponRowIsEnergy(row);
-      const boxH = padY * 2 + lineH * (energy ? 2 : 3);
+      const cx = x + colW / 2;
+      // Empty: key plus the bay's empty line. No module name, no ammo.
+      const lines = row && !weaponRowIsEnergy(row) ? 3 : 2;
+      const boxH = padY * 2 + lineH * lines;
       ctx.fillStyle = "rgba(8, 12, 20, 0.55)";
       ctx.fillRect(x, top, colW, boxH);
       ctx.strokeStyle = "rgba(150, 170, 200, 0.35)";
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, top + 0.5, colW - 1, boxH - 1);
 
+      if (!row) {
+        ctx.fillStyle = HUD_TEXT;
+        ctx.fillText(WEAPON_HUD_INPUTS[i] ?? "SPACE", cx, keyY);
+        ctx.fillStyle = HUD_EMPTY;
+        ctx.fillText(EMPTY_SLOT_LABEL, cx, nameY);
+        continue;
+      }
+
       ctx.fillStyle = toneColor(weaponRowTone(row, heat, heatSinkCapacity));
-      const cx = x + colW / 2;
       ctx.fillText(row.input, cx, keyY);
       ctx.fillText(row.name, cx, nameY);
       const ammo = weaponAmmoLabel(row);
