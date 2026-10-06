@@ -7,6 +7,7 @@ import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
   heatPirateFits,
   listSystemPirateKeys,
+  listSystemStations,
   pickQuestGiverStation,
   pirateViewKey,
   stationKey,
@@ -50,6 +51,7 @@ import {
   MERCHANTS_GUILD_FACTION_ID,
   PIRATE_FACTION_ID,
   REBELS_FACTION_ID,
+  qualifySharedStationLabels,
   ReputationTracker,
   standingBand,
   type ReputationListing,
@@ -276,6 +278,8 @@ export class Game {
   private readonly scannedPoiIds = new Set<number>();
   /** Per-station + pirate / Fuel Rat / guild faction standing (session). */
   private readonly reputation = new ReputationTracker();
+  /** Station names that occur in more than one system (rep-menu labels). */
+  private namesSharedInGalaxy: ReadonlySet<string> | null = null;
   /** Patrol knowledge / knownIllegalDebt from illegal-cargo scans. */
   private readonly scanDebt = new ScanDebtLedger();
   /**
@@ -1068,7 +1072,9 @@ export class Game {
         m.kind === "bmDestroyPatrol"
       ) {
         const claimKey =
-          m.kind === "rebelKidnap" ? m.destStationKey : m.originStationKey;
+          m.kind === "rebelKidnap" || m.kind === "rebelSteal"
+            ? m.destStationKey
+            : m.originStationKey;
         const ready = m.scanned && here === claimKey;
         if (ready && m.status !== "readyToClaim") {
           return { ...m, status: "readyToClaim" as const };
@@ -1149,19 +1155,21 @@ export class Game {
       station.id,
       station.name,
     );
-    const fresh =
+    let fresh: MissionOffer[] = [];
+    if (
       ref &&
       this.reputation.rebelsKnown() &&
       stationOffersBlackMarket(ref.key)
-        ? rebelMissionOffers(
-            this.galaxy,
-            ref,
-            this.reputation.rebelsRep(),
-            this.acceptedMissionIds,
-            this.dockMissionOffers,
-            stationOffersBlackMarket,
-          )
-        : [];
+    ) {
+      fresh = rebelMissionOffers(
+        this.galaxy,
+        ref,
+        this.reputation.rebelsRep(),
+        this.acceptedMissionIds,
+        this.dockMissionOffers,
+        stationOffersBlackMarket,
+      );
+    }
     // TEMP(derelict-fence): once the regular lot is fenced, Rebels are known
     // and this black market lists a rebel derelict for that same wreck.
     // Strip before merge. Does not change steal-haul source or turn-in.
@@ -1547,7 +1555,7 @@ export class Game {
         this.coverSlotsFree() < 1
       ) {
         this.messages.push(
-          "Missions: Need a free mission slot to accept the cover haul or fare.",
+          "Missions: Requires a free mission slot to accept the cover haul or fare.",
           "station",
         );
         return;
@@ -1834,10 +1842,10 @@ export class Game {
     }
 
     if (mission.kind === "rebelSteal") {
-      if (!mission.scanned || here !== mission.originStationKey) {
+      if (!mission.scanned || here !== mission.destStationKey) {
         this.messages.push(
           mission.scanned
-            ? `Missions: Deliver the stolen freight to ${mission.originStationName}.`
+            ? `Missions: Deliver the stolen freight to ${mission.destStationName ?? "the black market"}.`
             : "Missions: Steal a haul first — abandon it away from the giver.",
           "station",
         );
@@ -2194,10 +2202,43 @@ export class Game {
               : 0,
       });
     }
+    const stations = this.reputation.nonzeroStations();
     return {
       factions,
-      stations: this.reputation.nonzeroStations(),
+      stations: qualifySharedStationLabels(
+        stations,
+        (key) => this.mainSequenceStarName(key),
+        this.stationNamesSharedAcrossSystems(),
+      ),
     };
+  }
+
+  /** Main-sequence star for a station key (`poiId:bodyId:stationId`). */
+  private mainSequenceStarName(stationKey: string): string | null {
+    const head = stationKey.split(":")[0] ?? "";
+    if (!/^\d+$/.test(head)) return null;
+    const poiId = Number(head);
+    if (poiId >= this.galaxy.pois.length) return null;
+    const poi = this.galaxy.get(poiId);
+    if (poi.type !== "starSystem") return null;
+    return poi.name;
+  }
+
+  private stationNamesSharedAcrossSystems(): ReadonlySet<string> {
+    if (this.namesSharedInGalaxy) return this.namesSharedInGalaxy;
+    const counts = new Map<string, number>();
+    for (const poi of this.galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(this.galaxy, poi.id)) {
+        counts.set(station.name, (counts.get(station.name) ?? 0) + 1);
+      }
+    }
+    const shared = new Set<string>();
+    for (const [name, count] of counts) {
+      if (count > 1) shared.add(name);
+    }
+    this.namesSharedInGalaxy = shared;
+    return shared;
   }
 
   private hasExpandedFuelTank(): boolean {
@@ -2332,8 +2373,9 @@ export class Game {
     cover.commodityName = haul.commodityName;
     cover.cu = cu;
     cover.scanned = true;
+    const where = cover.destStationName ?? "the black market";
     this.messages.push(
-      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${cover.originStationName}.`,
+      `Rebels: Stolen ${cover.commodityName ?? "freight"} held — deliver it to ${where}'s black market.`,
       "station",
     );
   }
@@ -4315,7 +4357,7 @@ export class Game {
 
   /**
    * Three HUD columns: left click, Space, right click.
-   * An empty or missing hardpoint is null so the other columns stay put.
+   * An empty or missing hardpoint is null. The HUD still draws that key.
    */
   private weaponHudRows(): (WeaponHudRow | null)[] {
     const slots = this.ship.loadout.slotsOfKind("weapon");
