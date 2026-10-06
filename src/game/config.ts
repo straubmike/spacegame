@@ -493,6 +493,11 @@ export const FUEL = {
    */
   distressImperialSeconds: 45,
   /**
+   * While current fuel can already reach a station, this many distress
+   * calls in one local view are still answered. The next is ignored.
+   */
+  distressAbuseAnswerLimit: 2,
+  /**
    * L-menu distress only: seconds after broadcast before a Fuel Rat or
    * pirate pack appears. Answer-distress sites spawn their contact on
    * arrival — that wait is not this timer.

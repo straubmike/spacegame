@@ -290,6 +290,11 @@ export class Game {
   private distressImperialTimer: number | null = null;
   /** This view already received its pair. A new view can send another. */
   private distressImperialSent = false;
+  /**
+   * Distress calls answered in this view while a station was already in
+   * reach. Leaving the view clears it. Stranded calls do not count.
+   */
+  private distressAnsweredWhileAble = 0;
   /** Shared fee/combat event for the current local pirate group (null = none). */
   private pack: PackEncounter | null = null;
   /** Distress-spawned pirates (separate from seeded pack). */
@@ -558,6 +563,7 @@ export class Game {
     this.distressRelief = [];
     this.distressImperialTimer = null;
     this.distressImperialSent = false;
+    this.distressAnsweredWhileAble = 0;
     this.pack = null;
     this.distressPirates = [];
     this.distressPack = null;
@@ -5371,6 +5377,23 @@ export class Game {
       return;
     }
     this.closeShipMenuUi();
+    const reach = canReachNearestStation(
+      this.galaxy,
+      this.local.poiId,
+      this.local.bodyId,
+      this.ship.fuel,
+      this.ship.jumpRange(),
+    );
+    if (
+      reach.canReach &&
+      this.distressAnsweredWhileAble >= FUEL.distressAbuseAnswerLimit
+    ) {
+      this.messages.push(
+        `Seems like no one is coming. . . have enough fuel to get to ${reach.target.stationName}.`,
+      );
+      return;
+    }
+    if (reach.canReach) this.distressAnsweredWhileAble += 1;
     const wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
     const span =
       FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
