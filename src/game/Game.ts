@@ -53,7 +53,6 @@ import {
   ReputationTracker,
   standingBand,
   type ReputationListing,
-  type ReputationStationRow,
 } from "../ship/reputation";
 import {
   addObservedIllegal,
@@ -198,57 +197,6 @@ interface EnergyTarget {
   pirate: Pirate | null;
   patrol: StationPatrol | null;
 }
-
-/**
- * TEMP(rep-menu collision): draft playtest rows.
- * A new game's Reputation list shows two stations that share a name and sit
- * in different systems; the main-sequence star tells them apart.
- * Scores are display-only — not written to the tracker — so fines and perks
- * stay put. Delete this const and the TEMP(...) call.
- * Leave qualifySharedStationLabels.
- */
-const TEMP = (() => {
-  let cached: ReputationStationRow[] | null | undefined;
-
-  return function TEMP(
-    stations: ReputationStationRow[],
-    galaxy: Galaxy,
-  ): void {
-    if (cached === undefined) cached = sharedNamePair(galaxy);
-    if (!cached) return;
-    const present = new Set(stations.map((row) => row.key));
-    const extra = cached.filter((row) => !present.has(row.key));
-    if (extra.length === 0) return;
-    stations.unshift(...extra);
-  };
-
-  function sharedNamePair(galaxy: Galaxy): ReputationStationRow[] | null {
-    const first = new Map<
-      string,
-      { key: string; name: string; star: string }
-    >();
-    for (const poi of galaxy.pois) {
-      if (poi.type !== "starSystem") continue;
-      for (const station of listSystemStations(galaxy, poi.id)) {
-        const prev = first.get(station.name);
-        if (!prev) {
-          first.set(station.name, {
-            key: station.key,
-            name: station.name,
-            star: poi.name,
-          });
-          continue;
-        }
-        if (prev.star === poi.name) continue;
-        return [
-          { key: prev.key, name: prev.name, score: 24 },
-          { key: station.key, name: station.name, score: -22 },
-        ];
-      }
-    }
-    return null;
-  }
-})();
 
 export class Game {
   private readonly keyboard: Keyboard;
@@ -2179,8 +2127,6 @@ export class Game {
       });
     }
     const stations = this.reputation.nonzeroStations();
-    // Draft playtest rows. Delete this call — not the qualifier below.
-    TEMP(stations, this.galaxy);
     return {
       factions,
       stations: qualifySharedStationLabels(
