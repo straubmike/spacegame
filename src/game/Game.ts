@@ -507,31 +507,6 @@ export class Game {
     this.keyboard.discardEdges();
     this.pointer.consumeClick();
     this.pointer.releaseHeld();
-    // TEMP(merchant guild prices): a new game opens the Orarra Reach Station
-    // market at Friendly so buy and sell show the 8% shift.
-    // Unfavored Minerals was 26 cr/CU buy and 18 cr/CU sell.
-    this.tempOpenFriendlyGuildMarket();
-  }
-
-  /**
-   * TEMP(merchant guild prices): dock the starting star station and open its
-   * market with Merchants Guild at Friendly. Leave this in the draft.
-   * Orarra Reach Station. Unfavored Minerals was 26 cr/CU buy and 18 cr/CU sell.
-   */
-  private tempOpenFriendlyGuildMarket(): void {
-    this.reputation.setStanding(
-      MERCHANTS_GUILD_FACTION_ID,
-      REPUTATION.friendlyAtOrAbove,
-    );
-    const station =
-      this.stations().find((s) => s.name === "Orarra Reach Station") ??
-      this.stations().find((s) => {
-        const key = this.currentStationKey(s);
-        return key != null && stationHasMenu(key, "market");
-      });
-    if (!station) return;
-    this.completeDock(station);
-    this.openMarket(station);
   }
 
   private returnToTitle(): void {
