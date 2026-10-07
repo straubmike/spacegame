@@ -1,6 +1,6 @@
 import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, HEAT, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
 import { Loop } from "./Loop";
-import { hash2, mulberry32 } from "../galaxy/rng";
+import { hash2 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
 import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
@@ -176,12 +176,6 @@ function pirateTollDemand(fee: number, shipCount: number): string {
     ? `Pirate pack demands ${fee} credits for safe passage — you have one minute.`
     : `Pirate: Pay ${fee} credits for safe passage — you have one minute.`;
 }
-
-/**
- * TEMP: pinned heat roll so a distress still shows one toll sentence.
- * Spawn uses this instead of Math.random while the shot hook is in.
- */
-const DISTRESS_TOLL_SHOT_SEED = 0x7e11;
 
 interface PackEncounter {
   phase: PackPhase;
@@ -5589,14 +5583,11 @@ export class Game {
       return;
     }
     if (reach.canReach) this.distressAnsweredWhileAble += 1;
-    let wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
+    const wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
     const span =
       FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
-    let delay = FUEL.distressResponseDelayMin + Math.random() * span;
-    // TEMP: next distress call is pirates, already in the toll window.
-    // A still can show the demand and TEMP: 60s without the 50% roll or the wait.
-    wantPirates = true;
-    delay = 0;
+    const delay =
+      FUEL.distressResponseDelayMin + Math.random() * span;
     this.distressPending = true;
     this.distressInbound = {
       kind: wantPirates ? "pirates" : "rat",
@@ -5611,24 +5602,21 @@ export class Game {
   }
 
   private spawnDistressPirates(): void {
-    let rng: () => number = Math.random;
-    // TEMP: pin the heat roll so the toll sentence does not change between stills.
-    rng = mulberry32(DISTRESS_TOLL_SHOT_SEED);
-    const encounter = heatPirateEncounter(this.galaxy, this.local.poiId, rng);
+    const encounter = heatPirateEncounter(
+      this.galaxy,
+      this.local.poiId,
+      Math.random,
+    );
     const fits = encounter.fits;
     const n = fits.length;
     const fee = encounter.fee;
-    let angle0 = Math.random() * Math.PI * 2;
-    let ring =
-      FUEL.distressSpawnMin +
-      Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
-    // TEMP: lower-right of the player, clear of the top weapon slots and comms.
-    angle0 = Math.atan2(160, 240);
-    ring = Math.hypot(240, 160);
+    const angle0 = Math.random() * Math.PI * 2;
     this.distressPirates = [];
     for (let i = 0; i < n; i += 1) {
       const ang = angle0 + (i / n) * Math.PI * 2;
-      const dist = ring;
+      const dist =
+        FUEL.distressSpawnMin +
+        Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
@@ -5731,15 +5719,6 @@ export class Game {
     if (!pack || pack.phase !== "comms") return null;
     if (!this.distressPirates.some((p) => p.alive)) return null;
     return pirateTollDemand(pack.fee, pack.shipCount);
-  }
-
-  /** TEMP: remaining toll seconds, beside the demand, for a still. */
-  private distressTollShotLine(): string | null {
-    const pack = this.distressPack;
-    if (!pack || pack.phase !== "comms") return null;
-    if (!this.distressPirates.some((p) => p.alive)) return null;
-    const secs = Math.max(0, Math.ceil(pack.timer));
-    return `TEMP: ${secs}s`;
   }
 
   private spawnFuelRat(): void {
@@ -5955,7 +5934,6 @@ export class Game {
       this.camera.follow(pose.x, pose.y);
     }
 
-    this.messages.liveLine = this.distressTollShotLine();
     this.renderer.draw({
       ship: this.ship,
       camera: this.camera,

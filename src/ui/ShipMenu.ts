@@ -14,12 +14,10 @@ import {
   applyBayDiscount,
   formatPirateStanding,
   formatStanding,
-  FUEL_RATS_FACTION_ID,
   pirateStandingBand,
   standingBand,
   type ReputationListing,
 } from "../ship/reputation";
-import { distressPiratePlan } from "../ship/distressOdds";
 import type { ShipLoadout } from "../ship/Loadout";
 import type { CargoHold } from "../ship/CargoHold";
 import {
@@ -212,12 +210,10 @@ export class ShipMenu {
     const listW = this.mode === "bay" ? 150 : 148;
     const rowH = 40;
     // Distress + Close live at the bottom of the left (modules) column.
-    // TEMP caption sits in the gap above Distress signal.
     const btnH = 36;
     const btnGap = 8;
-    const distressCaptionH = this.mode === "view" ? 16 : 0;
     const leftBtnStack =
-      this.mode === "view" ? btnH * 2 + btnGap + distressCaptionH : btnH;
+      this.mode === "view" ? btnH * 2 + btnGap : btnH;
     const footerY = panel.y + panel.h - 16 - leftBtnStack - 10;
     this.missionCancelBtns = [];
     this.cargoRows = [];
@@ -367,7 +363,6 @@ export class ShipMenu {
       drawButton(ctx, this.distressBtn, "Distress signal", {
         hover: !this.missionConfirm && hit(this.distressBtn, pointerX, pointerY),
       });
-      this.drawDistressPirateChance(ctx);
     } else {
       this.distressBtn = { x: 0, y: 0, w: 0, h: 0 };
     }
@@ -378,28 +373,6 @@ export class ShipMenu {
     if (this.missionConfirm) {
       this.drawMissionConfirm(ctx, panel, pointerX, pointerY);
     }
-  }
-
-  /**
-   * TEMP: pirate chance for the current Fuel Rat standing, above Distress signal.
-   * A new session is standing 0, so this reads 50%.
-   */
-  private drawDistressPirateChance(ctx: CanvasRenderingContext2D): void {
-    const standing =
-      this.reputation.factions.find((row) => row.id === FUEL_RATS_FACTION_ID)
-        ?.score ?? 0;
-    const pct = Math.round(distressPiratePlan(standing).pirateChance * 100);
-    ctx.save();
-    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    ctx.fillStyle = "rgba(232, 210, 140, 0.95)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(
-      `TEMP: pirates ${pct}%`,
-      this.distressBtn.x + this.distressBtn.w / 2,
-      this.distressBtn.y - 2,
-    );
-    ctx.restore();
   }
 
   /**
