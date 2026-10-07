@@ -5112,7 +5112,10 @@ export class Game {
     this.marketMenu.hide();
     this.missionBoardOpen = false;
     this.missionBoard.hide();
-    this.hangarMenu.show(station.name);
+    this.hangarMenu.show(
+      station.name,
+      this.reputation.hangarDiscountFraction(),
+    );
     this.hangarMenuOpen = true;
   }
 
@@ -5160,19 +5163,23 @@ export class Game {
     if (result.action === "buy") {
       const hull = hullById(result.hullId);
       if (!hull) return;
+      const price = applyBayDiscount(
+        hull.price,
+        this.hangarMenu.discountFraction,
+      );
       const willBoard =
         !this.ship.fleet.ownsHullType(hull.id) &&
-        this.ship.credits >= hull.price;
+        this.ship.credits >= price;
       if (
         willBoard &&
         this.refuseIfBerthsTooSmall(factoryPassengerCapacity(hull))
       ) {
         return;
       }
-      const status = this.ship.buyHull(hull, true);
+      const status = this.ship.buyHull(hull, true, price);
       if (status === "credits") {
         this.messages.push(
-          `Hangar: Need ${hull.price} cr for ${hull.name}.`,
+          `Hangar: Need ${price} cr for ${hull.name}.`,
           "station",
         );
         return;
@@ -5183,7 +5190,7 @@ export class Game {
       }
       if (status === "ok") {
         this.messages.push(
-          `Hangar: Purchased ${hull.name} (−${hull.price} cr). Now active.`,
+          `Hangar: Purchased ${hull.name} (−${price} cr). Now active.`,
           "station",
         );
       }

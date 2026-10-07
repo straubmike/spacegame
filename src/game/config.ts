@@ -808,6 +808,14 @@ export const REPUTATION = {
    */
   merchantTariffFriendly: 0.08,
   merchantTariffAllied: 0.15,
+  /**
+   * Hangar ship-purchase discount fractions by Imperial standing
+   * (`pirateStandingBand`, no Violation band). Match the bay rates:
+   * `bayDiscountFriendly` 0.08 and `bayDiscountAllied` 0.15.
+   * Unfriendly, Neutral, and Hostile pay full price.
+   */
+  hangarDiscountFriendly: 0.08,
+  hangarDiscountAllied: 0.15,
   /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,

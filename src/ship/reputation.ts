@@ -407,6 +407,19 @@ export class ReputationTracker {
   }
 
   /**
+   * Fraction off a hangar ship purchase (0 … 1).
+   * Imperial standing only — `pirateStandingBand`, so there is no Violation
+   * band and the station score is not consulted.
+   * Friendly and Allied discount; Unfriendly, Neutral, and Hostile do not.
+   */
+  hangarDiscountFraction(): number {
+    const band = pirateStandingBand(this.imperialStanding);
+    if (band === "allied") return REPUTATION.hangarDiscountAllied;
+    if (band === "friendly") return REPUTATION.hangarDiscountFriendly;
+    return 0;
+  }
+
+  /**
    * Pirate encounter stance override for the pack AI.
    */
   pirateEncounterOverride(): "skipFee" | "instantAggro" | null {

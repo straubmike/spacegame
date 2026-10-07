@@ -243,15 +243,22 @@ export class Ship {
    * Purchase hull (if affordable and not already owned) and optionally board it.
    * New hulls always start from factory default loadout + empty cargo — never
    * copy the active ship's modules or freight.
+   * `charge` is the credits actually taken (Imperial hangar discount included).
+   * Omit it to pay the catalog list price.
    */
-  buyHull(hull: HullDef, boardAfter = true): "ok" | "owned" | "credits" | "unknown" {
+  buyHull(
+    hull: HullDef,
+    boardAfter = true,
+    charge?: number,
+  ): "ok" | "owned" | "credits" | "unknown" {
     if (hull.price <= 0) return "unknown";
+    const price = charge ?? hull.price;
     if (this.fleet.ownsHullType(hull.id)) return "owned";
-    if (this.credits < hull.price) return "credits";
+    if (this.credits < price) return "credits";
     this.stashActiveToFleet();
     const bought = this.fleet.buy(hull);
     if (!bought) return "owned";
-    this.credits -= hull.price;
+    this.credits -= price;
     if (boardAfter) {
       this.fleet.setActive(bought.instanceId);
       this.applyOwnedShip(bought, { refillShield: true, fullHealth: true });
