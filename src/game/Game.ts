@@ -34,6 +34,7 @@ import {
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
+  withMerchantGuildPrices,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -3253,7 +3254,10 @@ export class Game {
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
     this.lastDockedStation = { key, name: station.name };
-    this.dockMarket = createStationMarket(key, this.marketContext());
+    this.dockMarket = withMerchantGuildPrices(
+      createStationMarket(key, this.marketContext()),
+      this.reputation.merchantsRep(),
+    );
     this.dockBlackMarket = stationOffersBlackMarket(key)
       ? createBlackMarket(key, this.marketContext())
       : null;
@@ -5191,7 +5195,10 @@ export class Game {
       return;
     }
     if (!this.dockMarket) {
-      this.dockMarket = createStationMarket(key, this.marketContext());
+      this.dockMarket = withMerchantGuildPrices(
+        createStationMarket(key, this.marketContext()),
+        this.reputation.merchantsRep(),
+      );
     }
     this.dockedMenu.hide();
     this.shipMenuOpen = false;

@@ -798,6 +798,13 @@ export const REPUTATION = {
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
+  /**
+   * Merchants Guild marketplace favor, same fractions as the bay discounts.
+   * Friendly: 8% in the player's favor on buy and on sell.
+   * Allied: 15%. Below Friendly the factors stay 1 — prices are not worsened.
+   */
+  merchantTariffFriendly: 0.08,
+  merchantTariffAllied: 0.15,
   /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
