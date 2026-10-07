@@ -2577,6 +2577,7 @@ export class Game {
       return;
     }
 
+    this.messages.hold(this.distressTollDemandText());
     this.messages.update(dt);
     this.ship.tickDefense(dt);
     // Chart, system panel, ship, market, missions, hangar, and the dock
@@ -4903,7 +4904,12 @@ export class Game {
     this.pirates = this.pirates.filter((p) => p.alive);
     if (this.pirates.length === 0) {
       this.pack = null;
-      this.pirateMenu.hide();
+      // An empty seeded pack is the normal case on a distress call.
+      // Do not close a fee menu that belongs to the distress pirates.
+      if (this.pirateMenuFor !== "distress") {
+        this.pirateMenu.hide();
+        this.pirateMenuFor = null;
+      }
     }
 
     const distressDying = this.distressPirates.filter((p) => !p.alive);
@@ -5612,13 +5618,17 @@ export class Game {
     const fits = encounter.fits;
     const n = fits.length;
     const fee = encounter.fee;
-    const angle0 = Math.random() * Math.PI * 2;
+    let angle0 = Math.random() * Math.PI * 2;
+    let ring =
+      FUEL.distressSpawnMin +
+      Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
+    // TEMP: lower-right of the player, clear of the top weapon slots and comms.
+    angle0 = Math.atan2(160, 240);
+    ring = Math.hypot(240, 160);
     this.distressPirates = [];
     for (let i = 0; i < n; i += 1) {
       const ang = angle0 + (i / n) * Math.PI * 2;
-      const dist =
-        FUEL.distressSpawnMin +
-        Math.random() * (FUEL.distressSpawnMax - FUEL.distressSpawnMin);
+      const dist = ring;
       this.distressPirates.push(
         new Pirate(
           this.ship.x + Math.cos(ang) * dist,
@@ -5713,6 +5723,14 @@ export class Game {
       "Imperial patrol: Distress pirates still live — engaging.",
       "station",
     );
+  }
+
+  /** Toll sentence while the distress window is open, so comms does not fade it. */
+  private distressTollDemandText(): string | null {
+    const pack = this.distressPack;
+    if (!pack || pack.phase !== "comms") return null;
+    if (!this.distressPirates.some((p) => p.alive)) return null;
+    return pirateTollDemand(pack.fee, pack.shipCount);
   }
 
   /** TEMP: remaining toll seconds, beside the demand, for a still. */

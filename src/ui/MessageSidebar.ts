@@ -26,6 +26,8 @@ export class MessageSidebar {
    * so a still can show the live seconds next to the demand.
    */
   liveLine: string | null = null;
+  /** While set, a matching comms line stays fresh instead of fading. */
+  private heldText: string | null = null;
 
   clear(): void {
     this.lines.length = 0;
@@ -33,6 +35,12 @@ export class MessageSidebar {
     this.maxScroll = 0;
     this.hoverActive = false;
     this.liveLine = null;
+    this.heldText = null;
+  }
+
+  /** Keep one existing line on screen. Pass null to let it age again. */
+  hold(text: string | null): void {
+    this.heldText = text;
   }
 
   push(text: string, tone: CommsTone = "neutral"): void {
@@ -46,6 +54,10 @@ export class MessageSidebar {
 
   update(dt: number): void {
     for (const line of this.lines) {
+      if (this.heldText && line.text === this.heldText) {
+        line.age = 0;
+        continue;
+      }
       line.age += dt;
     }
     // History is retained until messageMax FIFO; fade is visual only.
