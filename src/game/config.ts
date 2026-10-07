@@ -854,11 +854,16 @@ export const PATROL = {
   warningSeconds: 60,
   /**
    * Illegal-cargo scan (Must-have 11).
-   * Chance is intentionally a bit high so a playtest session can see a scan.
+   * Runs at Unfriendly, Neutral, Friendly, Allied, and Violation.
+   * Hostile does not start a scan.
    */
   /** World range to start / continue an opportunistic scan. */
   scanRange: 520,
-  /** Per-second chance to open scan comms while player is in range (Neutral+). */
+  /**
+   * Per-second chance to open scan comms while the player is in range.
+   * Unfriendly, Neutral, Friendly, Allied, and Violation can scan.
+   * Hostile does not.
+   */
   scanChancePerSecond: 0.045,
   /** Seconds until the scan completes once started. */
   scanSeconds: 30,
