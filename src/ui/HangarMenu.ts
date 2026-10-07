@@ -31,8 +31,6 @@ export class HangarMenu {
   /** Imperial hangar discount (0 … 1) captured when the menu opens. */
   discountFraction = 0;
   private selectedIndex = 0;
-  /** TEMP: after the next row build, select the first hull for sale. */
-  private focusFirstSalePending = false;
   private rows: ListRow[] = [];
   private rowRects: Rect[] = [];
   private actionBtn: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -47,11 +45,6 @@ export class HangarMenu {
     this.discountFraction = discountFraction;
     this.selectedIndex = 0;
     this.detailScroll = 0;
-  }
-
-  /** TEMP: detail pane and Buy label show the first catalog price. */
-  focusFirstSale(): void {
-    this.focusFirstSalePending = true;
   }
 
   hide(): void {
@@ -114,11 +107,6 @@ export class HangarMenu {
     );
 
     this.rows = this.buildRows(fleet);
-    if (this.focusFirstSalePending) {
-      const sale = this.rows.findIndex((r) => r.kind === "sale");
-      if (sale >= 0) this.selectedIndex = sale;
-      this.focusFirstSalePending = false;
-    }
     if (
       this.selectedIndex >= this.rows.length ||
       this.rows[this.selectedIndex]?.kind === "header"

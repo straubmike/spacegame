@@ -497,59 +497,6 @@ export class Game {
     const pose = this.ship.sample(1);
     this.camera.follow(pose.x, pose.y);
     this.sessionFresh = true;
-    this.tempOpenFriendlyHangar();
-  }
-
-  /**
-   * TEMP(imperial-hangar-screenshot): a new game opens the nearest hangar
-   * already at Imperial Friendly so a still can show the 8% ship discount.
-   * Station: Bemaera Major Station (Bemaera Major, the star). First listed
-   * hull is Pathfinder; undiscounted catalog price is 160 cr (shows 147).
-   */
-  private tempOpenFriendlyHangar(): void {
-    this.reputation.setStanding(
-      IMPERIAL_FACTION_ID,
-      REPUTATION.friendlyAtOrAbove,
-    );
-    const start = this.galaxy.get(GALAXY.startPoiId);
-    let best: {
-      poiId: number;
-      bodyId: number;
-      stationId: number;
-      dist: number;
-    } | null = null;
-    for (const poi of this.galaxy.pois) {
-      if (poi.type !== "starSystem") continue;
-      for (const station of listSystemStations(this.galaxy, poi.id)) {
-        if (!stationHasMenu(station.key, "hangar")) continue;
-        const dist = Math.hypot(
-          poi.chartX - start.chartX,
-          poi.chartY - start.chartY,
-        );
-        if (!best || dist < best.dist) {
-          best = {
-            poiId: station.poiId,
-            bodyId: station.bodyId,
-            stationId: station.stationId,
-            dist,
-          };
-        }
-      }
-    }
-    if (!best) return;
-    const target = best;
-    this.local = generateLocalView(this.galaxy, target.poiId, target.bodyId);
-    this.enterLocal();
-    const station = this.stations().find((s) => s.id === target.stationId);
-    if (!station) return;
-    this.dock = { kind: "docked", station };
-    this.ship.vx = 0;
-    this.ship.vy = 0;
-    this.ship.x = station.x;
-    this.ship.y = station.y;
-    this.openHangar(station);
-    this.hangarMenu.focusFirstSale();
-    this.messages.clear();
   }
 
   private beginRun(): void {
