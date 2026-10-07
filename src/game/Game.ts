@@ -3265,13 +3265,18 @@ export class Game {
     this.ensureMissionBoardReplenished(station);
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
-    this.applyComplimentaryDockService(station);
+    // Denial (hail / approach) is unchanged. Service runs only when standing
+    // still allows dock at arrival: not Violation, not Hostile.
+    if (this.stationReputationAllowsDock(station)) {
+      this.applyComplimentaryDockService(station);
+    }
   }
 
-  /** Free hull repair, refuel, and ammo refill on every dock. */
+  /** Free hull repair, refuel, and ammo refill when standing allows dock. */
   private applyComplimentaryDockService(station: Landmark): void {
     const result = this.ship.applyComplimentaryDockService();
-    if (result.healed > 0 && result.refueled) {
+    const refueled = result.fuelAdded > 0;
+    if (result.healed > 0 && refueled) {
       this.messages.push(
         `${station.name}: Complimentary repair, refuel, and ammo — hull, tanks, and magazines topped free of charge.`,
         "station",
@@ -3281,7 +3286,7 @@ export class Game {
         `${station.name}: Complimentary repair and ammo — hull restored and magazines topped free of charge.`,
         "station",
       );
-    } else if (result.refueled) {
+    } else if (refueled) {
       this.messages.push(
         `${station.name}: Complimentary refuel and ammo — tanks and magazines topped free of charge.`,
         "station",
