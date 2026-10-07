@@ -506,53 +506,6 @@ export class Game {
     this.keyboard.discardEdges();
     this.pointer.consumeClick();
     this.pointer.releaseHeld();
-    // TEMP(imperial board +3): new game is already docked with one regular
-    // board contract ready to claim. Missions → Claim "TEMP survey", then L.
-    // Imperial row shows the band and the new score. Remove with this pass.
-    this.tempDockClaimableBoardContract();
-  }
-
-  /**
-   * TEMP(imperial board +3): skip the flight. Dock at the first station in
-   * the start system and post one scanned explore contract so Claim pays
-   * the station (and Imperial) immediately.
-   */
-  private tempDockClaimableBoardContract(): void {
-    const stationRef = listSystemStations(this.galaxy, GALAXY.startPoiId)[0];
-    if (!stationRef) return;
-    if (
-      this.local.poiId !== stationRef.poiId ||
-      this.local.bodyId !== stationRef.bodyId
-    ) {
-      this.local = generateLocalView(
-        this.galaxy,
-        stationRef.poiId,
-        stationRef.bodyId,
-      );
-      this.enterLocal();
-    }
-    const station = this.stations().find((s) => s.id === stationRef.stationId);
-    if (!station) return;
-    this.completeDock(station);
-    const key = this.currentStationKey(station);
-    if (!key) return;
-    const mission: ActiveMission = {
-      id: "temp:board-contract",
-      kind: "explore",
-      title: "TEMP survey",
-      blurb: "TEMP regular board contract.",
-      reward: 1,
-      originStationKey: key,
-      originStationName: station.name,
-      originPoiId: this.local.poiId,
-      targetPoiId: this.local.poiId,
-      targetPoiName: this.local.poiName,
-      status: "readyToClaim",
-      scanned: true,
-    };
-    this.activeMissions.push(mission);
-    const pose = this.ship.sample(1);
-    this.camera.follow(pose.x, pose.y);
   }
 
   private returnToTitle(): void {
