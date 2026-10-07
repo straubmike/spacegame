@@ -497,6 +497,59 @@ export class Game {
     const pose = this.ship.sample(1);
     this.camera.follow(pose.x, pose.y);
     this.sessionFresh = true;
+    this.tempOpenFriendlyHangar();
+  }
+
+  /**
+   * TEMP(imperial-hangar-screenshot): a new game opens the nearest hangar
+   * already at Imperial Friendly so a still can show the 8% ship discount.
+   * Station: Bemaera Major Station (Bemaera Major, the star). First listed
+   * hull is Pathfinder; undiscounted catalog price is 160 cr (shows 147).
+   */
+  private tempOpenFriendlyHangar(): void {
+    this.reputation.setStanding(
+      IMPERIAL_FACTION_ID,
+      REPUTATION.friendlyAtOrAbove,
+    );
+    const start = this.galaxy.get(GALAXY.startPoiId);
+    let best: {
+      poiId: number;
+      bodyId: number;
+      stationId: number;
+      dist: number;
+    } | null = null;
+    for (const poi of this.galaxy.pois) {
+      if (poi.type !== "starSystem") continue;
+      for (const station of listSystemStations(this.galaxy, poi.id)) {
+        if (!stationHasMenu(station.key, "hangar")) continue;
+        const dist = Math.hypot(
+          poi.chartX - start.chartX,
+          poi.chartY - start.chartY,
+        );
+        if (!best || dist < best.dist) {
+          best = {
+            poiId: station.poiId,
+            bodyId: station.bodyId,
+            stationId: station.stationId,
+            dist,
+          };
+        }
+      }
+    }
+    if (!best) return;
+    const target = best;
+    this.local = generateLocalView(this.galaxy, target.poiId, target.bodyId);
+    this.enterLocal();
+    const station = this.stations().find((s) => s.id === target.stationId);
+    if (!station) return;
+    this.dock = { kind: "docked", station };
+    this.ship.vx = 0;
+    this.ship.vy = 0;
+    this.ship.x = station.x;
+    this.ship.y = station.y;
+    this.openHangar(station);
+    this.hangarMenu.focusFirstSale();
+    this.messages.clear();
   }
 
   private beginRun(): void {
@@ -5088,7 +5141,10 @@ export class Game {
     this.marketMenu.hide();
     this.missionBoardOpen = false;
     this.missionBoard.hide();
-    this.hangarMenu.show(station.name);
+    this.hangarMenu.show(
+      station.name,
+      this.reputation.hangarDiscountFraction(),
+    );
     this.hangarMenuOpen = true;
   }
 
@@ -5136,19 +5192,23 @@ export class Game {
     if (result.action === "buy") {
       const hull = hullById(result.hullId);
       if (!hull) return;
+      const price = applyBayDiscount(
+        hull.price,
+        this.hangarMenu.discountFraction,
+      );
       const willBoard =
         !this.ship.fleet.ownsHullType(hull.id) &&
-        this.ship.credits >= hull.price;
+        this.ship.credits >= price;
       if (
         willBoard &&
         this.refuseIfBerthsTooSmall(factoryPassengerCapacity(hull))
       ) {
         return;
       }
-      const status = this.ship.buyHull(hull, true);
+      const status = this.ship.buyHull(hull, true, price);
       if (status === "credits") {
         this.messages.push(
-          `Hangar: Need ${hull.price} cr for ${hull.name}.`,
+          `Hangar: Need ${price} cr for ${hull.name}.`,
           "station",
         );
         return;
@@ -5159,7 +5219,7 @@ export class Game {
       }
       if (status === "ok") {
         this.messages.push(
-          `Hangar: Purchased ${hull.name} (−${hull.price} cr). Now active.`,
+          `Hangar: Purchased ${hull.name} (−${price} cr). Now active.`,
           "station",
         );
       }
