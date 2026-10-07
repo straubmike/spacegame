@@ -10,6 +10,10 @@
  *   Abandon while passengers are still aboard: mild origin −5 plus Imperial −3,
  *   unless this fare is the named rebel kidnap. That station then takes the
  *   cargo-steal floor (same as a kept haul). Imperial stays −3. No other station.
+ *   Completing a regular board contract (this fare, a haul, a scan, a derelict
+ *   retrieval, pirate clearance, or any other non-rebel kind that pays the
+ *   station) also raises Imperial by `imperialBoardContract`. Rebel jobs,
+ *   black-market contracts, and cancels do not.
  * - explore: accept at A (needs Survey Scanner) → jump to exotic POI
  *   (non-derelict) → hold F to scan → return to A → claim.
  *   Faction-tagged **Cartographers**.

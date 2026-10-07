@@ -34,6 +34,7 @@ import {
   rollStationMenus,
   stationHasMenu,
   stationOffersBlackMarket,
+  withMerchantGuildPrices,
   type StationMarket,
 } from "../ship/market";
 import type { MarketContext } from "../ship/economy";
@@ -1464,10 +1465,9 @@ export class Game {
         if (mission.destStationKey !== here) continue;
         this.ship.addCredits(mission.reward);
         delivered.push(mission);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.destStationKey!,
           mission.destStationName ?? station.name,
-          REPUTATION.missionComplete,
         );
         const n = mission.passengers ?? 0;
         this.messages.push(
@@ -1493,10 +1493,9 @@ export class Game {
       this.ship.fleet.removeCargo(lotId, need);
       this.ship.addCredits(mission.reward);
       delivered.push(mission);
-      this.adjustStationRep(
+      this.payStationBoardContract(
         mission.destStationKey!,
         mission.destStationName ?? station.name,
-        REPUTATION.missionComplete,
       );
       this.adjustMerchantsRep(REPUTATION.merchantsHaulComplete);
       if (onActive < need) {
@@ -1745,10 +1744,9 @@ export class Game {
         );
       } else {
         this.ship.addCredits(mission.reward);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.originStationKey,
           mission.originStationName,
-          REPUTATION.missionComplete,
         );
         this.adjustCartographersRep(REPUTATION.cartographersScanComplete);
         this.messages.push(
@@ -1789,10 +1787,9 @@ export class Game {
         );
       } else {
         this.ship.addCredits(mission.reward);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.originStationKey,
           mission.originStationName,
-          REPUTATION.missionComplete,
         );
         this.messages.push(
           `${station.name}: Derelict cargo recovered — ${mission.title} (+${mission.reward} cr).`,
@@ -1824,10 +1821,9 @@ export class Game {
       this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
       this.claimedClearanceSystems.add(mission.originPoiId);
-      this.adjustStationRep(
+      this.payStationBoardContract(
         mission.originStationKey,
         mission.originStationName,
-        REPUTATION.missionComplete,
       );
       this.messages.push(
         `${station.name}: System clearance confirmed (+${mission.reward} cr).`,
@@ -2164,6 +2160,23 @@ export class Game {
   ): void {
     const next = this.reputation.adjust(stationKeyStr, delta, stationLabel);
     this.pushRepChange(stationLabel, next, delta);
+  }
+
+  /**
+   * Station payout for a completed regular board contract, plus the
+   * Imperial echo. Rebel jobs and black-market contracts do not call this.
+   * Cancels do not call this.
+   */
+  private payStationBoardContract(
+    stationKeyStr: string,
+    stationLabel: string,
+  ): void {
+    this.adjustStationRep(
+      stationKeyStr,
+      stationLabel,
+      REPUTATION.missionComplete,
+    );
+    this.adjustImperialRep(REPUTATION.imperialBoardContract);
   }
 
   private pushRepChange(label: string, next: number, delta: number): void {
@@ -3241,7 +3254,10 @@ export class Game {
       this.currentStationKey(station) ??
       `visit:${this.local.poiId}:${station.id}`;
     this.lastDockedStation = { key, name: station.name };
-    this.dockMarket = createStationMarket(key, this.marketContext());
+    this.dockMarket = withMerchantGuildPrices(
+      createStationMarket(key, this.marketContext()),
+      this.reputation.merchantsRep(),
+    );
     this.dockBlackMarket = stationOffersBlackMarket(key)
       ? createBlackMarket(key, this.marketContext())
       : null;
@@ -4914,6 +4930,7 @@ export class Game {
   /**
    * Force Hostile (attack patrol or expire Violation window).
    * Clears scan debt — unredeemable.
+   * Standing only drops: markHostile writes min(current, hostile floor).
    */
   private forceStationHostile(
     stationKey: string,
@@ -4932,7 +4949,8 @@ export class Game {
 
   /**
    * Resolve a completed illegal-cargo scan.
-   * Clean / eject-all-uncaught → nothing. Positive → knownIllegalDebt + Violation.
+   * Clean / eject-all-uncaught → nothing. Positive → knownIllegalDebt, and
+   * standing drops only when the scan target is lower than the current score.
    */
   private resolvePatrolScan(patrol: StationPatrol): void {
     const observed = new Map<string, IllegalDebtLine>();
@@ -4967,11 +4985,13 @@ export class Game {
     const totalCu = debt.lines.reduce((n, l) => n + l.cu, 0);
     const before = this.reputation.stationStanding(patrol.stationKey);
     const band = standingBand(before);
-    // Positive scan forces Violation (unless already Hostile).
+    // Hostile still skips this write. Otherwise only lower the score.
     if (band !== "hostile") {
+      const current = before;
+      const target = REPUTATION.scanViolationStanding;
       const next = this.reputation.setStanding(
         patrol.stationKey,
-        REPUTATION.scanViolationStanding,
+        Math.min(current, target),
         patrol.stationName,
       );
       this.pushRepChange(patrol.stationName, next, next - before);
@@ -5174,7 +5194,10 @@ export class Game {
       return;
     }
     if (!this.dockMarket) {
-      this.dockMarket = createStationMarket(key, this.marketContext());
+      this.dockMarket = withMerchantGuildPrices(
+        createStationMarket(key, this.marketContext()),
+        this.reputation.merchantsRep(),
+      );
     }
     this.dockedMenu.hide();
     this.shipMenuOpen = false;
