@@ -31,8 +31,9 @@ const MENU_ORDER: readonly ServiceMenu[] = [
 /**
  * Shown while the player is docked at a station.
  * Missions are always available; Bay / Hangar / Market / Black Market come
- * from the station's rolled optional set. Repair & refuel are complimentary
- * on dock (no button) — see Game.applyComplimentaryDockService.
+ * from the station's rolled optional set. Repair, refuel, and ammo run on
+ * dock (no button) — see Game.applyComplimentaryDockService.
+ * `serviceNote` is the TEMP(dock-service) receipt while that hook is in.
  */
 export class DockedMenu {
   open = false;
@@ -44,6 +45,8 @@ export class DockedMenu {
   private missionBoardHint = "";
   /** e.g. "Rep Friendly (+24)" — empty when unknown. */
   private standingLine = "";
+  /** TEMP(dock-service) receipt lines. Empty once that hook is stripped. */
+  private serviceNote: readonly string[] = [];
 
   show(
     stationName: string,
@@ -52,6 +55,7 @@ export class DockedMenu {
     availableMenus: ReadonlySet<string> | Iterable<string>,
     missionBoardHint = "",
     standingLine = "",
+    serviceNote: readonly string[] = this.serviceNote,
   ): void {
     this.open = true;
     this.stationName = stationName;
@@ -60,13 +64,16 @@ export class DockedMenu {
     this.availableMenus = set;
     this.missionBoardHint = missionBoardHint;
     this.standingLine = standingLine;
+    this.serviceNote = serviceNote;
 
     const visibleServices = MENU_ORDER.filter((m) =>
       this.availableMenus.has(m),
     );
-    const w = 280;
+    const noteBlock = this.serviceNote.length * 14;
+    const w = noteBlock > 0 ? 400 : 280;
     const rows = visibleServices.length + 1; // services + launch
-    const headerExtra = standingLine ? 16 : 0;
+    const headerExtra =
+      (standingLine ? 16 : 0) + (noteBlock > 0 ? noteBlock + 10 : 0);
     const h = 56 + headerExtra + rows * 38 + 16;
     this.panel = {
       x: Math.floor((viewW - w) / 2),
@@ -125,6 +132,15 @@ export class DockedMenu {
     if (this.standingLine) {
       ctx.fillStyle = "rgba(190, 170, 140, 0.9)";
       ctx.fillText(this.standingLine, this.panel.x + 24, this.panel.y + 52);
+    }
+    if (this.serviceNote.length > 0) {
+      ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+      ctx.fillStyle = "rgba(232, 210, 140, 0.95)";
+      let noteY = this.panel.y + (this.standingLine ? 68 : 54);
+      for (const line of this.serviceNote) {
+        ctx.fillText(line, this.panel.x + 24, noteY);
+        noteY += 14;
+      }
     }
 
     for (const menu of MENU_ORDER) {

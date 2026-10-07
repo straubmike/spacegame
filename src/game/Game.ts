@@ -297,6 +297,11 @@ export class Game {
 
   /** Stations that have granted docking clearance this local visit. */
   private readonly dockClearance = new Set<number>();
+  /**
+   * TEMP(dock-service): receipt lines kept on the dock panel until launch.
+   * Strip with `applyTempDockServiceShortfall` and the comms TEMP line.
+   */
+  private dockServiceNote: readonly string[] = [];
   private local: LocalView;
   private pirates: Pirate[] = [];
   /** Local station patrols (host-station tied). */
@@ -480,6 +485,8 @@ export class Game {
     this.dockBlackMarket = null;
 
     this.ship.resetForNewRun();
+    this.applyTempDockServiceShortfall();
+    this.ship.stashActiveToFleet();
     this.shipMenu.selectedIndex = 0;
     this.shipMenu.openView();
     this.messages.clear();
@@ -724,6 +731,7 @@ export class Game {
 
   private clearDockState(): void {
     this.dock = { kind: "free" };
+    this.dockServiceNote = [];
     this.stationMenu.hide();
     this.dockedMenu.hide();
     this.pirateMenu.hide();
@@ -2490,6 +2498,7 @@ export class Game {
       rollStationMenus(key),
       this.missionBoardHint(),
       this.dockStandingLine(station),
+      this.dockServiceNote,
     );
   }
 
@@ -3247,15 +3256,40 @@ export class Game {
       : null;
     this.dockMissionOffers = this.buildDockMissionOffers(station);
     this.ensureMissionBoardReplenished(station);
+    this.dockServiceNote = [];
     this.showDockedUi(station);
     this.messages.push(`Docked at ${station.name}.`);
-    this.applyComplimentaryDockService(station);
+    // Denial (hail / approach) is unchanged. Service runs only when standing
+    // still allows dock at arrival: not Violation, not Hostile.
+    if (this.stationReputationAllowsDock(station)) {
+      this.applyComplimentaryDockService(station);
+    }
   }
 
-  /** Free hull repair, refuel, and ammo refill on every dock. */
+  /**
+   * TEMP(dock-service): new game starts short so the first allowed dock
+   * prints a non-zero refill. Strip with the dock-panel TEMP lines.
+   * Does not change the charge (still 0 cr).
+   */
+  private applyTempDockServiceShortfall(): void {
+    const hullRoom = Math.max(0, this.ship.health - 1);
+    this.ship.health -= Math.min(4, hullRoom);
+    this.ship.fuel = Math.max(0, this.ship.fuel - Math.min(3, this.ship.fuel));
+    for (const slot of this.ship.loadout.slots) {
+      const equipped = slot.equipped;
+      if (!equipped || equipped.kind !== "weapon" || equipped.ammoMax === null) {
+        continue;
+      }
+      this.ship.loadout.consumeSlotAmmo(slot.id, 40);
+      break;
+    }
+  }
+
+  /** Free hull repair, refuel, and ammo refill when standing allows dock. */
   private applyComplimentaryDockService(station: Landmark): void {
     const result = this.ship.applyComplimentaryDockService();
-    if (result.healed > 0 && result.refueled) {
+    const refueled = result.fuelAdded > 0;
+    if (result.healed > 0 && refueled) {
       this.messages.push(
         `${station.name}: Complimentary repair, refuel, and ammo — hull, tanks, and magazines topped free of charge.`,
         "station",
@@ -3265,7 +3299,7 @@ export class Game {
         `${station.name}: Complimentary repair and ammo — hull restored and magazines topped free of charge.`,
         "station",
       );
-    } else if (result.refueled) {
+    } else if (refueled) {
       this.messages.push(
         `${station.name}: Complimentary refuel and ammo — tanks and magazines topped free of charge.`,
         "station",
@@ -3276,6 +3310,25 @@ export class Game {
         "station",
       );
     }
+    const hull = this.formatServiceAmount(result.healed);
+    const fuel = this.formatServiceAmount(result.fuelAdded);
+    const ammo = this.formatServiceAmount(result.ammoAdded);
+    this.messages.push(
+      `TEMP(dock-service): Hull +${hull}, fuel +${fuel}, ammo +${ammo}. Repair ${result.repairCredits} cr, refuel ${result.refuelCredits} cr, ammo ${result.ammoCredits} cr.`,
+      "station",
+    );
+    this.dockServiceNote = [
+      "TEMP(dock-service)",
+      `Hull +${hull}, fuel +${fuel}, ammo +${ammo}`,
+      `Repair ${result.repairCredits} cr, refuel ${result.refuelCredits} cr, ammo ${result.ammoCredits} cr`,
+    ];
+    this.showDockedUi(station);
+  }
+
+  private formatServiceAmount(n: number): string {
+    if (!Number.isFinite(n) || n <= 0) return "0";
+    const rounded = Math.round(n * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   }
 
   private updateDockedMenu(): void {
@@ -3322,6 +3375,7 @@ export class Game {
     this.dockBlackMarket = null;
     this.marketMenuKind = "legal";
     this.dockMissionOffers = [];
+    this.dockServiceNote = [];
     this.dock = { kind: "free" };
     // Nudge clear of the station so the ship isn't buried in the hub
     const angle = this.ship.heading;
