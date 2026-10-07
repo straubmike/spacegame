@@ -441,8 +441,8 @@ export const FUEL = {
    * Negative → higher pirate chance, larger packs, harder tiers.
    * See `distressOdds.ts` for the piecewise lerp.
    */
-  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline). */
-  distressPirateChanceNeutral: 0.55,
+  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline): 50% pirates. */
+  distressPirateChanceNeutral: 0.5,
   /** Pirate roll at Fuel Rat Hostile floor (≤ REPUTATION.hostileAtOrBelow). */
   distressPirateChanceHostile: 0.95,
   /**
@@ -746,13 +746,15 @@ export const REPUTATION = {
   stealCargo: -22,
   cancelMissionMild: -5,
   ejectStolenCargo: -8,
-  repairGoodwill: 3,
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
-  /** Fuel Rat faction deltas */
+  /**
+   * Fuel Rat faction deltas.
+   * A refuel does not change standing. Abuse and a completed
+   * answer-distress contract do.
+   */
   fuelRatAbuse: -10,
-  fuelRatGenuineRescue: 5,
   fuelRatMissionComplete: 12,
   /**
    * Cartographers — small standing per newly visited POI redeemed on dock.
@@ -788,17 +790,30 @@ export const REPUTATION = {
    * Kidnap −3 on the abandon only. The fare's station takes the steal floor
    * (`stealCargo` / `unfriendlyFloor`), not this nick, and not −5.
    * Flat per incident, not per CU or per passenger.
+   * A completed regular station board contract is +3: haul, passenger,
+   * scan, derelict retrieval, pirate clearance, and any other non-rebel
+   * board kind that already pays the station. Black-market jobs, rebel
+   * contracts, and cancels do not. Flat per completed contract.
    */
   imperialStealCargo: -3,
   imperialKidnap: -3,
+  imperialBoardContract: 3,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
+  /**
+   * Merchants Guild marketplace favor, same fractions as the bay discounts.
+   * Friendly: 8% in the player's favor on buy and on sell.
+   * Allied: 15%. Below Friendly the factors stay 1 — prices are not worsened.
+   */
+  merchantTariffFriendly: 0.08,
+  merchantTariffAllied: 0.15,
   /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
   /**
-   * Standing forced on a positive illegal-cargo scan (Violation band).
+   * Least-bad score a positive illegal-cargo scan may leave (Violation band).
+   * The scan writes min(current, this) and does not raise a lower score.
    * Settle / timeout still follow the normal Violation ladder.
    */
   scanViolationStanding: -45,

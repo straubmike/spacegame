@@ -363,13 +363,25 @@ export class Ship {
   }
 
   /**
-   * Free station courtesy on dock — restore core, plating, and shields, top off
-   * the tank, and refill every weapon magazine. Ammo refills even when the
-   * hull and tank are already full. A repair also clears shield-break downtime.
+   * Station courtesy on an allowed dock — restore core, plating, and shields,
+   * top off the tank, and refill every weapon magazine. Ammo refills even when
+   * the hull and tank are already full. A repair also clears shield-break downtime.
+   *
+   * Credits stay put. Repair, refuel, and ammo are free today: nothing in the
+   * game charges for them. `ECONOMY.repairCostPerHp` and `ECONOMY.refuelCost`
+   * are unused legacy constants and are not applied here.
    */
-  applyComplimentaryDockService(): { healed: number; refueled: boolean } {
+  applyComplimentaryDockService(): {
+    healed: number;
+    fuelAdded: number;
+    ammoAdded: number;
+    repairCredits: number;
+    refuelCredits: number;
+    ammoCredits: number;
+  } {
     const healed = this.missingHealth;
-    const refueled = this.missingFuel > 0;
+    const fuelAdded = this.missingFuel;
+    const ammoAdded = this.loadout.roundsShort();
     this.loadout.refillConsumables();
     if (healed > 0 || this.shieldBreakRemaining > 0) {
       this.health = this.maxHull;
@@ -378,10 +390,17 @@ export class Ship {
       this.shieldBreakRemaining = 0;
       this.timeSinceDamage = Number.POSITIVE_INFINITY;
     }
-    if (refueled) {
+    if (fuelAdded > 0) {
       this.fuel = this.maxFuel;
     }
-    return { healed, refueled };
+    return {
+      healed,
+      fuelAdded,
+      ammoAdded,
+      repairCredits: 0,
+      refuelCredits: 0,
+      ammoCredits: 0,
+    };
   }
 
   spendCredits(amount: number): boolean {
