@@ -1,10 +1,11 @@
 import { COMBAT, DOCK, ECONOMY, ENCOUNTERS, FUEL, GALAXY, HEAT, JUMP, LOCAL, PATROL, QUEST, REPUTATION, SCOOP, WEAPONS } from "./config";
 import { Loop } from "./Loop";
-import { hash2 } from "../galaxy/rng";
+import { hash2, mulberry32 } from "../galaxy/rng";
 import { Galaxy } from "../galaxy/Galaxy";
 import { generateLocalView } from "../galaxy/generateLocal";
 import { markDerelictMissionDebris, rockYieldLabel } from "../galaxy/beltRocks";
 import {
+  heatPirateEncounter,
   heatPirateFits,
   listSystemPirateKeys,
   listSystemStations,
@@ -68,7 +69,6 @@ import {
   patrolFitForStation,
   pirateFitById,
   pirateRecipeFits,
-  rollDistressDifficulty,
   rollPassengerDifficulty,
 } from "../ship/npcLoadout";
 import {
@@ -81,10 +81,7 @@ import {
   nearestStationRefuel,
   supercruiseFuelCost,
 } from "../ship/fuel";
-import {
-  distressPiratePlan,
-  rollDistressWantsPirates,
-} from "../ship/distressOdds";
+import { rollDistressWantsPirates } from "../ship/distressOdds";
 import type { HostKind, Landmark, LocalView } from "../galaxy/types";
 import { Keyboard } from "../input/Keyboard";
 import { Pointer } from "../input/Pointer";
@@ -172,6 +169,19 @@ type DockState =
  * Ships never open their own hail — the pack is the unit.
  */
 type PackPhase = "idle" | "comms" | "paid" | "hostile";
+
+/** Same sentence the local pack uses when it opens a toll window. */
+function pirateTollDemand(fee: number, shipCount: number): string {
+  return shipCount > 1
+    ? `Pirate pack demands ${fee} credits for safe passage — you have one minute.`
+    : `Pirate: Pay ${fee} credits for safe passage — you have one minute.`;
+}
+
+/**
+ * TEMP: pinned heat roll so a distress still shows one toll sentence.
+ * Spawn uses this instead of Math.random while the shot hook is in.
+ */
+const DISTRESS_TOLL_SHOT_SEED = 0x7e11;
 
 interface PackEncounter {
   phase: PackPhase;
@@ -318,6 +328,8 @@ export class Game {
   private distressAnsweredWhileAble = 0;
   /** Shared fee/combat event for the current local pirate group (null = none). */
   private pack: PackEncounter | null = null;
+  /** Which pack the open fee menu will pay. */
+  private pirateMenuFor: "pack" | "distress" | null = null;
   /** Distress-spawned pirates (separate from seeded pack). */
   private distressPirates: Pirate[] = [];
   private distressPack: PackEncounter | null = null;
@@ -800,6 +812,19 @@ export class Game {
     return this.pack?.phase === "comms" && !this.pack.noFeeAggro;
   }
 
+  private distressAcceptingPayment(): boolean {
+    return (
+      this.distressPack?.phase === "comms" &&
+      this.distressPirates.some((p) => p.alive)
+    );
+  }
+
+  private pirateFeeMenuAccepting(): boolean {
+    if (this.pirateMenuFor === "distress") return this.distressAcceptingPayment();
+    if (this.pirateMenuFor === "pack") return this.packAcceptingPayment();
+    return false;
+  }
+
   /**
    * Drive the single shared fee/combat event for the local pirate group.
    * Returns true the frame the pack first opens its hail.
@@ -951,6 +976,40 @@ export class Game {
       this.pack.shipCount > 1
         ? `Pirate pack: Tribute received (${fee} cr). Safe passage granted.`
         : `Pirate: Tribute received (${fee} cr). Safe passage granted.`,
+      "pirate",
+    );
+  }
+
+  /**
+   * Distress toll uses the same credits and pirate standing as a local pack.
+   * Paying warps this pack out. Fuel Rat arrival is the existing wipe path.
+   */
+  private payDistressTribute(): void {
+    const pack = this.distressPack;
+    if (!pack || pack.phase !== "comms") return;
+    const fee = pack.fee;
+    if (!this.ship.spendCredits(fee)) {
+      this.messages.push(
+        `Pirate: Not enough credits. Need ${fee} cr.`,
+        "pirate",
+      );
+      return;
+    }
+    pack.phase = "paid";
+    pack.timer = 0;
+    this.pirateMenu.hide();
+    this.pirateMenuFor = null;
+    for (const pirate of this.distressPirates) {
+      if (pirate.alive) pirate.warpedAway = true;
+    }
+    const next = this.reputation.adjust(
+      PIRATE_FACTION_ID,
+      REPUTATION.pirateFeePaid,
+    );
+    this.pushRepChange("Pirates", next, REPUTATION.pirateFeePaid);
+    const who = pack.shipCount > 1 ? "Pirate pack" : "Pirate";
+    this.messages.push(
+      `${who}: Tribute received (${fee} cr). Warping out — Fuel Rats inbound.`,
       "pirate",
     );
   }
@@ -2734,11 +2793,9 @@ export class Game {
       this.updateDistress(dt);
     }
 
-    if (
-      this.pirateMenu.open &&
-      !this.packAcceptingPayment()
-    ) {
+    if (this.pirateMenu.open && !this.pirateFeeMenuAccepting()) {
       this.pirateMenu.hide();
+      this.pirateMenuFor = null;
     }
 
     const pose = this.ship.sample(1);
@@ -2762,12 +2819,33 @@ export class Game {
 
     // Fee window only: click a pirate hull to open the shared pack pay UI.
     // Must not early-return when the pack is idle — that ate station clicks.
+    if (this.distressAcceptingPayment() && this.distressPack) {
+      for (const pirate of this.distressPirates) {
+        if (!pirate.alive) continue;
+        const hitR = pirate.radius + DOCK.clickPad;
+        const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
+        if (dist <= hitR) {
+          this.pirateMenuFor = "distress";
+          this.pirateMenu.show(
+            this.distressPack.fee,
+            this.distressPack.shipCount > 1,
+            this.pointer.x,
+            this.pointer.y,
+            viewW,
+            viewH,
+          );
+          return;
+        }
+      }
+    }
+
     if (this.packAcceptingPayment() && this.pack) {
       for (const pirate of this.pirates) {
         if (!pirate.alive) continue;
         const hitR = pirate.radius + DOCK.clickPad;
         const dist = Math.hypot(world.x - pirate.x, world.y - pirate.y);
         if (dist <= hitR) {
+          this.pirateMenuFor = "pack";
           this.pirateMenu.show(
             this.pack.fee,
             this.pack.shipCount > 1,
@@ -2820,8 +2898,18 @@ export class Game {
       return;
     }
     if (action !== "pay") return;
+    if (this.pirateMenuFor === "distress") {
+      if (!this.distressAcceptingPayment()) {
+        this.pirateMenu.hide();
+        this.pirateMenuFor = null;
+        return;
+      }
+      this.payDistressTribute();
+      return;
+    }
     if (!this.packAcceptingPayment()) {
       this.pirateMenu.hide();
+      this.pirateMenuFor = null;
       return;
     }
     this.payPackTribute();
@@ -3638,8 +3726,8 @@ export class Game {
   }
 
   /**
-   * 45s from distress-pirate arrival. Menus do not pause it. If that pack
-   * is already gone, the timer was cleared and this does not spawn.
+   * 45s from distress pirates turning hostile. Menus do not pause it.
+   * If that pack is already gone, the timer was cleared and this does not spawn.
    */
   private tickDistressImperial(dt: number): void {
     if (this.distressImperialTimer === null || this.distressImperialTimer <= 0) {
@@ -3662,16 +3750,7 @@ export class Game {
           if (p.alive) p.setPeaceful();
         }
         if (this.distressPack.timer <= 0) {
-          this.distressPack.phase = "hostile";
-          for (const p of this.distressPirates) {
-            if (p.alive) p.goAggro();
-          }
-          this.messages.push(
-            this.distressPack.shipCount > 1
-              ? "Pirate pack: Enough talk — weapons free!"
-              : "Pirate: Enough talk — die!",
-            "pirate",
-          );
+          this.aggroDistressPirates("timeout");
         }
       }
     }
@@ -4235,17 +4314,7 @@ export class Game {
         plating,
       );
       if (target.kind === "pack" && this.pack) this.makePackHostile();
-      if (
-        target.kind === "distress" &&
-        this.distressPack &&
-        this.distressPack.phase === "comms"
-      ) {
-        this.distressPack.phase = "hostile";
-        this.distressPack.timer = 0;
-        for (const ship of this.distressPirates) {
-          if (ship.alive) ship.goAggro();
-        }
-      }
+      if (target.kind === "distress") this.aggroDistressPirates("fire");
       if (
         target.kind === "bait" &&
         this.baitPack &&
@@ -4584,12 +4653,10 @@ export class Game {
     const pirateShots: Projectile[] = [];
     const justDemanded = this.updatePackEncounter(dt);
     if (justDemanded && this.pack) {
-      const fee = this.pack.fee;
-      const label =
-        this.pack.shipCount > 1
-          ? `Pirate pack demands ${fee} credits for safe passage — you have one minute.`
-          : `Pirate: Pay ${fee} credits for safe passage — you have one minute.`;
-      this.messages.push(label, "pirate");
+      this.messages.push(
+        pirateTollDemand(this.pack.fee, this.pack.shipCount),
+        "pirate",
+      );
     }
 
     const imperialPatrols = [...this.patrols, ...this.distressRelief];
@@ -4758,17 +4825,7 @@ export class Game {
           const impact = this.shotImpact(p, pirate);
           if (!impact) continue;
           pirate.takeDamage(impact.amount, impact.shieldMultiplier, retaliate);
-          if (
-            fromPlayer &&
-            this.distressPack &&
-            this.distressPack.phase === "comms"
-          ) {
-            this.distressPack.phase = "hostile";
-            this.distressPack.timer = 0;
-            for (const d of this.distressPirates) {
-              if (d.alive) d.goAggro();
-            }
-          }
+          if (fromPlayer) this.aggroDistressPirates("fire");
           hit = true;
           break;
         }
@@ -5526,11 +5583,14 @@ export class Game {
       return;
     }
     if (reach.canReach) this.distressAnsweredWhileAble += 1;
-    const wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
+    let wantPirates = rollDistressWantsPirates(this.reputation.fuelRatsRep());
     const span =
       FUEL.distressResponseDelayMax - FUEL.distressResponseDelayMin;
-    const delay =
-      FUEL.distressResponseDelayMin + Math.random() * span;
+    let delay = FUEL.distressResponseDelayMin + Math.random() * span;
+    // TEMP: next distress call is pirates, already in the toll window.
+    // A still can show the demand and TEMP: 60s without the 50% roll or the wait.
+    wantPirates = true;
+    delay = 0;
     this.distressPending = true;
     this.distressInbound = {
       kind: wantPirates ? "pirates" : "rat",
@@ -5545,11 +5605,13 @@ export class Game {
   }
 
   private spawnDistressPirates(): void {
-    const plan = distressPiratePlan(this.reputation.fuelRatsRep());
-    const difficulty = rollDistressDifficulty(plan.tierWeights, Math.random);
-    const fits = pirateRecipeFits(difficulty, Math.random);
+    let rng: () => number = Math.random;
+    // TEMP: pin the heat roll so the toll sentence does not change between stills.
+    rng = mulberry32(DISTRESS_TOLL_SHOT_SEED);
+    const encounter = heatPirateEncounter(this.galaxy, this.local.poiId, rng);
+    const fits = encounter.fits;
     const n = fits.length;
-    const fee = plan.fee;
+    const fee = encounter.fee;
     const angle0 = Math.random() * Math.PI * 2;
     this.distressPirates = [];
     for (let i = 0; i < n; i += 1) {
@@ -5563,25 +5625,49 @@ export class Game {
           this.ship.y + Math.sin(ang) * dist,
           ang + Math.PI,
           fits[i]!,
-          difficulty,
+          encounter.difficulty,
           fee,
         ),
       );
     }
+    for (const pirate of this.distressPirates) pirate.setPeaceful();
     this.distressPack = {
       phase: "comms",
       fee,
-      timer: FUEL.distressTauntSeconds,
+      timer: COMBAT.pirateCommsTimeout,
       demanded: true,
       shipCount: n,
     };
-    this.messages.push(
-      n > 1
-        ? `Pirate pack: Easy pickings — ${n} ships on your beacon.`
-        : "Pirate: Heard your whimper. Stay put.",
-      "pirate",
-    );
+    this.messages.push(pirateTollDemand(fee, n), "pirate");
+  }
+
+  /**
+   * Toll window expired unpaid, or the player fired during it.
+   * Imperial relief starts here — not when the pack merely arrives.
+   */
+  private aggroDistressPirates(reason: "timeout" | "fire"): void {
+    const pack = this.distressPack;
+    if (!pack || pack.phase !== "comms") return;
+    if (!this.distressPirates.some((p) => p.alive)) return;
+    pack.phase = "hostile";
+    pack.demanded = true;
+    pack.timer = 0;
+    if (this.pirateMenuFor === "distress") {
+      this.pirateMenu.hide();
+      this.pirateMenuFor = null;
+    }
+    for (const pirate of this.distressPirates) {
+      if (pirate.alive) pirate.goAggro();
+    }
     this.armDistressImperial();
+    if (reason === "timeout") {
+      this.messages.push(
+        pack.shipCount > 1
+          ? "Pirate pack: Enough talk — weapons free!"
+          : "Pirate: Enough talk — die!",
+        "pirate",
+      );
+    }
   }
 
   /**
@@ -5627,6 +5713,15 @@ export class Game {
       "Imperial patrol: Distress pirates still live — engaging.",
       "station",
     );
+  }
+
+  /** TEMP: remaining toll seconds, beside the demand, for a still. */
+  private distressTollShotLine(): string | null {
+    const pack = this.distressPack;
+    if (!pack || pack.phase !== "comms") return null;
+    if (!this.distressPirates.some((p) => p.alive)) return null;
+    const secs = Math.max(0, Math.ceil(pack.timer));
+    return `TEMP: ${secs}s`;
   }
 
   private spawnFuelRat(): void {
@@ -5842,6 +5937,7 @@ export class Game {
       this.camera.follow(pose.x, pose.y);
     }
 
+    this.messages.liveLine = this.distressTollShotLine();
     this.renderer.draw({
       ship: this.ship,
       camera: this.camera,

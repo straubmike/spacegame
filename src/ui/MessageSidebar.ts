@@ -21,12 +21,18 @@ export class MessageSidebar {
   private hoverActive = false;
   /** Hit target — always the fixed panel rect, even when hidden. */
   private hitArea: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  /**
+   * TEMP toll countdown. Drawn with comms and kept out of history
+   * so a still can show the live seconds next to the demand.
+   */
+  liveLine: string | null = null;
 
   clear(): void {
     this.lines.length = 0;
     this.scroll = 0;
     this.maxScroll = 0;
     this.hoverActive = false;
+    this.liveLine = null;
   }
 
   push(text: string, tone: CommsTone = "neutral"): void {
@@ -77,12 +83,12 @@ export class MessageSidebar {
     };
     this.hitArea = panel;
 
-    if (this.lines.length === 0) return;
+    if (this.lines.length === 0 && !this.liveLine) return;
 
     const hovering = hit(panel, pointerX, pointerY);
     const hasFresh = this.lines.some((l) => l.age < DOCK.messageTtl);
     // Live view only while something is still fading in; hover always shows history.
-    if (!hovering && !hasFresh) {
+    if (!hovering && !hasFresh && !this.liveLine) {
       this.hoverActive = false;
       return;
     }
@@ -110,6 +116,13 @@ export class MessageSidebar {
         wrapped: wrapText(ctx, line.text, textW),
         alpha,
         tone: line.tone,
+      });
+    }
+    if (this.liveLine) {
+      blocks.push({
+        wrapped: wrapText(ctx, this.liveLine, textW),
+        alpha: 1,
+        tone: "pirate",
       });
     }
     if (blocks.length === 0) {
