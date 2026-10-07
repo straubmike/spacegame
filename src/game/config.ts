@@ -441,8 +441,8 @@ export const FUEL = {
    * Negative → higher pirate chance, larger packs, harder tiers.
    * See `distressOdds.ts` for the piecewise lerp.
    */
-  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline). */
-  distressPirateChanceNeutral: 0.55,
+  /** Pirate roll at Fuel Rat standing 0 (Neutral baseline): 50% pirates. */
+  distressPirateChanceNeutral: 0.5,
   /** Pirate roll at Fuel Rat Hostile floor (≤ REPUTATION.hostileAtOrBelow). */
   distressPirateChanceHostile: 0.95,
   /**
@@ -750,9 +750,12 @@ export const REPUTATION = {
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
-  /** Fuel Rat faction deltas */
+  /**
+   * Fuel Rat faction deltas.
+   * A refuel does not change standing. Abuse and a completed
+   * answer-distress contract do.
+   */
   fuelRatAbuse: -10,
-  fuelRatGenuineRescue: 5,
   fuelRatMissionComplete: 12,
   /**
    * Cartographers — small standing per newly visited POI redeemed on dock.
