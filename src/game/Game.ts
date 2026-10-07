@@ -3749,7 +3749,6 @@ export class Game {
         );
         const needed = Math.max(target.fuelNeeded, supercruiseFuelCost());
         this.ship.ensureFuelAtLeast(needed);
-        this.adjustFuelRatRep(REPUTATION.fuelRatGenuineRescue);
         this.messages.push(
           `Fuel Rat: Topped you to ${Math.floor(this.ship.fuel)} fuel. ${target.detail}`,
           "fuelRat",
