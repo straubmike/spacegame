@@ -2,8 +2,9 @@
  * Session reputation — stations + Imperial / pirate / Fuel Rats / Rebels / guild factions.
  *
  * Station ladder includes Violation between Unfriendly and Hostile.
- * Merchants Guild + Cartographers stand from faction-tagged generic missions;
- * merchants tariff multiplier remains a stub (1.0).
+ * Merchants Guild + Cartographers stand from faction-tagged generic missions.
+ * Guild Friendly / Allied favor cheapens buys and raises sells; lower standing
+ * leaves marketplace prices unchanged.
  *
  * L-menu visibility:
  * - Imperial + Pirates + Fuel Rats + Merchants Guild + Cartographers: always shown (even at 0)
@@ -414,11 +415,45 @@ export class ReputationTracker {
 }
 
 /**
- * Merchants-guild tariff stub — always 1.0 until market tariffs exist.
+ * Buy and sell price factors for Merchants Guild standing.
+ * Replaces `merchantTariffMultiplier`: one multiplier cannot cheapen a buy
+ * and raise a sell at the same time. Neutral, and every band below Friendly,
+ * stays 1 so low standing does not worsen prices.
+ * Friendly (≥ 20): buy 0.92, sell 1.08. Allied (≥ 50): buy 0.85, sell 1.15.
  */
-export function merchantTariffMultiplier(_standing = 0): number {
-  void _standing;
-  return 1;
+export interface MerchantTariffFactors {
+  /** Multiply the price the player pays. */
+  buy: number;
+  /** Multiply the price the player receives. */
+  sell: number;
+}
+
+export function merchantTariffFactors(standing = 0): MerchantTariffFactors {
+  const band = pirateStandingBand(standing);
+  if (band === "allied") {
+    const favor = REPUTATION.merchantTariffAllied;
+    return { buy: 1 - favor, sell: 1 + favor };
+  }
+  if (band === "friendly") {
+    const favor = REPUTATION.merchantTariffFriendly;
+    return { buy: 1 - favor, sell: 1 + favor };
+  }
+  return { buy: 1, sell: 1 };
+}
+
+/**
+ * Credits per CU after guild favor.
+ * Buys floor and sells ceil so a fractional credit stays in the player's favor.
+ */
+export function applyMerchantTariff(
+  price: number,
+  factor: number,
+  side: "buy" | "sell",
+): number {
+  if (price <= 0 || factor === 1) return Math.max(0, price);
+  const scaled = price * factor;
+  const credits = side === "sell" ? Math.ceil(scaled) : Math.floor(scaled);
+  return Math.max(1, credits);
 }
 
 /** Apply a bay discount to an already-computed net swap cost. */
