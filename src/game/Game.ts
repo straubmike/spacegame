@@ -302,12 +302,6 @@ export class Game {
   /** Local station patrols (host-station tied). */
   private patrols: StationPatrol[] = [];
   /**
-   * TEMP(scan-during-violation): true only while a new game enters the
-   * arrival view, so that view still gets a patrol when the seed rolled
-   * none. Strip with seedTempViolationStanding and the raised scan chance.
-   */
-  private tempForceArrivalPatrol = false;
-  /**
    * Imperial Bulwark + Hauler for this local view. One pair. They stay until
    * the player leaves, shoot any pirate in hunt range, and do not break a
    * paid truce.
@@ -499,15 +493,7 @@ export class Game {
       this.ship.jumpRange(),
     );
     this.claimedCartographerVisits.add(GALAXY.startPoiId);
-    // TEMP(scan-during-violation): arrival station starts at Violation with
-    // a patrol in scan range. Strip with seedTempViolationStanding.
-    this.tempForceArrivalPatrol = true;
-    try {
-      this.enterLocal();
-    } finally {
-      this.tempForceArrivalPatrol = false;
-    }
-    this.seedTempViolationStanding();
+    this.enterLocal();
     const pose = this.ship.sample(1);
     this.camera.follow(pose.x, pose.y);
     this.sessionFresh = true;
@@ -722,52 +708,6 @@ export class Game {
           station.y,
           fit,
         ),
-      );
-    }
-    // TEMP(scan-during-violation): seed rolled no patrol. Place one at the
-    // first arrival station so a new game is already inside scan range.
-    // Strip with seedTempViolationStanding and the raised scan chance.
-    if (this.tempForceArrivalPatrol && this.patrols.length === 0) {
-      const station = this.stations()[0];
-      const key = station ? this.currentStationKey(station) : null;
-      if (station && key) {
-        const angle =
-          ((hash2(GALAXY.seed ^ 0xc0ff, hashStationKey(key)) % 360) *
-            Math.PI) /
-          180;
-        const dist = PATROL.spawnDistance;
-        const fit = patrolFitForStation(
-          hash2(GALAXY.seed ^ 0x57a1, hashStationKey(key)),
-        );
-        this.patrols.push(
-          new StationPatrol(
-            station.x + Math.cos(angle) * dist,
-            station.y + Math.sin(angle) * dist,
-            angle + Math.PI,
-            station.id,
-            station.name,
-            key,
-            station.x,
-            station.y,
-            fit,
-          ),
-        );
-      }
-    }
-  }
-
-  /**
-   * TEMP(scan-during-violation): a new game sets each arrival patrol's
-   * station to Violation (−45) so the one-minute warning and the
-   * scan-started comms line can share the panel. Strip with the forced
-   * patrol and the raised scan chance.
-   */
-  private seedTempViolationStanding(): void {
-    for (const patrol of this.patrols) {
-      this.reputation.setStanding(
-        patrol.stationKey,
-        REPUTATION.scanViolationStanding,
-        patrol.stationName,
       );
     }
   }

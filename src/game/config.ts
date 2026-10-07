@@ -848,11 +848,8 @@ export const PATROL = {
    * Per-second chance to open scan comms while the player is in range.
    * Unfriendly, Neutral, Friendly, Allied, and Violation can scan.
    * Hostile does not.
-   * TEMP(scan-during-violation): 8 (was 0.045) so a new game shows the
-   * scan-started line beside the Violation warning within about a second.
-   * Strip back to 0.045 before merge.
    */
-  scanChancePerSecond: 8,
+  scanChancePerSecond: 0.045,
   /** Seconds until the scan completes once started. */
   scanSeconds: 30,
   /** Chance an eject of illegal cargo mid-scan is noticed. */
