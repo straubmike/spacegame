@@ -51,6 +51,7 @@ export type PatrolUpdateResult = {
 /**
  * Station-affiliated patrol hull.
  * Idle + random wander; hunts pirates; player law: ignore / warn / aggro.
+ * Violation (warn) still scans. Hostile (aggro) is the only always-attack band.
  * Player fire marks defending → return fire (hostile shots).
  */
 export class StationPatrol {
@@ -223,6 +224,7 @@ export class StationPatrol {
     const playerInScanRange = distPlayer <= PATROL.scanRange;
 
     // Defending or Hostile standing → fight the player.
+    // Hostile is the only band that always attacks on sight.
     if (this.defending || law === "aggro") {
       if (this.scanTimer > 0) this.abortScan();
       if (this.stance !== "aggroPlayer") {
@@ -233,46 +235,31 @@ export class StationPatrol {
       return result;
     }
 
-    // Violation: warning window then aggro. No new scans while warning.
+    // Violation: warning window, then aggro. A scan may run during the
+    // window. Starting one does not cancel or reset the warning.
     if (law === "warn") {
-      if (this.scanTimer > 0) this.abortScan();
       if (playerInRange) {
         if (!this.warningArmed) {
           this.warningArmed = true;
           this.warningTimer = PATROL.warningSeconds;
-          this.stance = "warn";
-          this.wanderTarget = null;
+          if (this.scanTimer <= 0) {
+            this.stance = "warn";
+            this.wanderTarget = null;
+          }
           result.justWarned = true;
         }
         if (this.warningTimer > 0) {
           this.warningTimer = Math.max(0, this.warningTimer - dt);
           if (this.warningTimer <= 0) {
+            if (this.scanTimer > 0) this.abortScan();
             this.stance = "aggroPlayer";
             result.justAggroed = true;
             this.chaseAndFire(dt, playerX, playerY, PLAYER_LOCK_ID, outShots, true);
             return result;
           }
-          // During warning: still hunt pirates; soft-face the player.
-          const pirate = this.nearestPirate(pirates);
-          if (pirate) {
-            this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
-          } else {
-            this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
-            this.applyDrag(dt);
-            this.integrate(dt);
-          }
-          return result;
         }
-      } else if (this.warningArmed && this.warningTimer > 0) {
-        // Left range during window — pause countdown but keep armed.
-        const pirate = this.nearestPirate(pirates);
-        if (pirate) {
-          this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
-        } else {
-          this.idleOrWander(dt);
-        }
-        return result;
       }
+      // Out of hunt range: leave warningTimer alone (pause) and stay armed.
     } else {
       // Standing improved — clear warning state.
       this.warningArmed = false;
@@ -303,10 +290,11 @@ export class StationPatrol {
       // Fall through after completion so idle/hunt resumes this frame.
     }
 
-    // Opportunistic scan while Neutral / Unfriendly / Friendly / Allied (ignore law).
-    // Hostile/warn handled above. Slightly elevated chance for playtest visibility.
+    // Opportunistic scan at every standing except Hostile: Unfriendly,
+    // Neutral, Friendly, Allied (ignore) and Violation (warn). Hostile
+    // already returned above and does not start a scan.
     if (
-      law === "ignore" &&
+      (law === "ignore" || law === "warn") &&
       this.scanCooldown <= 0 &&
       playerInScanRange &&
       Math.random() < PATROL.scanChancePerSecond * dt
@@ -318,6 +306,22 @@ export class StationPatrol {
       this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
       this.applyDrag(dt);
       this.integrate(dt);
+      return result;
+    }
+
+    // Violation window still open and no scan in progress: same movement
+    // as before (hunt pirates, face the player, pause when they leave).
+    if (law === "warn" && this.warningArmed && this.warningTimer > 0) {
+      const pirate = this.nearestPirate(pirates);
+      if (pirate) {
+        this.chaseAndFire(dt, pirate.x, pirate.y, pirate.id, outShots, false);
+      } else if (playerInRange) {
+        this.turnToward(Math.atan2(playerY - this.y, playerX - this.x), dt);
+        this.applyDrag(dt);
+        this.integrate(dt);
+      } else {
+        this.idleOrWander(dt);
+      }
       return result;
     }
 
