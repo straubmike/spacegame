@@ -746,7 +746,6 @@ export const REPUTATION = {
   stealCargo: -22,
   cancelMissionMild: -5,
   ejectStolenCargo: -8,
-  repairGoodwill: 3,
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
