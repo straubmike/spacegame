@@ -1464,10 +1464,9 @@ export class Game {
         if (mission.destStationKey !== here) continue;
         this.ship.addCredits(mission.reward);
         delivered.push(mission);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.destStationKey!,
           mission.destStationName ?? station.name,
-          REPUTATION.missionComplete,
         );
         const n = mission.passengers ?? 0;
         this.messages.push(
@@ -1493,10 +1492,9 @@ export class Game {
       this.ship.fleet.removeCargo(lotId, need);
       this.ship.addCredits(mission.reward);
       delivered.push(mission);
-      this.adjustStationRep(
+      this.payStationBoardContract(
         mission.destStationKey!,
         mission.destStationName ?? station.name,
-        REPUTATION.missionComplete,
       );
       this.adjustMerchantsRep(REPUTATION.merchantsHaulComplete);
       if (onActive < need) {
@@ -1745,10 +1743,9 @@ export class Game {
         );
       } else {
         this.ship.addCredits(mission.reward);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.originStationKey,
           mission.originStationName,
-          REPUTATION.missionComplete,
         );
         this.adjustCartographersRep(REPUTATION.cartographersScanComplete);
         this.messages.push(
@@ -1789,10 +1786,9 @@ export class Game {
         );
       } else {
         this.ship.addCredits(mission.reward);
-        this.adjustStationRep(
+        this.payStationBoardContract(
           mission.originStationKey,
           mission.originStationName,
-          REPUTATION.missionComplete,
         );
         this.messages.push(
           `${station.name}: Derelict cargo recovered — ${mission.title} (+${mission.reward} cr).`,
@@ -1824,10 +1820,9 @@ export class Game {
       this.ship.addCredits(mission.reward);
       this.activeMissions.splice(idx, 1);
       this.claimedClearanceSystems.add(mission.originPoiId);
-      this.adjustStationRep(
+      this.payStationBoardContract(
         mission.originStationKey,
         mission.originStationName,
-        REPUTATION.missionComplete,
       );
       this.messages.push(
         `${station.name}: System clearance confirmed (+${mission.reward} cr).`,
@@ -2164,6 +2159,23 @@ export class Game {
   ): void {
     const next = this.reputation.adjust(stationKeyStr, delta, stationLabel);
     this.pushRepChange(stationLabel, next, delta);
+  }
+
+  /**
+   * Station payout for a completed regular board contract, plus the
+   * Imperial echo. Rebel jobs and black-market contracts do not call this.
+   * Cancels do not call this.
+   */
+  private payStationBoardContract(
+    stationKeyStr: string,
+    stationLabel: string,
+  ): void {
+    this.adjustStationRep(
+      stationKeyStr,
+      stationLabel,
+      REPUTATION.missionComplete,
+    );
+    this.adjustImperialRep(REPUTATION.imperialBoardContract);
   }
 
   private pushRepChange(label: string, next: number, delta: number): void {

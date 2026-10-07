@@ -787,9 +787,14 @@ export const REPUTATION = {
    * Kidnap −3 on the abandon only. The fare's station takes the steal floor
    * (`stealCargo` / `unfriendlyFloor`), not this nick, and not −5.
    * Flat per incident, not per CU or per passenger.
+   * A completed regular station board contract is +3: haul, passenger,
+   * scan, derelict retrieval, pirate clearance, and any other non-rebel
+   * board kind that already pays the station. Black-market jobs, rebel
+   * contracts, and cancels do not. Flat per completed contract.
    */
   imperialStealCargo: -3,
   imperialKidnap: -3,
+  imperialBoardContract: 3,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
