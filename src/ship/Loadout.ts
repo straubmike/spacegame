@@ -108,6 +108,24 @@ export class ShipLoadout {
     );
   }
 
+  /**
+   * Finite rounds below magazine size. Unlimited weapons add nothing.
+   * Read this before `refillConsumables` to see how many rounds a top-up adds.
+   */
+  roundsShort(): number {
+    let short = 0;
+    for (const slot of this.slots) {
+      const equipped = slot.equipped;
+      if (equipped?.kind !== "weapon") continue;
+      const magazine = this.magazineSize(equipped);
+      if (magazine === null) continue;
+      const cur = this.ammo.get(slot.id);
+      const have = cur !== undefined && Number.isFinite(cur) ? cur : 0;
+      short += Math.max(0, magazine - have);
+    }
+    return short;
+  }
+
   /** Restore ammo / warp pools from equipped module caps. */
   refillConsumables(): void {
     this.ammo.clear();

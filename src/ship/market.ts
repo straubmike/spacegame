@@ -6,6 +6,7 @@ import {
   type MarketContext,
   type PriceReason,
 } from "./economy";
+import { applyMerchantTariff, merchantTariffFactors } from "./reputation";
 import { hashStationKey } from "./stationKey";
 
 /** Catalog of trade goods — volume is always 1 CU per unit quantity. */
@@ -326,6 +327,31 @@ export function createStationMarket(
 
   listings.sort((a, b) => a.name.localeCompare(b.name));
   return new StationMarket(listings);
+}
+
+/**
+ * Legal-market prices after Merchants Guild favor.
+ * Below Friendly the book is returned unchanged.
+ */
+export function withMerchantGuildPrices(
+  market: StationMarket,
+  standing: number,
+): StationMarket {
+  const { buy, sell } = merchantTariffFactors(standing);
+  if (buy === 1 && sell === 1) return market;
+  return new StationMarket(
+    market.listings.map((listing) => ({
+      ...listing,
+      playerBuyPrice:
+        listing.playerBuyPrice == null
+          ? null
+          : applyMerchantTariff(listing.playerBuyPrice, buy, "buy"),
+      playerSellPrice:
+        listing.playerSellPrice == null
+          ? null
+          : applyMerchantTariff(listing.playerSellPrice, sell, "sell"),
+    })),
+  );
 }
 
 /**

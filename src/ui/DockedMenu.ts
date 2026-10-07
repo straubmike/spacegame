@@ -31,8 +31,8 @@ const MENU_ORDER: readonly ServiceMenu[] = [
 /**
  * Shown while the player is docked at a station.
  * Missions are always available; Bay / Hangar / Market / Black Market come
- * from the station's rolled optional set. Repair & refuel are complimentary
- * on dock (no button) — see Game.applyComplimentaryDockService.
+ * from the station's rolled optional set. Repair, refuel, and ammo run on
+ * dock (no button) — see Game.applyComplimentaryDockService.
  */
 export class DockedMenu {
   open = false;
