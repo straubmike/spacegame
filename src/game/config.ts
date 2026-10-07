@@ -706,7 +706,6 @@ export const REPUTATION = {
   stealCargo: -22,
   cancelMissionMild: -5,
   ejectStolenCargo: -8,
-  repairGoodwill: 3,
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
@@ -751,17 +750,38 @@ export const REPUTATION = {
    * Kidnap −3 on the abandon only. The fare's station takes the steal floor
    * (`stealCargo` / `unfriendlyFloor`), not this nick, and not −5.
    * Flat per incident, not per CU or per passenger.
+   * A completed regular station board contract is +3: haul, passenger,
+   * scan, derelict retrieval, pirate clearance, and any other non-rebel
+   * board kind that already pays the station. Black-market jobs, rebel
+   * contracts, and cancels do not. Flat per completed contract.
    */
   imperialStealCargo: -3,
   imperialKidnap: -3,
+  imperialBoardContract: 3,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
+  /**
+   * Merchants Guild marketplace favor, same fractions as the bay discounts.
+   * Friendly: 8% in the player's favor on buy and on sell.
+   * Allied: 15%. Below Friendly the factors stay 1 — prices are not worsened.
+   */
+  merchantTariffFriendly: 0.08,
+  merchantTariffAllied: 0.15,
+  /**
+   * Hangar ship-purchase discount fractions by Imperial standing
+   * (`pirateStandingBand`, no Violation band). Match the bay rates:
+   * `bayDiscountFriendly` 0.08 and `bayDiscountAllied` 0.15.
+   * Unfriendly, Neutral, and Hostile pay full price.
+   */
+  hangarDiscountFriendly: 0.08,
+  hangarDiscountAllied: 0.15,
   /** Patrol fine: max(min, abs(standing) * perPoint). */
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
   /**
-   * Standing forced on a positive illegal-cargo scan (Violation band).
+   * Least-bad score a positive illegal-cargo scan may leave (Violation band).
+   * The scan writes min(current, this) and does not raise a lower score.
    * Settle / timeout still follow the normal Violation ladder.
    */
   scanViolationStanding: -45,
@@ -802,11 +822,16 @@ export const PATROL = {
   warningSeconds: 60,
   /**
    * Illegal-cargo scan (Must-have 11).
-   * Chance is intentionally a bit high so a playtest session can see a scan.
+   * Runs at Unfriendly, Neutral, Friendly, Allied, and Violation.
+   * Hostile does not start a scan.
    */
   /** World range to start / continue an opportunistic scan. */
   scanRange: 520,
-  /** Per-second chance to open scan comms while player is in range (Neutral+). */
+  /**
+   * Per-second chance to open scan comms while the player is in range.
+   * Unfriendly, Neutral, Friendly, Allied, and Violation can scan.
+   * Hostile does not.
+   */
   scanChancePerSecond: 0.045,
   /** Seconds until the scan completes once started. */
   scanSeconds: 30,
