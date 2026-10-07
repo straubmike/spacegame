@@ -798,7 +798,8 @@ export const REPUTATION = {
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
   /**
-   * Standing forced on a positive illegal-cargo scan (Violation band).
+   * Least-bad score a positive illegal-cargo scan may leave (Violation band).
+   * The scan writes min(current, this) and does not raise a lower score.
    * Settle / timeout still follow the normal Violation ladder.
    */
   scanViolationStanding: -45,

@@ -284,7 +284,7 @@ export class ReputationTracker {
     return next;
   }
 
-  /** Absolute set (fines, attack-patrol / Violation-timeout → Hostile). */
+  /** Absolute write of a chosen score. Fines still pass a fixed target. */
   setStanding(target: string, value: number, label?: string): number {
     if (label && !isFactionReputationId(target)) {
       this.stationLabels.set(target, label);
@@ -332,9 +332,12 @@ export class ReputationTracker {
   /**
    * Mark station Hostile (unredeemable).
    * Same outcome for attacking a patrol or letting a Violation window expire.
+   * Writes min(current, hostile floor) so a worse score is not raised.
    */
   markHostile(stationKey: string, label?: string): number {
-    return this.setStanding(stationKey, REPUTATION.hostileAtOrBelow, label);
+    const current = this.stationStanding(stationKey);
+    const target = REPUTATION.hostileAtOrBelow;
+    return this.setStanding(stationKey, Math.min(current, target), label);
   }
 
   /**
