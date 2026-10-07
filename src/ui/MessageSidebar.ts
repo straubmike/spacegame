@@ -21,12 +21,20 @@ export class MessageSidebar {
   private hoverActive = false;
   /** Hit target — always the fixed panel rect, even when hidden. */
   private hitArea: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  /** While set, a matching comms line stays fresh instead of fading. */
+  private heldText: string | null = null;
 
   clear(): void {
     this.lines.length = 0;
     this.scroll = 0;
     this.maxScroll = 0;
     this.hoverActive = false;
+    this.heldText = null;
+  }
+
+  /** Keep one existing line on screen. Pass null to let it age again. */
+  hold(text: string | null): void {
+    this.heldText = text;
   }
 
   push(text: string, tone: CommsTone = "neutral"): void {
@@ -40,6 +48,10 @@ export class MessageSidebar {
 
   update(dt: number): void {
     for (const line of this.lines) {
+      if (this.heldText && line.text === this.heldText) {
+        line.age = 0;
+        continue;
+      }
       line.age += dt;
     }
     // History is retained until messageMax FIFO; fade is visual only.

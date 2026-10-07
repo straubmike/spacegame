@@ -340,12 +340,6 @@ export const HEAT = {
 } as const;
 
 /**
- * Distress bands. Fuel Rat standing still lerps these four weights.
- * Spawn maps a rolled band onto an overlapping difficulty range.
- */
-export type PirateTierId = "scout" | "raider" | "gunship" | "corsair";
-
-/**
  * Encounter templates + heat bands.
  * Chart distance from the start POI drives early-readable vs late-hard fights.
  */
@@ -436,9 +430,9 @@ export const FUEL = {
   /** How close (beyond star radius) the scoop must be. */
   scoopRangePad: 28,
   /**
-   * L-menu distress: pirate vs Fuel Rat odds scale with Fuel Rats reputation.
+   * L-menu distress: pirate vs Fuel Rat chance scales with Fuel Rats reputation.
    * Allied (≥ REPUTATION.alliedAtOrAbove) → hard 0% pirates (always Fuel Rat).
-   * Negative → higher pirate chance, larger packs, harder tiers.
+   * The pack itself is a normal heat encounter (template, recipe, toll).
    * See `distressOdds.ts` for the piecewise lerp.
    */
   /** Pirate roll at Fuel Rat standing 0 (Neutral baseline): 50% pirates. */
@@ -450,44 +444,10 @@ export const FUEL = {
    * Allied band is always 0 — not a tunable.
    */
   distressPirateChanceFriendly: 0.2,
-  /** Pack size (inclusive) at Neutral / Hostile / Friendly Fuel Rat standing. */
-  distressPirateMinNeutral: 1,
-  distressPirateMaxNeutral: 3,
-  distressPirateMinHostile: 3,
-  distressPirateMaxHostile: 5,
-  distressPirateMinFriendly: 1,
-  distressPirateMaxFriendly: 2,
-  /** Pack tribute at Neutral / Hostile / Friendly. */
-  distressFeeNeutral: 12,
-  distressFeeHostile: 28,
-  distressFeeFriendly: 8,
   /**
-   * Relative tier weights at Neutral / Hostile / Friendly.
-   * Negative standing lerps Neutral→Hostile; positive lerps Neutral→Friendly.
-   */
-  distressTierWeightsNeutral: {
-    scout: 55,
-    raider: 45,
-    gunship: 0,
-    corsair: 0,
-  },
-  distressTierWeightsHostile: {
-    scout: 5,
-    raider: 25,
-    gunship: 40,
-    corsair: 30,
-  },
-  distressTierWeightsFriendly: {
-    scout: 80,
-    raider: 20,
-    gunship: 0,
-    corsair: 0,
-  },
-  /** Seconds of taunt before distress pirates aggro. */
-  distressTauntSeconds: 3.5,
-  /**
-   * After distress pirates arrive: if any of that pack is still present
+   * After distress pirates turn hostile: if any of that pack is still present
    * when this elapses, an Imperial Bulwark and Hauler move in on them.
+   * Armed when the toll window ends unpaid or the player fires — not on arrival.
    */
   distressImperialSeconds: 45,
   /**

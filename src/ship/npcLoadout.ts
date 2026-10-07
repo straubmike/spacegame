@@ -365,13 +365,6 @@ const HEAT_WEIGHTS: Record<string, readonly number[]> = {
   farWealthy: [0, 0, 0, 0, 22, 40, 38],
 };
 
-const DISTRESS_BAND_DIFFICULTY = {
-  scout: [1, 1, 2],
-  raider: [2, 3, 4],
-  gunship: [4, 5, 6],
-  corsair: [5, 6, 7],
-} as const;
-
 export function rollHeatDifficulty(
   band: "near" | "mid" | "far",
   wealthy: boolean,
@@ -380,19 +373,6 @@ export function rollHeatDifficulty(
   const key = wealthy && band !== "near" ? `${band}Wealthy` : band;
   const index = pickWeighted(HEAT_WEIGHTS[key]!, rng);
   return (index + 1) as PirateDifficulty;
-}
-
-export function rollDistressDifficulty(
-  weights: { scout: number; raider: number; gunship: number; corsair: number },
-  rng: () => number,
-): PirateDifficulty {
-  const bands = ["scout", "raider", "gunship", "corsair"] as const;
-  const bandIndex = pickWeighted(
-    bands.map((band) => Math.max(0, weights[band])),
-    rng,
-  );
-  const options = DISTRESS_BAND_DIFFICULTY[bands[bandIndex]!];
-  return options[Math.floor(rng() * options.length) % options.length]!;
 }
 
 export function rollPassengerDifficulty(

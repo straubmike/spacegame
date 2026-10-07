@@ -162,6 +162,36 @@ export function heatPirateFits(
   return { difficulty, fits: pirateRecipeFits(difficulty, rng, solo) };
 }
 
+export type HeatPirateEncounter = HeatPiratePack & {
+  template: EncounterTemplateId;
+  /** Group tribute from ENCOUNTERS.feeByTemplate for `template`. */
+  fee: number;
+};
+
+/**
+ * Template, difficulty recipe, and toll for a system's chart distance.
+ * Same ladder as a seeded arrival encounter, without the spawn-chance roll
+ * or the patrol nullification. Callers that already decided to spawn
+ * (a distress answer) share that grouping and fee table.
+ */
+export function heatPirateEncounter(
+  galaxy: Galaxy,
+  poiId: number,
+  rng: () => number,
+): HeatPirateEncounter {
+  const band = heatBandForPoi(galaxy, poiId);
+  const wealthy = isWealthySystem(galaxy, poiId) && band !== "near";
+  const template = pickTemplate(rng, band, wealthy);
+  const difficulty = rollHeatDifficulty(band, wealthy, rng);
+  const fits = pirateRecipeFits(difficulty, rng);
+  return {
+    template,
+    difficulty,
+    fits,
+    fee: ENCOUNTERS.feeByTemplate[template],
+  };
+}
+
 /**
  * Seeded pirate encounter for a local view — independent of landmark RNG
  * so presence can be queried without rebuilding the full scene.
@@ -183,18 +213,10 @@ export function pirateEncounterFor(
   // Patrol takes the local slot — rare delayed intrusions still possible in Game.
   if (localViewHasPatrol(galaxy, poiId, bodyId)) return null;
 
-  const wealthy = isWealthySystem(galaxy, poiId) && band !== "near";
-  const template = pickTemplate(rng, band, wealthy);
-  const difficulty = rollHeatDifficulty(band, wealthy, rng);
-  const ships = buildShips(
-    rng,
-    template,
-    difficulty,
-    pirateRecipeFits(difficulty, rng),
-  );
-  const fee = ENCOUNTERS.feeByTemplate[template];
+  const pack = heatPirateEncounter(galaxy, poiId, rng);
+  const ships = buildShips(rng, pack.template, pack.difficulty, pack.fits);
 
-  return { template, ships, fee };
+  return { template: pack.template, ships, fee: pack.fee };
 }
 
 /** @deprecated Use pirateEncounterFor — same encounter, renamed. */
