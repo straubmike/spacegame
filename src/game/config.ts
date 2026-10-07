@@ -746,7 +746,6 @@ export const REPUTATION = {
   stealCargo: -22,
   cancelMissionMild: -5,
   ejectStolenCargo: -8,
-  repairGoodwill: 3,
   /** Pirate faction deltas */
   pirateKill: -8,
   pirateFeePaid: 5,
@@ -788,9 +787,14 @@ export const REPUTATION = {
    * Kidnap −3 on the abandon only. The fare's station takes the steal floor
    * (`stealCargo` / `unfriendlyFloor`), not this nick, and not −5.
    * Flat per incident, not per CU or per passenger.
+   * A completed regular station board contract is +3: haul, passenger,
+   * scan, derelict retrieval, pirate clearance, and any other non-rebel
+   * board kind that already pays the station. Black-market jobs, rebel
+   * contracts, and cancels do not. Flat per completed contract.
    */
   imperialStealCargo: -3,
   imperialKidnap: -3,
+  imperialBoardContract: 3,
   /** Bay net-install discount fractions by station band. */
   bayDiscountFriendly: 0.08,
   bayDiscountAllied: 0.15,
@@ -805,7 +809,8 @@ export const REPUTATION = {
   patrolFineMin: 15,
   patrolFinePerPoint: 2,
   /**
-   * Standing forced on a positive illegal-cargo scan (Violation band).
+   * Least-bad score a positive illegal-cargo scan may leave (Violation band).
+   * The scan writes min(current, this) and does not raise a lower score.
    * Settle / timeout still follow the normal Violation ladder.
    */
   scanViolationStanding: -45,
